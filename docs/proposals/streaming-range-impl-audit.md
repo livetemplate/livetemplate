@@ -573,7 +573,7 @@ awk '/^## Memory & Performance/,/^## Reconnect/' docs/proposals/streaming-range-
 
 ### Phase 5 follow-ups
 
-- **`LargeTableController` example + `UpdateRandomRow` benchmark**: Phase 6 deliverable. Closes OQ2 once the multi-field volatile-field workload has measured wire cost.
+- **`LargeTableController` example + `UpdateRandomRow` benchmark**: Phase 6 deliverable. Closes OQ2 once the multi-field volatile-field workload has measured wire cost. (Resolved in Phase 6 below — final OQ2 decision recorded.)
 - **Cross-platform numbers**: §7 numbers were captured on linux/arm64 with Go 1.26. Absolute byte counts will vary across architectures and Go versions; ratios (legacy/stream) are expected to be more stable than absolutes but were not separately verified on amd64.
 
 ### Methodology deviation from §11 item 2
@@ -594,3 +594,87 @@ All six §15 gates close as recorded. Phase 1 (foundational types) is unblocked 
 - Client-repo audits beyond §6 (no other client touchpoints exist for this proposal).
 - Examples-repo readiness (Phase 6 deliverable — `LargeTableController` + `large-table.tmpl`).
 - The Phase 5 wire-cost ceiling for OQ2 (deferred until measurement data exists).
+
+---
+
+## Phase 6 audit checkpoint
+
+**Date**: 2026-05-02
+**Branches**:
+- `livetemplate#phase6/large-table-example` (this branch — library fix + spec update + audit checkpoint)
+- `lvt#phase6/record-ws-frames` (`testing.RecordWSFrames` helper)
+- `examples#phase6/large-table-example` (`LargeTableController` + template + e2e + benchmarks)
+- **Base commit**: `73cff639` (Phase 5 merge on `main`)
+
+### Files touched (this repo)
+
+| File | Change |
+|---|---|
+| `internal/diff/transition.go` | `TransitionToStreamMode` now recurses through `Dynamics` children. Pre-fix the function only walked the root + direct-child `Dynamics`, so a homogeneous range nested under `{{if}}` or `{{with}}` silently fell back to the legacy per-item path on every subsequent render. The recursion preserves the spec §5a "nested ranges in items stay legacy" contract because the walk never enters `Range.Items`. |
+| `internal/diff/transition_test.go` | New test `TestTransitionToStreamMode_RangeWrappedInConditionalFires` — pins the fix at unit level. Existing `TestTransitionToStreamMode_NestedRangesNotTransitioned` already covers the negative side (nested-range-in-item still legacy) and continues to pass with the recursion in place. |
+| `streaming_range_phase3_test.go` | New integration test `TestStreamMode_FiresOnConditionalWrappedRange` parses an actual template `<ul>{{if gt (len .Todos) 0}}{{range .Todos}}<li data-key="{{.ID}}">{{.Text}}</li>{{end}}{{end}}</ul>`, renders twice, and asserts the second render emits `["u","1",…]` (stream-mode op) and does NOT contain `"d":[` (legacy items shape). New `homoTodoConditionalTemplate` constant added next to `homoTodoTemplate`. |
+| `docs/proposals/streaming-range-rendering-proposal.md` | §5a paragraph rewritten — "top-level ranges only" replaced with "any homogeneous range reachable through the static tree (Dynamics children including conditional and `with` branches); only ranges nested as items inside another range stay legacy." Adds explicit Phase 6 example as the regression source. |
+| `docs/proposals/streaming-range-impl-audit.md` | This Phase 6 checkpoint. |
+
+### Files touched (sibling repos)
+
+| Repo | File | Change |
+|---|---|---|
+| `lvt` | `testing/websocket.go` | New `RecordWSFrames(ctx) *WSMessageLogger` — thin wrapper around `NewWSMessageLogger` + `Start(ctx)` so per-test setup is one line; bounded-WS-size assertions across suites share a single canonical entrypoint per proposal §379. |
+| `examples` | `patterns/data.go` | New `LargeRow` type, `largeTableDefaultSize = 10000`, `largeTableSeed(n)` — deterministic 10k-row dataset (no `rand`) so per-item hashes are stable across renders. Index entry added to `allPatterns` under "Lists & Data". |
+| `examples` | `patterns/state_lists.go` | New `LargeTableState` (Items, Filter, SortKey, SortDir, Total, NextID). |
+| `examples` | `patterns/handlers_lists.go` | New `LargeTableController` with six action methods: `Mount`, `Change` (filter), `Sort`, `AppendN`, `UpdateRandomRow`, `Delete`, `Reset`. Reads `LARGE_TABLE_SIZE` env var so the e2e test runs at N=200 (CI-friendly) while the demo defaults to 10k. |
+| `examples` | `patterns/templates/lists/large-table.tmpl` | Pico CSS table; range at root (NOT wrapped in `{{if}}`) with sibling empty-state — idiomatic shape that exercises stream mode end-to-end. |
+| `examples` | `patterns/main.go` | Route `/patterns/lists/large-table` registered. |
+| `examples` | `patterns/patterns_test.go` | `TestLargeTable` with 10 subtests covering every controller action and two bounded-WS-size assertions (no-sort + sort-active scenarios). |
+| `examples` | `patterns/large_table_bench_test.go` | New `BenchmarkLargeTable_UpdateRandomRow_WireBytes` and `BenchmarkLargeTable_FullTreeBaseline_WireBytes` at N ∈ {200, 1000, 10000}. The two answer OQ2 in combination — see numbers below. |
+| `examples` | `CLAUDE.md` | "Manual Testing on Mobile (iPhone via Tailscale)" section (carry-over from earlier session). |
+
+### Open Question 2 — final closure
+
+OQ2 from §386: "Volatile-field workloads — do we ship a future targeted-field op (`["uf", key, fieldIdx, value]`) or is the whole-item update wire cost low enough that `permessage-deflate` suffices?"
+
+`BenchmarkLargeTable_UpdateRandomRow_WireBytes` (single-field change on a 5-field row, no sort active, no reorder) and `BenchmarkLargeTable_FullTreeBaseline_WireBytes` (full-tree render at the same N) measured on linux/arm64, Go 1.26:
+
+| N | Stream-mode update | Full-tree baseline | Ratio (stream / full-tree) |
+|---|---|---|---|
+| 200 | 127.8 B | 98,750 B | 0.13% |
+| 1,000 | 127.8 B | 482,658 B | 0.026% |
+| 10,000 | **127.8 B** | **4,801,670 B** | **0.0027%** |
+
+The whole-item update wire cost is **constant at 127.8 B regardless of N** — the streaming-range diff retains this property by design (per-item hash lookup, single ["u"] op output). The user-approved OQ2 ceiling was **30% of full-tree size**; the measured ratio at N=10k is **0.0027%**, four orders of magnitude under.
+
+**Decision**: the targeted-field op `["uf", key, fieldIdx, value]` is **not** justified at any measured scale. Whole-item update at ~128 B is well below any reasonable wire-cost ceiling. OQ2 closed; no follow-up issue filed.
+
+### Bounded-WS-size assertion (e2e, proposal §379)
+
+`TestLargeTable/Update_Random_Row_Bounded_WS_Frame` (N=200, no sort, no filter) measured **199 B** on the wire (CDP-captured frame body) versus the legacy fallback's 30,467 B observed during fix iteration — a **125× reduction** at the test-tier scale. With sort active the same op produces 3,208 B (199 B update + ~3,000 B reorder op carrying 250 keys), bounded by `Update_With_Sort_Active_Bounded_WS_Frame` at a 5KB ceiling.
+
+### Library fix discovered via the demo
+
+The Phase 6 examples PR initially shipped a template wrapping the range in `{{if gt (len .Items) 0}}…{{end}}`. The bounded-WS-size e2e flagged a 30 KB frame instead of the expected ~200 B — stream mode never activated because `TransitionToStreamMode` only walked depth ≤ 1 of `Dynamics`. The fix in `internal/diff/transition.go` (recursive walk through `Dynamics`, never into `Range.Items`) preserves the spec §5a nested-range-in-item contract while removing the silent fallback for any other static-tree wrapping. The example template was kept in its sibling-empty-state shape (the cleaner idiom either way), but **the library now does the right thing for both shapes** so users don't need to know about the constraint.
+
+### Verification commands
+
+```bash
+# This repo
+GOWORK=off go test -run "TestTransitionToStreamMode|TestStreamMode_FiresOnConditionalWrappedRange" -v ./internal/diff/ ./
+GOWORK=off go test ./...
+GOWORK=off go test -race -count=1 ./internal/diff/...
+
+# lvt repo
+cd ../../../lvt/.worktrees/streaming-range-phase6 && GOWORK=off go build ./testing/... && GOWORK=off go test ./testing/
+
+# examples repo
+cd ../../../examples/.worktrees/streaming-range-phase6 && GOWORK=off go test -run "TestLargeTable" -v ./patterns/
+GOWORK=off go test -bench "BenchmarkLargeTable" -benchtime=10x -run=^$ ./patterns/
+```
+
+### What Phase 6 closes
+
+- §314 Phase 6 deliverable: `LargeTableController` + `large-table.tmpl` + 10k-row seed shipped in `examples/patterns/`.
+- §379 `e2etest.RecordWSFrames(ctx)` helper added to `lvt/testing/websocket.go`.
+- §346 `LargeTableController.UpdateRandomRow` benchmark output captured (above table).
+- §348 audit checkpoint requirement: demo runs at 10k rows with subjectively acceptable interaction latency (manual iPhone Tailscale test pending user signoff per project memory `feedback_iphone_manual_testing.md`).
+- OQ2 closed with concrete data — see "Final closure" above.
+- Bonus: silent-fallback bug discovered and fixed in the library so users don't trip on it.

@@ -23,6 +23,12 @@ type homoTodoState struct {
 
 const homoTodoTemplate = `<ul>{{range .Todos}}<li data-key="{{.ID}}">{{.Text}}</li>{{end}}</ul>`
 
+// homoTodoConditionalTemplate wraps the range in `{{if}}` so its TreeNode is
+// nested under a conditional branch instead of sitting at the root. The
+// streaming-range Phase 6 fix made TransitionToStreamMode recurse so this
+// pattern still activates stream mode; the test below pins the contract.
+const homoTodoConditionalTemplate = `<ul>{{if gt (len .Todos) 0}}{{range .Todos}}<li data-key="{{.ID}}">{{.Text}}</li>{{end}}{{end}}</ul>`
+
 // renderTwice renders twice and returns the second render's JSON.
 func renderTwice(t *testing.T, tmpl *Template, s1, s2 interface{}) string {
 	t.Helper()
@@ -35,6 +41,39 @@ func renderTwice(t *testing.T, tmpl *Template, s1, s2 interface{}) string {
 		t.Fatalf("second render: %v", err)
 	}
 	return buf.String()
+}
+
+// TestStreamMode_FiresOnConditionalWrappedRange — Phase 6 regression gate.
+// A range wrapped in `{{if}}` must still transition to stream mode on the
+// second render. Pre-fix, TransitionToStreamMode walked only the root and
+// direct-child Dynamics; the wrapped range sat at depth 2 and was silently
+// skipped, so every subsequent render emitted a full `"d"` array (the legacy
+// per-item shape), 2-3 orders of magnitude larger than the stream-mode op.
+func TestStreamMode_FiresOnConditionalWrappedRange(t *testing.T) {
+	tmpl := Must(New("stream-fires-conditional"))
+	if _, err := tmpl.Parse(homoTodoConditionalTemplate); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	s1 := homoTodoState{Todos: []homoTodo{
+		{ID: "1", Text: "first"},
+		{ID: "2", Text: "second"},
+	}}
+	s2 := homoTodoState{Todos: []homoTodo{
+		{ID: "1", Text: "FIRST"},
+		{ID: "2", Text: "second"},
+	}}
+
+	out := renderTwice(t, tmpl, s1, s2)
+
+	if !strings.Contains(out, `["u","1",`) {
+		t.Fatalf("expected stream-mode [\"u\", \"1\", ...] op for wrapped range; got: %s", out)
+	}
+	// `"d":[` would mean the range came back as a full items array — the
+	// Phase 1 / het-fallback shape this fix was specifically removing for
+	// conditional-wrapped homogeneous ranges.
+	if strings.Contains(out, `"d":[`) {
+		t.Errorf("conditional-wrapped homogeneous range fell back to legacy full-items shape; got: %s", out)
+	}
 }
 
 // TestStreamMode_FiresOnSecondRender — after a homogeneous first render, the second render must route through stream mode.

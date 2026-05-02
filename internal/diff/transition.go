@@ -5,10 +5,20 @@ import (
 	"github.com/livetemplate/livetemplate/internal/keys"
 )
 
-// TransitionToStreamMode replaces Range.Items with a RangeStreamState snapshot
-// for top-level homogeneous ranges (the root tree's Range and any direct-child
-// Range in Dynamics — depth ≤ 1 per spec §5a). Caller must hold the lock that
-// protects tree.
+// TransitionToStreamMode replaces Range.Items with a RangeStreamState
+// snapshot for every homogeneous range reachable through the static tree
+// (root, plus any range inside a TreeNode reachable via Dynamics —
+// including conditional and with branches). Caller must hold the lock
+// that protects tree.
+//
+// The walk descends through Dynamics children but never enters a Range's
+// Items: a range nested as items inside another range stays on the legacy
+// per-item path (spec §5a "nested ranges always take legacy serialization"),
+// because the inner range has no retained lastTree slot of its own. So the
+// recursion preserves that wire-format invariant while fixing the silent
+// fallback that occurred when a homogeneous range was wrapped in {{if}}
+// or {{with}} — the conditional branch is a TreeNode in Dynamics, and
+// without recursion the wrapped range never reached the homogeneity check.
 //
 // Uses CalculateStaticsFingerprint (not GetStructureFingerprint) for the
 // homogeneity check — the latter over-captures scalar position-presence,
@@ -22,10 +32,10 @@ func TransitionToStreamMode(tree *build.TreeNode) {
 	}
 	for _, value := range tree.Dynamics {
 		node, ok := value.(*build.TreeNode)
-		if !ok || !node.HasRange() {
+		if !ok {
 			continue
 		}
-		transitionRangeIfHomogeneous(node.Range)
+		TransitionToStreamMode(node)
 	}
 }
 
