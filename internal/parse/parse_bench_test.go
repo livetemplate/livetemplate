@@ -96,7 +96,7 @@ func BenchmarkBuildTree(b *testing.B) {
 			b.ResetTimer()
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				_, err := BuildTree(tmpl, tt.data, newMockKeyGen(), ctx)
+				_, err := BuildTree(tmpl, tt.data, ctx)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -136,7 +136,7 @@ func BenchmarkBuildTreeScale(b *testing.B) {
 			b.ResetTimer()
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				_, err := BuildTree(tmpl, data, newMockKeyGen(), ctx)
+				_, err := BuildTree(tmpl, data, ctx)
 				if err != nil {
 					b.Fatal(err)
 				}

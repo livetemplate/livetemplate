@@ -93,7 +93,7 @@ func lvtRender(t *testing.T, tmplStr string, data interface{}, funcMap template.
 		t.Fatalf("livetemplate parse failed: %v", err)
 	}
 	ctx := &Context{IncludeStatics: true, FuncMap: funcMap}
-	tree, err := BuildTree(tmpl, data, newMockKeyGen(), ctx)
+	tree, err := BuildTree(tmpl, data, ctx)
 	if err != nil {
 		t.Fatalf("livetemplate BuildTree failed: %v", err)
 	}
@@ -423,7 +423,7 @@ func TestStdlibParity_RangeVarWithDotField(t *testing.T) {
 				t.Fatalf("parse failed: %v", err)
 			}
 			ctx := &Context{IncludeStatics: true}
-			tree, err := BuildTree(tmpl, tt.data, newMockKeyGen(), ctx)
+			tree, err := BuildTree(tmpl, tt.data, ctx)
 			if err != nil {
 				t.Fatalf("BuildTree failed: %v", err)
 			}
@@ -587,7 +587,7 @@ func TestStdlibParity_NestedIfInsideRange(t *testing.T) {
 				t.Fatalf("parse failed: %v", err)
 			}
 			ctx := &Context{IncludeStatics: true}
-			tree, err := BuildTree(tmpl, tt.data, newMockKeyGen(), ctx)
+			tree, err := BuildTree(tmpl, tt.data, ctx)
 			if err != nil {
 				t.Fatalf("BuildTree failed: %v", err)
 			}

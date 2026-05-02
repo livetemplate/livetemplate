@@ -18,7 +18,7 @@ func TestHandleIf_TrueBranch(t *testing.T) {
 	ctx := &Context{IncludeStatics: true}
 	eval := newEvaluator(ctx.FuncMap)
 
-	tree, err := handleIf(ifNode, eval, data, nil, newMockKeyGen(), ctx)
+	tree, err := handleIf(ifNode, eval, data, nil, ctx)
 	if err != nil {
 		t.Fatalf("handleIf failed: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestHandleIf_FalseBranch(t *testing.T) {
 	ctx := &Context{IncludeStatics: true}
 	eval := newEvaluator(ctx.FuncMap)
 
-	tree, err := handleIf(ifNode, eval, data, nil, newMockKeyGen(), ctx)
+	tree, err := handleIf(ifNode, eval, data, nil, ctx)
 	if err != nil {
 		t.Fatalf("handleIf failed: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestHandleIf_WithElse(t *testing.T) {
 
 	// Test true branch
 	data := map[string]interface{}{"Show": true}
-	tree, err := handleIf(ifNode, eval, data, nil, newMockKeyGen(), ctx)
+	tree, err := handleIf(ifNode, eval, data, nil, ctx)
 	if err != nil {
 		t.Fatalf("handleIf failed: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestHandleIf_WithElse(t *testing.T) {
 
 	// Test false branch (else)
 	data = map[string]interface{}{"Show": false}
-	tree, err = handleIf(ifNode, eval, data, nil, newMockKeyGen(), ctx)
+	tree, err = handleIf(ifNode, eval, data, nil, ctx)
 	if err != nil {
 		t.Fatalf("handleIf failed on else: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestHandleIf_NoElse(t *testing.T) {
 	ctx := &Context{IncludeStatics: true}
 	eval := newEvaluator(ctx.FuncMap)
 
-	tree, err := handleIf(ifNode, eval, data, nil, newMockKeyGen(), ctx)
+	tree, err := handleIf(ifNode, eval, data, nil, ctx)
 	if err != nil {
 		t.Fatalf("handleIf failed: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestHandleIf_NestedIf(t *testing.T) {
 	ctx := &Context{IncludeStatics: true}
 	eval := newEvaluator(ctx.FuncMap)
 
-	tree, err := handleIf(ifNode, eval, data, nil, newMockKeyGen(), ctx)
+	tree, err := handleIf(ifNode, eval, data, nil, ctx)
 	if err != nil {
 		t.Fatalf("handleIf failed: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestHandleIf_ComplexCondition(t *testing.T) {
 	ctx := &Context{IncludeStatics: true}
 	eval := newEvaluator(ctx.FuncMap)
 
-	tree, err := handleIf(ifNode, eval, data, nil, newMockKeyGen(), ctx)
+	tree, err := handleIf(ifNode, eval, data, nil, ctx)
 	if err != nil {
 		t.Fatalf("handleIf failed: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestHandleIf_WithVarCtx_NoVars(t *testing.T) {
 	ctx := &Context{IncludeStatics: true}
 	eval := newEvaluator(ctx.FuncMap)
 
-	tree, err := handleIf(ifNode, eval, data, varCtx, newMockKeyGen(), ctx)
+	tree, err := handleIf(ifNode, eval, data, varCtx, ctx)
 	if err != nil {
 		t.Fatalf("handleIf failed: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestHandleIf_WithVarCtx_WithVars(t *testing.T) {
 	ctx := &Context{IncludeStatics: true}
 	eval := newEvaluator(ctx.FuncMap)
 
-	tree, err := handleIf(ifNode, eval, data, varCtx, newMockKeyGen(), ctx)
+	tree, err := handleIf(ifNode, eval, data, varCtx, ctx)
 	if err != nil {
 		t.Fatalf("handleIf failed: %v", err)
 	}
@@ -246,7 +246,7 @@ func TestHandleIf_WithVarCtx_RootVar(t *testing.T) {
 	ctx := &Context{IncludeStatics: true}
 	eval := newEvaluator(ctx.FuncMap)
 
-	tree, err := handleIf(ifNode, eval, data, varCtx, newMockKeyGen(), ctx)
+	tree, err := handleIf(ifNode, eval, data, varCtx, ctx)
 	if err != nil {
 		t.Fatalf("handleIf failed: %v", err)
 	}
@@ -273,7 +273,7 @@ func TestHandleIf_ElseIf(t *testing.T) {
 
 	// Test first condition true
 	data := map[string]interface{}{"A": true, "B": false}
-	tree, err := handleIf(ifNode, eval, data, nil, newMockKeyGen(), ctx)
+	tree, err := handleIf(ifNode, eval, data, nil, ctx)
 	if err != nil {
 		t.Fatalf("handleIf failed on first branch: %v", err)
 	}
@@ -283,7 +283,7 @@ func TestHandleIf_ElseIf(t *testing.T) {
 
 	// Test second condition true
 	data = map[string]interface{}{"A": false, "B": true}
-	tree, err = handleIf(ifNode, eval, data, nil, newMockKeyGen(), ctx)
+	tree, err = handleIf(ifNode, eval, data, nil, ctx)
 	if err != nil {
 		t.Fatalf("handleIf failed on second branch: %v", err)
 	}
@@ -293,7 +293,7 @@ func TestHandleIf_ElseIf(t *testing.T) {
 
 	// Test else branch
 	data = map[string]interface{}{"A": false, "B": false}
-	tree, err = handleIf(ifNode, eval, data, nil, newMockKeyGen(), ctx)
+	tree, err = handleIf(ifNode, eval, data, nil, ctx)
 	if err != nil {
 		t.Fatalf("handleIf failed on else branch: %v", err)
 	}
@@ -322,7 +322,7 @@ func TestHandleIf_WithVarCtx_ComplexNesting(t *testing.T) {
 	ctx := &Context{IncludeStatics: true}
 	eval := newEvaluator(ctx.FuncMap)
 
-	tree, err := handleIf(ifNode, eval, data, varCtx, newMockKeyGen(), ctx)
+	tree, err := handleIf(ifNode, eval, data, varCtx, ctx)
 	if err != nil {
 		t.Fatalf("handleIf failed: %v", err)
 	}
@@ -356,7 +356,7 @@ func TestHandleIf_WithVarCtx_SingleCharVariable(t *testing.T) {
 	ctx := &Context{IncludeStatics: true}
 	eval := newEvaluator(ctx.FuncMap)
 
-	tree, err := handleIf(ifNode, eval, data, varCtx, newMockKeyGen(), ctx)
+	tree, err := handleIf(ifNode, eval, data, varCtx, ctx)
 	if err != nil {
 		t.Fatalf("handleIf failed for single-char var: %v", err)
 	}

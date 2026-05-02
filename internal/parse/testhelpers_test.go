@@ -1,25 +1,10 @@
 package parse
 
 import (
-	"fmt"
 	"html/template"
 	"testing"
 	"text/template/parse"
 )
-
-// mockKeyGenerator is a simple sequential key generator for tests.
-type mockKeyGenerator struct {
-	counter int
-}
-
-func newMockKeyGen() *mockKeyGenerator {
-	return &mockKeyGenerator{}
-}
-
-func (m *mockKeyGenerator) Next() string {
-	m.counter++
-	return fmt.Sprintf("key-%d", m.counter)
-}
 
 // parseActionNode parses a template string and extracts the first ActionNode.
 func parseActionNode(t *testing.T, tmplStr string, funcs template.FuncMap) *parse.ActionNode {

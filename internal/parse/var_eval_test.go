@@ -45,7 +45,7 @@ func TestVarEval_SimpleVarAccess(t *testing.T) {
 			}
 
 			ctx := build.NewContext()
-			tree, err := BuildTree(tmpl, tt.data, nil, ctx)
+			tree, err := BuildTree(tmpl, tt.data, ctx)
 			if err != nil {
 				t.Fatalf("BuildTree failed: %v", err)
 			}
@@ -98,7 +98,7 @@ func TestVarEval_PartialMatchPrevention(t *testing.T) {
 			}
 
 			ctx := build.NewContext()
-			tree, err := BuildTree(tmpl, tt.data, nil, ctx)
+			tree, err := BuildTree(tmpl, tt.data, ctx)
 			if err != nil {
 				t.Fatalf("BuildTree failed: %v", err)
 			}
@@ -128,7 +128,7 @@ func TestVarEval_RootVariable(t *testing.T) {
 	}
 
 	ctx := build.NewContext()
-	tree, err := BuildTree(tmpl, data, nil, ctx)
+	tree, err := BuildTree(tmpl, data, ctx)
 	if err != nil {
 		t.Fatalf("BuildTree failed: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestVarEval_MixedRootAndVars(t *testing.T) {
 	}
 
 	ctx := build.NewContext()
-	tree, err := BuildTree(tmpl, data, nil, ctx)
+	tree, err := BuildTree(tmpl, data, ctx)
 	if err != nil {
 		t.Fatalf("BuildTree failed: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestVarEval_DotContextMerging(t *testing.T) {
 		}
 
 		ctx := build.NewContext()
-		tree, err := BuildTree(tmpl, data, nil, ctx)
+		tree, err := BuildTree(tmpl, data, ctx)
 		if err != nil {
 			t.Fatalf("BuildTree failed: %v", err)
 		}
@@ -235,7 +235,7 @@ func TestVarEval_DotContextMerging(t *testing.T) {
 		}
 
 		ctx := build.NewContext()
-		tree, err := BuildTree(tmpl, data, nil, ctx)
+		tree, err := BuildTree(tmpl, data, ctx)
 		if err != nil {
 			t.Fatalf("BuildTree failed: %v", err)
 		}
@@ -261,7 +261,7 @@ func TestVarEval_NoVarsPlainDotField(t *testing.T) {
 	}
 
 	ctx := build.NewContext()
-	tree, err := BuildTree(tmpl, data, nil, ctx)
+	tree, err := BuildTree(tmpl, data, ctx)
 	if err != nil {
 		t.Fatalf("BuildTree failed: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestVarEval_ErrorPropagation(t *testing.T) {
 	}
 
 	ctx := build.NewContext()
-	tree, err := BuildTree(tmpl, data, nil, ctx)
+	tree, err := BuildTree(tmpl, data, ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -313,7 +313,7 @@ func TestVarEval_DotContextAccess(t *testing.T) {
 	}
 
 	ctx := build.NewContext()
-	tree, err := BuildTree(tmpl, data, nil, ctx)
+	tree, err := BuildTree(tmpl, data, ctx)
 	if err != nil {
 		t.Fatalf("BuildTree failed: %v", err)
 	}
@@ -414,7 +414,7 @@ func TestVarEval_HandleAction_MixedVarAndDot(t *testing.T) {
 	}
 
 	ctx := build.NewContext()
-	tree, err := BuildTree(tmpl, data, nil, ctx)
+	tree, err := BuildTree(tmpl, data, ctx)
 	if err != nil {
 		t.Fatalf("BuildTree failed: %v", err)
 	}

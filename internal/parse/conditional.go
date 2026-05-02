@@ -5,7 +5,7 @@ import (
 )
 
 // handleIf processes {{if}}...{{else}}...{{end}} constructs.
-func handleIf(node *parse.IfNode, eval *evaluator, data interface{}, varCtx *varContext, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
+func handleIf(node *parse.IfNode, eval *evaluator, data interface{}, varCtx *varContext, ctx *Context) (*TreeNode, error) {
 	d := dot(data, varCtx)
 	val, err := eval.evalPipe(node.Pipe, d, varCtx)
 	if err != nil {
@@ -21,7 +21,7 @@ func handleIf(node *parse.IfNode, eval *evaluator, data interface{}, varCtx *var
 		return createEmptyConditionalWrapper(ctx), nil
 	}
 
-	branchTree, err := walkAST(branch, eval, data, varCtx, keyGen, ctx)
+	branchTree, err := walkAST(branch, eval, data, varCtx, ctx)
 	if err != nil {
 		return nil, err
 	}

@@ -1439,7 +1439,7 @@ func TestFlattenTemplate_IntegrationWithTreeGeneration(t *testing.T) {
 		},
 	}
 
-	tree, err := compat.ParseTemplateToTree("test", flattened, data, compat.NewKeyGenerator())
+	tree, err := compat.ParseTemplateToTree("test", flattened, data)
 	if err != nil {
 		t.Fatalf("Failed to generate tree from flattened template: %v", err)
 	}
@@ -2262,7 +2262,7 @@ func TestTemplateGenerateInitialTreeFallsBackForBlockWithDynamicTemplate(t *test
 
 	ctx := build.NewContext()
 	ctx.FuncMap = tmpl.funcs
-	if _, err := compat.ParseTemplateToTree("test", dynamicTemplateStr, data, compat.NewKeyGenerator(), ctx); err == nil {
+	if _, err := compat.ParseTemplateToTree("test", dynamicTemplateStr, data, ctx); err == nil {
 		t.Fatalf("expected AST parser to error for block with dynamic template invocation")
 	}
 
@@ -2304,7 +2304,7 @@ func TestTemplateGenerateInitialTreeFallsBackForChannelRange(t *testing.T) {
 
 	ctx := build.NewContext()
 	ctx.FuncMap = tmpl.funcs
-	if _, err := compat.ParseTemplateToTree("test", `<ul>{{range .Events}}<li>{{.}}</li>{{end}}</ul>`, data, compat.NewKeyGenerator(), ctx); err == nil {
+	if _, err := compat.ParseTemplateToTree("test", `<ul>{{range .Events}}<li>{{.}}</li>{{end}}</ul>`, data, ctx); err == nil {
 		t.Fatalf("expected AST parser to error for channel range")
 	}
 
@@ -2346,7 +2346,7 @@ func TestTemplateGenerateInitialTreeFallsBackForChannelRangeWithDecls(t *testing
 
 	ctx := build.NewContext()
 	ctx.FuncMap = tmpl.funcs
-	if _, err := compat.ParseTemplateToTree("test", templateStr, data, compat.NewKeyGenerator(), ctx); err == nil {
+	if _, err := compat.ParseTemplateToTree("test", templateStr, data, ctx); err == nil {
 		t.Fatalf("expected AST parser to error for channel range with declarations")
 	}
 
@@ -2382,7 +2382,7 @@ func TestTemplateGenerateInitialTreeFallsBackForIntegerRange(t *testing.T) {
 
 	ctx := build.NewContext()
 	ctx.FuncMap = tmpl.funcs
-	if _, err := compat.ParseTemplateToTree("test", templateStr, nil, compat.NewKeyGenerator(), ctx); err == nil {
+	if _, err := compat.ParseTemplateToTree("test", templateStr, nil, ctx); err == nil {
 		t.Fatalf("expected AST parser to error for integer range")
 	}
 
@@ -2459,7 +2459,7 @@ func TestTemplateGenerateInitialTreeFallsBackForRangeBreak(t *testing.T) {
 
 	ctx := build.NewContext()
 	ctx.FuncMap = tmpl.funcs
-	if _, err := compat.ParseTemplateToTree("test", templateStr, data, compat.NewKeyGenerator(), ctx); err == nil {
+	if _, err := compat.ParseTemplateToTree("test", templateStr, data, ctx); err == nil {
 		t.Fatalf("expected AST parser to error for range with break")
 	}
 
@@ -2497,7 +2497,7 @@ func TestTemplateGenerateInitialTreeFallsBackForRangeContinue(t *testing.T) {
 
 	ctx := build.NewContext()
 	ctx.FuncMap = tmpl.funcs
-	if _, err := compat.ParseTemplateToTree("test", templateStr, data, compat.NewKeyGenerator(), ctx); err == nil {
+	if _, err := compat.ParseTemplateToTree("test", templateStr, data, ctx); err == nil {
 		t.Fatalf("expected AST parser to error for range with continue")
 	}
 
@@ -2546,7 +2546,7 @@ func TestTemplateGenerateInitialTreeFallsBackForDynamicTemplateInvocation(t *tes
 
 	ctx := build.NewContext()
 	ctx.FuncMap = tmpl.funcs
-	if _, err := compat.ParseTemplateToTree("test", dynamicTemplateStr, data, compat.NewKeyGenerator(), ctx); err == nil {
+	if _, err := compat.ParseTemplateToTree("test", dynamicTemplateStr, data, ctx); err == nil {
 		t.Fatalf("expected AST parser to error for dynamic template invocation")
 	}
 
@@ -2595,7 +2595,7 @@ func TestTemplateGenerateInitialTreeFallsBackForWithIterSeq(t *testing.T) {
 
 	ctx := build.NewContext()
 	ctx.FuncMap = tmpl.funcs
-	if _, err := compat.ParseTemplateToTree("test", templateStr, nil, compat.NewKeyGenerator(), ctx); err == nil {
+	if _, err := compat.ParseTemplateToTree("test", templateStr, nil, ctx); err == nil {
 		t.Fatalf("expected AST parser to error for with pipeline returning iter.Seq")
 	}
 
@@ -3590,89 +3590,6 @@ func TestAnalyzeChangeAndCreateTree_PartialChangeKeepsStatics(t *testing.T) {
 	if strings.TrimSpace(dynamic) != "World" {
 		t.Fatalf("expected normalized dynamic \"World\", got %q", dynamic)
 	}
-}
-
-// ----- key_injection_test.go -----
-func TestKeyInjectionScenarios(t *testing.T) {
-	// Test the new simple wrapper approach
-	// Create test-local key generator (no global state)
-	kg := compat.NewKeyGenerator()
-
-	tests := []struct {
-		name     string
-		expected string
-	}{
-		{name: "First key", expected: "1"},
-		{name: "Second key", expected: "2"},
-		{name: "Third key", expected: "3"},
-		{name: "Fourth key", expected: "4"},
-		{name: "Fifth key", expected: "5"},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			result := compat.GenerateWrapperKey(kg)
-			if result != test.expected {
-				t.Errorf("Expected key %q, got %q", test.expected, result)
-			}
-		})
-	}
-}
-
-func TestKeyInjectionStabilityAcrossChanges(t *testing.T) {
-	t.Logf("🎯 NEW WRAPPER APPROACH: Keys are assigned once per page load")
-	t.Logf("✅ No complex identity tracking needed")
-	t.Logf("✅ Works with ANY data type")
-	t.Logf("✅ Keys are stable within a single page render")
-
-	// Create test-local key generator (no global state)
-	kg := compat.NewKeyGenerator()
-
-	// Generate a few keys to show the pattern
-	keys := make([]string, 3)
-	for i := 0; i < 3; i++ {
-		keys[i] = compat.GenerateWrapperKey(kg)
-	}
-
-	t.Logf("Generated keys: %v", keys)
-	t.Logf("✅ Simple sequential generation: 1, 2, 3")
-}
-
-func TestKeyInjectionUniversalCompatibility(t *testing.T) {
-	t.Logf("🎯 UNIVERSAL COMPATIBILITY: Works with any data type")
-
-	// Create test-local key generator (no global state)
-	kg := compat.NewKeyGenerator()
-
-	// Test that wrapper approach works with ANY data type
-	testCases := []interface{}{
-		42,                                     // primitive int
-		"hello",                                // primitive string
-		true,                                   // primitive bool
-		[]int{1, 2, 3},                         // slice
-		map[string]interface{}{"key": "value"}, // map
-		struct {
-			Count  int
-			Active bool
-		}{Count: 5, Active: true}, // struct without stable fields
-		struct {
-			ID   string
-			Name string
-		}{ID: "123", Name: "John"}, // struct with potential stable fields
-	}
-
-	for i, item := range testCases {
-		key := compat.GenerateWrapperKey(kg)
-		expectedKey := fmt.Sprintf("%d", i+1)
-
-		if key != expectedKey {
-			t.Errorf("Expected key %q for item %v, got %q", expectedKey, item, key)
-		}
-
-		t.Logf("  ✅ %T → %s", item, key)
-	}
-
-	t.Logf("✅ All data types handled uniformly - no special cases needed!")
 }
 
 func TestFuncsCacheInvalidation(t *testing.T) {

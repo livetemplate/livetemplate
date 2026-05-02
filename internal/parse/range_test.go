@@ -18,7 +18,7 @@ func TestHandleRange_SimpleSlice(t *testing.T) {
 	eval := testEval(nil)
 	ctx := &Context{IncludeStatics: true}
 
-	tree, err := handleRange(rangeNode, eval, data, nil, newMockKeyGen(), ctx)
+	tree, err := handleRange(rangeNode, eval, data, nil, ctx)
 	if err != nil {
 		t.Fatalf("handleRange failed: %v", err)
 	}
@@ -45,7 +45,7 @@ func TestHandleRange_EmptySlice(t *testing.T) {
 	eval := testEval(nil)
 	ctx := &Context{IncludeStatics: true}
 
-	tree, err := handleRange(rangeNode, eval, data, nil, newMockKeyGen(), ctx)
+	tree, err := handleRange(rangeNode, eval, data, nil, ctx)
 	if err != nil {
 		t.Fatalf("handleRange failed: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestHandleRange_Map(t *testing.T) {
 	eval := testEval(nil)
 	ctx := &Context{IncludeStatics: true}
 
-	tree, err := handleRange(rangeNode, eval, data, nil, newMockKeyGen(), ctx)
+	tree, err := handleRange(rangeNode, eval, data, nil, ctx)
 	if err != nil {
 		t.Fatalf("handleRange failed: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestHandleRange_WithElse(t *testing.T) {
 	eval := testEval(nil)
 	ctx := &Context{IncludeStatics: true}
 
-	tree, err := handleRange(rangeNode, eval, data, nil, newMockKeyGen(), ctx)
+	tree, err := handleRange(rangeNode, eval, data, nil, ctx)
 	if err != nil {
 		t.Fatalf("handleRange failed: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestHandleRange_WithVarDecls(t *testing.T) {
 	eval := testEval(nil)
 	ctx := &Context{IncludeStatics: true}
 
-	tree, err := handleRange(rangeNode, eval, data, nil, newMockKeyGen(), ctx)
+	tree, err := handleRange(rangeNode, eval, data, nil, ctx)
 	if err != nil {
 		t.Fatalf("handleRange failed: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestHandleEmptyRange_NoElse(t *testing.T) {
 	data := map[string]interface{}{}
 	ctx := &Context{IncludeStatics: true}
 
-	tree, err := handleEmptyRange(rangeNode, eval, data, nil, newMockKeyGen(), ctx)
+	tree, err := handleEmptyRange(rangeNode, eval, data, nil, ctx)
 	if err != nil {
 		t.Fatalf("handleEmptyRange failed: %v", err)
 	}
@@ -265,7 +265,7 @@ func TestHandleEmptyRange_WithElse(t *testing.T) {
 	data := map[string]interface{}{}
 	ctx := &Context{IncludeStatics: true}
 
-	tree, err := handleEmptyRange(rangeNode, eval, data, nil, newMockKeyGen(), ctx)
+	tree, err := handleEmptyRange(rangeNode, eval, data, nil, ctx)
 	if err != nil {
 		t.Fatalf("handleEmptyRange failed: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestHandleRange_SliceViaHandleRange(t *testing.T) {
 	eval := testEval(nil)
 	ctx := &Context{IncludeStatics: true}
 
-	tree, err := handleRange(rangeNode, eval, data, nil, newMockKeyGen(), ctx)
+	tree, err := handleRange(rangeNode, eval, data, nil, ctx)
 	if err != nil {
 		t.Fatalf("handleRange failed: %v", err)
 	}
@@ -315,7 +315,7 @@ func TestHandleRange_MapViaHandleRange(t *testing.T) {
 	eval := testEval(nil)
 	ctx := &Context{IncludeStatics: true}
 
-	tree, err := handleRange(rangeNode, eval, data, nil, newMockKeyGen(), ctx)
+	tree, err := handleRange(rangeNode, eval, data, nil, ctx)
 	if err != nil {
 		t.Fatalf("handleRange failed: %v", err)
 	}
@@ -382,7 +382,7 @@ func TestHandleRange_SingleVarViaBuiltTree(t *testing.T) {
 	}
 
 	ctx := &Context{IncludeStatics: true}
-	tree, err := BuildTree(tmpl, data, newMockKeyGen(), ctx)
+	tree, err := BuildTree(tmpl, data, ctx)
 	if err != nil {
 		t.Fatalf("BuildTree failed: %v", err)
 	}
@@ -422,7 +422,7 @@ func TestHandleRange_TwoVarsViaBuiltTree(t *testing.T) {
 	}
 
 	ctx := &Context{IncludeStatics: true}
-	tree, err := BuildTree(tmpl, data, newMockKeyGen(), ctx)
+	tree, err := BuildTree(tmpl, data, ctx)
 	if err != nil {
 		t.Fatalf("BuildTree failed: %v", err)
 	}
@@ -463,7 +463,7 @@ func TestHandleRange_MapVarsViaBuiltTree(t *testing.T) {
 	}
 
 	ctx := &Context{IncludeStatics: true}
-	tree, err := BuildTree(tmpl, data, newMockKeyGen(), ctx)
+	tree, err := BuildTree(tmpl, data, ctx)
 	if err != nil {
 		t.Fatalf("BuildTree failed: %v", err)
 	}
@@ -556,7 +556,7 @@ func TestHandleRange_NonIterableType(t *testing.T) {
 			eval := testEval(nil)
 			ctx := &Context{IncludeStatics: true}
 
-			_, err := handleRange(rangeNode, eval, data, nil, newMockKeyGen(), ctx)
+			_, err := handleRange(rangeNode, eval, data, nil, ctx)
 			if err == nil {
 				t.Error("Expected error for non-iterable type, got nil")
 			}
@@ -790,7 +790,7 @@ func TestHandleRange_ViaFullBuildTree(t *testing.T) {
 	}
 
 	ctx := &Context{IncludeStatics: true}
-	tree, err := BuildTree(tmpl, data, newMockKeyGen(), ctx)
+	tree, err := BuildTree(tmpl, data, ctx)
 	if err != nil {
 		t.Fatalf("BuildTree failed: %v", err)
 	}

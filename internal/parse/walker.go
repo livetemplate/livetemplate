@@ -9,14 +9,14 @@ import (
 // walkAST is the single unified AST walker.
 // When varCtx is nil, expressions evaluate against data directly.
 // When varCtx is non-nil, variable references resolve via varCtx.
-func walkAST(node parse.Node, eval *evaluator, data interface{}, varCtx *varContext, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
+func walkAST(node parse.Node, eval *evaluator, data interface{}, varCtx *varContext, ctx *Context) (*TreeNode, error) {
 	if node == nil {
 		return createEmptyTree(ctx), nil
 	}
 
 	switch n := node.(type) {
 	case *parse.ListNode:
-		return walkList(n, eval, data, varCtx, keyGen, ctx)
+		return walkList(n, eval, data, varCtx, ctx)
 
 	case *parse.TextNode:
 		if ctx.ShouldIncludeStatics() {
@@ -28,13 +28,13 @@ func walkAST(node parse.Node, eval *evaluator, data interface{}, varCtx *varCont
 		return handleAction(n, eval, data, varCtx, ctx)
 
 	case *parse.IfNode:
-		return handleIf(n, eval, data, varCtx, keyGen, ctx)
+		return handleIf(n, eval, data, varCtx, ctx)
 
 	case *parse.RangeNode:
-		return handleRange(n, eval, data, varCtx, keyGen, ctx)
+		return handleRange(n, eval, data, varCtx, ctx)
 
 	case *parse.WithNode:
-		return handleWith(n, eval, data, varCtx, keyGen, ctx)
+		return handleWith(n, eval, data, varCtx, ctx)
 
 	case *parse.CommentNode:
 		return NewTreeNode(), nil
@@ -55,7 +55,7 @@ func walkAST(node parse.Node, eval *evaluator, data interface{}, varCtx *varCont
 }
 
 // walkList processes a list of nodes and merges their trees.
-func walkList(node *parse.ListNode, eval *evaluator, data interface{}, varCtx *varContext, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
+func walkList(node *parse.ListNode, eval *evaluator, data interface{}, varCtx *varContext, ctx *Context) (*TreeNode, error) {
 	if node == nil || len(node.Nodes) == 0 {
 		return createEmptyTree(ctx), nil
 	}
@@ -86,7 +86,7 @@ func walkList(node *parse.ListNode, eval *evaluator, data interface{}, varCtx *v
 			}
 		}
 
-		childTree, err := walkAST(child, eval, data, varCtx, keyGen, ctx)
+		childTree, err := walkAST(child, eval, data, varCtx, ctx)
 		if err != nil {
 			return nil, &ParseError{
 				Phase: "build", NodeType: "list",

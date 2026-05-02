@@ -23,7 +23,7 @@ func TestVarDeclaration_Basic(t *testing.T) {
 	}
 
 	ctx := build.NewContext()
-	tree, err := BuildTree(tmpl, data, nil, ctx)
+	tree, err := BuildTree(tmpl, data, ctx)
 	if err != nil {
 		t.Fatalf("BuildTree error: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestVarDeclaration_WithRange(t *testing.T) {
 	}
 
 	ctx := build.NewContext()
-	tree, err := BuildTree(tmpl, data, nil, ctx)
+	tree, err := BuildTree(tmpl, data, ctx)
 	if err != nil {
 		t.Fatalf("BuildTree error: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestVarDeclaration_WithIf(t *testing.T) {
 	}
 
 	ctx := build.NewContext()
-	tree, err := BuildTree(tmpl, data, nil, ctx)
+	tree, err := BuildTree(tmpl, data, ctx)
 	if err != nil {
 		t.Fatalf("BuildTree error: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestVarDeclaration_WithWith(t *testing.T) {
 	}
 
 	ctx := build.NewContext()
-	tree, err := BuildTree(tmpl, data, nil, ctx)
+	tree, err := BuildTree(tmpl, data, ctx)
 	if err != nil {
 		t.Fatalf("BuildTree error: %v", err)
 	}
@@ -219,7 +219,7 @@ func TestVarDeclaration_NestedRange(t *testing.T) {
 	}
 
 	ctx := build.NewContext()
-	tree, err := BuildTree(tmpl, data, nil, ctx)
+	tree, err := BuildTree(tmpl, data, ctx)
 	if err != nil {
 		t.Fatalf("BuildTree error: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestVarDeclaration_MixedWithDot(t *testing.T) {
 	}
 
 	ctx := build.NewContext()
-	tree, err := BuildTree(tmpl, data, nil, ctx)
+	tree, err := BuildTree(tmpl, data, ctx)
 	if err != nil {
 		t.Fatalf("BuildTree error: %v", err)
 	}
@@ -291,7 +291,7 @@ func TestVarDeclaration_WithFuncMap(t *testing.T) {
 	}
 
 	ctx := build.NewContext()
-	tree, err := BuildTree(tmpl, data, nil, ctx)
+	tree, err := BuildTree(tmpl, data, ctx)
 	if err != nil {
 		t.Fatalf("BuildTree error: %v", err)
 	}
@@ -318,7 +318,7 @@ func TestVarDeclaration_WithRangeVarDecl(t *testing.T) {
 	}
 
 	ctx := build.NewContext()
-	tree, err := BuildTree(tmpl, data, nil, ctx)
+	tree, err := BuildTree(tmpl, data, ctx)
 	if err != nil {
 		t.Fatalf("BuildTree error: %v", err)
 	}
