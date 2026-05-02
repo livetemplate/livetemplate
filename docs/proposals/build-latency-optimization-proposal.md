@@ -1,6 +1,6 @@
 # Build-Latency Optimization Proposal
 
-**Status:** Phase 7 (A)+(B) and Phase 8 (HTML-render skip) implemented in this PR. Phase 9 (pre-build hash short-circuit) outlined for follow-up.
+**Status:** Phase 7 (A)+(B) implemented in this PR. Phase 8 (HTML-render skip) attempted and reverted — broke the modal-cancel flow in the todos example by skipping a side effect of `html/template.Execute` that LVT's action-dispatching pipeline depends on; needs deeper investigation in its own PR. Phase 9 (pre-build hash short-circuit) outlined for follow-up.
 **Owner:** badr.adnaan@gmail.com
 **Date:** 2026-05-02
 
@@ -73,7 +73,7 @@ Above `parallelIterateThreshold = 256` items, `iterateSlice` dispatches to a new
 | 1,000 | 36 ms | 24.8 ms | **-31%** |
 | 10,000 | 306 ms | **201 ms** | **-34%** |
 
-Parallelism gives less than ideal 8× because GC pauses serialize across workers (per-iteration allocation of ~1.86M objects at N=10k drives frequent GC) and the per-item walk includes I/O-style reflection that doesn't scale with cores. Phase 8 below recovers the rest.
+Parallelism gives less than ideal 8× because GC pauses serialize across workers (per-iteration allocation of ~1.86M objects at N=10k drives frequent GC) and the per-item walk includes I/O-style reflection that doesn't scale with cores. Phase 8 was attempted to close more of the gap by skipping the dead `html/template.Execute` call that follows; it broke an integration test (see Phase 8 section below) and is not in this PR.
 
 ### Regression test
 
@@ -84,30 +84,33 @@ Parallelism gives less than ideal 8× because GC pauses serialize across workers
 
 Skipped under `-short`. The N=10,000 case allocates ~90 MB before GC.
 
-## Phase 8 — HTML-render skip on the steady-state path (shipped)
+## Phase 8 — HTML-render skip on the steady-state path (attempted, reverted)
 
-`template.go:buildTree` previously called `renderHTMLWithData(dataWithLvt)` on every render to produce a full HTML string. Profiling at N=10k showed this took **~110 ms per call** — over half of the post-Phase-7 latency at that scale.
+`template.go:buildTree` calls `renderHTMLWithData(dataWithLvt)` on every render to produce a full HTML string. Profiling at N=10k showed this takes **~110 ms per call** — over half of the post-Phase-7 latency at that scale. On paper it's dead work: `generateDiffBasedTree`'s steady-state main path doesn't consume the resulting HTML, and HTML escaping for the diff is handled by `valueToString` in `internal/parse/eval.go`.
 
-**Why it was safe to skip on the main path:**
+**Reverted because:** with the skip in place, `examples/todos` `TestTodosE2E/Modal_Positioning_And_Cancel` failed reproducibly — the modal Cancel handler dispatched, but the modal didn't disappear from the DOM. Some side effect of `html/template.Execute` (independent of the rendered HTML output) is consumed by LVT's action-dispatching or state-update pipeline. The bot review correctly flagged this risk; the empirical failure confirmed it.
+
+Needs a separate PR with deeper investigation:
+- Find the specific path through LVT's action handler that depends on the html/template execution
+- Either move that side effect onto a path that runs unconditionally, or document the constraint that the render is part of the per-action contract
+- Then either skip safely with the constraint enforced, or close out Phase 8 as a "false economy" entry in the proposal.
+
+**Initial safety analysis (held up under code review, failed under integration test):**
 - `generateDiffBasedTree`'s main branch (`hasInitialTree == true`) builds the new tree directly from the parsed AST + data via `parse.BuildTree` (`buildTreeWithCache(newData, ctx)` at `template.go:~1385`). The `currentHTML` argument is unused on this branch; the comment at the function head is explicit: "tree generation uses t.templateStr (template source), not extracted rendered HTML."
-- HTML escaping for the diff is handled independently by `valueToString` in `internal/parse/eval.go:540`, which applies `html.EscapeString` to dynamic values before they enter the tree. The `html/template.Execute` render was NOT supplying escaping for the diff path — only for the first-render `lastHTML` cache and the AST-failure fallback path.
-- Side-effecting funcs would today fire twice per render (once via `html/template.Execute`, once via `parse.BuildTree`'s evaluator). After skip, they fire once. This is more correct (a render shouldn't have observable side effects), and Go template authors don't rely on the double-call as a contract.
+- HTML escaping for the diff is handled independently by `valueToString` in `internal/parse/eval.go:540`, which applies `html.EscapeString` to dynamic values before they enter the tree.
+- Side-effecting funcs would today fire twice per render (once via `html/template.Execute`, once via `parse.BuildTree`'s evaluator). After skip, they fire once.
 
-**Implementation:**
-- `hasInitialTree` converted from `bool` to `atomic.Bool` so `buildTree` can read it without acquiring `t.mu`. The latch is monotonic (false→true, exactly once when the first AST tree lands), so a stale "false" read only causes one extra dead render at most — never wrong output.
-- `buildTree` skips `renderHTMLWithData` when `hasInitialTree.Load()` returns true. First render and the AST-failure fallback path still call it.
+**What went wrong empirically:** with the skip in place and `examples/todos` `TestTodosE2E/Modal_Positioning_And_Cancel` exercised, the test reliably failed. The Cancel button's action dispatched on the server (verified by no error from the click) but the modal stayed in the DOM client-side past the 5 s wait. Reverting only the skip (keeping Phase 7 A+B intact) made the test pass again. **There is a side effect of `html/template.Execute` that the LVT action-dispatch / state-update pipeline depends on, independent of the rendered HTML output.**
 
-**Files:** `template.go` (declaration, 4 read sites, 1 write site, the buildTree skip).
+Candidates for the unidentified side effect (not yet narrowed down):
+- Template execution may register or refresh some state in the html/template runtime that the LVT WebSocket dispatcher consults
+- One of the LVT-specific funcs registered via `FuncMap` may have a hidden side effect that html/template invokes but `parse.BuildTree`'s evaluator doesn't (or invokes differently)
+- The render may be the trigger for some lazy initialization (template cache, action handler binding, etc.)
 
-**Measured impact** (combined Phase 7 + Phase 8):
-
-| N | Pre-Phase-7 | Post Phase 7 only | Post Phase 7+8 | Total change |
-|---|---|---|---|---|
-| 200 | 6.6 ms | 6.7 ms | **3.5 ms** | **−47%** |
-| 1,000 | 36 ms | 24.8 ms | **12.2 ms** | **−66%** |
-| 10,000 | **306 ms** | 201 ms | **75 ms** | **−75%** |
-
-`TestStreamMode_ReconnectResyncEmitsFullTree` exercises the fallback path (`hasInitialTree.Store(false)`) and confirms it still emits a full tree on the next render. The latency regression test ceilings were tightened to 25 ms (N=1000) / 150 ms (N=10000) — gates that catch any future regression that re-introduces the dead render.
+Phase 8 is parked until the dependency is identified. Possible resolutions:
+- Find and explicitly relocate the side effect onto a path that runs unconditionally (then the skip becomes safe)
+- Document that `html/template.Execute` is part of the per-action contract and close out Phase 8 as a "false economy"
+- Add an action-aware skip (e.g., skip only on server-push-style updates that don't dispatch an action)
 
 ## Phase 9 — Pre-build hash short-circuit (sparse-update CPU floor)
 
