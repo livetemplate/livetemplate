@@ -50,6 +50,31 @@ func ParseActionFromHTTP(r *http.Request) (ActionMessage, error) {
 	return msg, nil
 }
 
+// detectSubmitButtonName scans form values for a single field with one empty
+// string value and returns its name. This is how a standard HTML submit button
+// with name="X" surfaces (the browser sends "X=" with no value). Returns "" if
+// zero or multiple such candidates exist (ambiguous).
+//
+// "action" is excluded because it's a common HTML form attribute (<form
+// action="/path">) that browsers don't submit; an empty action= field on the
+// wire would be ambiguous between "name='action' button" and accidental data.
+// Names already in actionFields (e.g. "lvt-action", "data") are also skipped.
+func detectSubmitButtonName(values map[string][]string, actionFields map[string]bool) string {
+	var candidate string
+	for key, vs := range values {
+		if key == "" || key == "action" || actionFields[key] {
+			continue
+		}
+		if len(vs) == 1 && vs[0] == "" {
+			if candidate != "" {
+				return ""
+			}
+			candidate = key
+		}
+	}
+	return candidate
+}
+
 // parseMultipartForm parses action from multipart/form-data (file uploads).
 // Supports two data formats:
 //  1. JSON-encoded "data" form field (client library sends this)
@@ -87,27 +112,10 @@ func parseMultipartForm(r *http.Request) (ActionMessage, error) {
 	if !jsonDataParsed {
 		actionFields := map[string]bool{"lvt-action": true, "data": true}
 
-		// Button-name-as-action detection (same logic as parseURLEncodedForm)
 		if msg.Action == "" && r.MultipartForm != nil {
-			var candidate string
-			ambiguous := false
-			for key, values := range r.MultipartForm.Value {
-				// Skip "action" — it's a common HTML attribute (<form action="/path">)
-				// that browsers don't submit, but could cause false-positive routing.
-				if key == "" || key == "action" || actionFields[key] {
-					continue
-				}
-				if len(values) == 1 && values[0] == "" {
-					if candidate != "" {
-						ambiguous = true
-						break
-					}
-					candidate = key
-				}
-			}
-			if candidate != "" && !ambiguous {
-				msg.Action = candidate
-				actionFields[candidate] = true
+			if name := detectSubmitButtonName(r.MultipartForm.Value, actionFields); name != "" {
+				msg.Action = name
+				actionFields[name] = true
 			}
 		}
 
@@ -158,31 +166,10 @@ func parseURLEncodedForm(r *http.Request) (ActionMessage, error) {
 	// Action routing fields to exclude from data
 	actionFields := map[string]bool{"lvt-action": true}
 
-	// If no explicit action, detect button-name-as-action:
-	// A submit button with name="X" and no value submits "X=" in form data.
-	// We detect this as the unique single-value field with an empty string.
-	// If multiple empty-value fields exist, we skip (ambiguous — can't determine which button).
-	// Note: "action" is explicitly excluded from this scan. While it's a normal
-	// data field, an empty action= would be ambiguous with the common HTML pattern
-	// <form action="/path"> which browsers don't submit, but could confuse routing.
 	if msg.Action == "" {
-		var candidate string
-		ambiguous := false
-		for key, values := range r.Form {
-			if key == "" || key == "action" || actionFields[key] {
-				continue
-			}
-			if len(values) == 1 && values[0] == "" {
-				if candidate != "" {
-					ambiguous = true
-					break
-				}
-				candidate = key
-			}
-		}
-		if candidate != "" && !ambiguous {
-			msg.Action = candidate
-			actionFields[candidate] = true
+		if name := detectSubmitButtonName(r.Form, actionFields); name != "" {
+			msg.Action = name
+			actionFields[name] = true
 		}
 	}
 
