@@ -223,7 +223,7 @@ For list updates, special operations are used:
 The repository has a pre-commit hook that:
 1. Auto-formats Go code using `go fmt`
 2. Runs `golangci-lint` with `errcheck,govet,ineffassign,staticcheck,unparam,unused`
-3. Runs all tests with 300-second timeout (longer than the 30s manual-run example in "Running Tests" above to give the full suite headroom under cold caches)
+3. Runs all tests with 300-second timeout
 4. Blocks commits if any step fails
 5. Automatically stages formatted files
 
