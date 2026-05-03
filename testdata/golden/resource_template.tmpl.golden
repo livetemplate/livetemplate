@@ -70,7 +70,7 @@
       {{end}}
     </div>
     <div class="mb-4">
-      <button class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" style="margin-right: 8px; padding: 0.5rem 1rem; font-size: 1rem; min-width: 100px;" type="submit" lvt-disable-with="Adding...">Add Post</button>
+      <button class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" style="margin-right: 8px; padding: 0.5rem 1rem; font-size: 1rem; min-width: 100px;" type="submit" lvt-form:disable-with="Adding...">Add Post</button>
       <button class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" style="padding: 0.5rem 1rem; font-size: 1rem; min-width: 100px;" type="button" lvt-modal-close="add-modal">Cancel</button>
     </div>
   </form>
@@ -107,7 +107,7 @@
       {{end}}
     </div>
     <div class="mb-4" style="display: flex; gap: 8px; margin-top: 1.5rem;">
-      <button class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" type="submit" lvt-disable-with="Updating...">Save</button>
+      <button class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" type="submit" lvt-form:disable-with="Updating...">Save</button>
       <a href="/post/{{.EditingID}}" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center;">Cancel</a>
       <button class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" type="button" lvt-click="delete" lvt-data-id="{{.EditingID}}" lvt-confirm="Are you sure you want to delete this post?" style="margin-left: auto;">Delete</button>
     </div>
