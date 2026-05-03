@@ -42,16 +42,23 @@ title=My+Post&draft=
 
 `detectSubmitButtonName(values, actionFields)` (server, internal/send/message.go) scans every key:
 
-1. Skip `lvt-action`, `data`, `action`, and the empty key.
+1. Skip the empty key, the literal name `action`, and any name in `actionFields`.
 2. Find fields where `len(values) == 1 && values[0] == ""`.
 3. If exactly one such field exists, its name is the action.
 4. If zero or two-or-more such fields exist, the heuristic returns `""` (ambiguous).
+
+The two callers pass *different* `actionFields` skiplists:
+
+- `parseURLEncodedForm`: `{lvt-action: true}` — only the explicit override is excluded.
+- `parseMultipartForm`: `{lvt-action: true, data: true}` — also excludes the JSON envelope field used by the client library.
+
+This means a `<input name="data" value="">` would be treated as a button-name candidate on the URL-encoded path but excluded on the multipart path. Phase 1 of this proposal makes the skiplist symmetric by adding `lvt-submitter` to both, and Phase 4 removes the heuristic entirely so the asymmetry stops mattering.
 
 ### Where the heuristic breaks down
 
 1. **Ambiguous forms are silently dropped.** Two empty-value fields → no action routed. The user clicks a button, the server defaults to `submit`, and the developer has to reverse-engineer why.
 2. **User-supplied empty inputs collide with button names.** A `<input name="search" value="">` (legitimately empty) is indistinguishable on the wire from a button that submitted with empty value. Today the heuristic excludes this collision class only by chance — if the form has *one* empty input and *no* clicked button, the input is misrouted as the action.
-3. **`<button name="action">` is reserved by accident.** The current code excludes `name="action"` to avoid a different ambiguity (browsers don't submit `<form action="...">`, so an empty `action=` field is treated as user data). This is a workaround for a heuristic, not a real reservation.
+3. **`<button name="action">` can't route through the heuristic.** The current code deliberately excludes `name="action"` from the empty-value scan to dodge an ambiguity with the HTML `<form action="...">` attribute (browsers don't submit `<form action>`, but if a button's `name` happens to also be `action`, an empty `action=` in form data could be either case). This is a documented workaround that becomes unnecessary once the heuristic is removed in Phase 4 — it's not a fundamental reservation.
 4. **No way to express "no button name, just submit".** A form whose buttons have no `name` attribute at all submits with no empty-value field, which is fine — but a form whose buttons happen to have names is locked into the heuristic.
 
 These are all real-world friction points, not theoretical. Issue #237 is marked P1 because progressive-enhancement (server-only POST) flows are exactly where they bite hardest — there's no client-side capture to fall back on, and the server has nothing better than the heuristic.
@@ -85,7 +92,7 @@ title=My+Post&draft=&lvt-submitter=draft
 
 The `lvt-submitter` key carries the explicit submitter name. The empty-value `draft=` is left as-is so progressive-enhancement falls back to the heuristic when an old client (no shim) submits to a new server.
 
-For pure no-JS form submits (no client at all), the developer can opt in by adding a hidden input populated by a small inline script:
+For "lite-JS" submits (browser has JS but the full client hasn't loaded yet, or a small subset of the client is in use), the developer can opt in to a directive that injects the field before submit:
 
 ```html
 <form lvt-form:emit-submitter>
@@ -93,7 +100,18 @@ For pure no-JS form submits (no client at all), the developer can opt in by addi
 </form>
 ```
 
-The `lvt-form:emit-submitter` attribute is a directive that wires a `<button>` click handler injecting the hidden field before submit. Apps that don't opt in keep getting heuristic behavior — same as today.
+The `lvt-form:emit-submitter` attribute wires a `<button>` click handler that writes a hidden `<input name="lvt-submitter" value="...">` before the browser submits. **This still requires JS to run** — it doesn't help truly no-JS users.
+
+For genuinely no-JS forms (form-only HTML, no script tags loaded), the only way to send `lvt-submitter` is to render the field server-side at template time per button, e.g.:
+
+```html
+<button name="draft" formenctype="..." onclick="this.form['lvt-submitter'].value='draft'">Save Draft</button>
+<input type="hidden" name="lvt-submitter" value="">
+```
+
+Or, more practically: the heuristic stays as the fallback for no-JS forms (it covers the common case correctly today; the failure modes above mostly bite when JS is in the loop). Phase 4's removal of the heuristic is conditional on whether no-JS support is a goal — flagged as an open question below.
+
+Apps that don't opt in keep getting heuristic behavior — same as today.
 
 ### WebSocket path
 
@@ -106,7 +124,7 @@ The client already serializes a structured action message:
 }
 ```
 
-Promote `submitter` to a top-level optional field:
+Promote `submitter` to a top-level optional field on `ActionMessage`:
 
 ```json
 {
@@ -116,11 +134,25 @@ Promote `submitter` to a top-level optional field:
 }
 ```
 
-When `action` is set explicitly (via `lvt-form:action`), `submitter` is informational. When `action` is empty and `submitter` is set, the server uses `submitter` as the action — which is what the current client already does inline; this just moves the resolution server-side and removes the duplicated logic.
+This requires extending the `ActionMessage` struct in `internal/send/message.go`:
+
+```go
+type ActionMessage struct {
+    Action    string                 `json:"action"`
+    Submitter string                 `json:"submitter,omitempty"` // NEW
+    Data      map[string]interface{} `json:"data"`
+}
+```
+
+`ParseActionFromWebSocket` then applies the fallback: `if msg.Action == "" { msg.Action = msg.Submitter }`. When `action` is set explicitly (via `lvt-form:action`), `submitter` is informational. When `action` is empty and `submitter` is set, the server uses `submitter` as the action — which is what the current client already does inline; this just moves the resolution server-side and removes the duplicated logic.
+
+**Important:** the WS field is `submitter` (top-level, structured), and the HTTP field is `lvt-submitter` (form key, prefixed for skiplist symmetry with `lvt-action`). These are intentionally different because they live in different wire formats — JSON vs URL-encoded — and follow each format's existing naming conventions. The Phase 2 client implementation must be careful to use the right name on each path.
+
+**Form `name` attribute preservation.** The current client also supports a fallback where `<form name="search">` (with no clicked button name) routes to a `Search` action. That fallback is implemented client-side in `dom/event-delegation.ts` (search anchor `Action resolution order`) — the client computes the action *before* sending, so the WS `action` field is already populated. This proposal does not change that behavior; the server still receives a fully-resolved `action` for the `form.name` case. The `submitter` field is only consulted when the client deliberately leaves `action` empty.
 
 ### Server resolution order
 
-`internal/send/message.go::ParseActionFromHTTP` becomes:
+`ParseActionFromHTTP` is a content-type dispatcher; the resolution lives in its callees. `parseURLEncodedForm` and `parseMultipartForm` (both in `internal/send/message.go`) gain a new step between the existing `lvt-action` read and the heuristic call:
 
 ```
 1. r.FormValue("lvt-action")          // explicit progressive-enhancement override (existing)
@@ -129,7 +161,9 @@ When `action` is set explicitly (via `lvt-form:action`), `submitter` is informat
 4. ""                                  // server defaults to "submit"
 ```
 
-Identical layering on the WS path: explicit `action` field → explicit `submitter` field → no heuristic needed (WS doesn't need it because `action` is already required by the protocol).
+In `parseMultipartForm` specifically, both `lvt-action` and `lvt-submitter` must be read **before** the `jsonDataParsed` branch (the same control-flow position the existing `lvt-action` read uses). This way they take precedence over the heuristic regardless of whether a JSON `data` envelope is present.
+
+The WS path layers the same way but inside `ParseActionFromWebSocket`: explicit `action` field → explicit `submitter` field → empty (server defaults via `applyDefaultAction`). The WS path doesn't need a heuristic at all because the `action` and `submitter` fields are first-class on the wire — the client either populates them or the server returns `Submit`.
 
 ## Migration Plan
 
@@ -142,12 +176,14 @@ This is a backwards-compatible protocol extension. No client or server is requir
 - Add tests in `internal/send/message_test.go` mirroring the existing button-name-as-action cases plus collision cases (empty input + explicit submitter, two empty inputs + explicit submitter — both must route via `lvt-submitter`).
 - Server release: minor bump.
 
-### Phase 2 — Client emits `lvt-submitter`
+### Phase 2 — Client emits `lvt-submitter` (HTTP) and `submitter` (WS)
 
-- In `dom/event-delegation.ts`, on form submit, read `(e as SubmitEvent).submitter?.name` and inject it into the FormData / JSON payload as `lvt-submitter`.
-- Continue capturing the existing inline `action = submitter.name` for the WS path; the `submitter` field is just additional belt-and-suspenders that survives a server-side rewrite.
-- Add a `lvt-form:emit-submitter` opt-in directive for pure no-JS forms (it injects a tiny click-handler that writes a hidden `<input name="lvt-submitter">`).
-- Client release: minor bump. Old client + new server: heuristic still runs (existing behavior). New client + old server: extra `lvt-submitter` field is treated as data — no breakage but the heuristic still wins. Both sides up-to-date: explicit submitter wins.
+- In `dom/event-delegation.ts`, on form submit, read `(e as SubmitEvent).submitter?.name` and:
+  - **HTTP path** (form submitted via `fetch`): inject as form key `lvt-submitter`.
+  - **WS path** (lvt-driven submit): inject as top-level JSON key `submitter` on the action message.
+- Continue capturing the existing inline `action = submitter.name` for the WS path; the structured `submitter` field is additional belt-and-suspenders that survives a server-side rewrite.
+- Add a `lvt-form:emit-submitter` opt-in directive for lite-JS forms (it injects a tiny click-handler that writes a hidden `<input name="lvt-submitter">`). Pure no-JS forms cannot use this and stay on the heuristic.
+- Client release: minor bump. Old client + new server: heuristic still runs (existing behavior). New client + old server: extra `lvt-submitter` / `submitter` fields are ignored by the old server's parsers — no breakage, the heuristic still wins. Both sides up-to-date: explicit submitter wins.
 
 ### Phase 3 — Deprecate the heuristic
 
@@ -157,21 +193,32 @@ After two minor versions of overlap (so the npm distribution has settled), mark 
 
 This makes the silent-ambiguity case loud: developers see "your form submitted via the heuristic; consider upgrading the client or adding `lvt-form:emit-submitter`."
 
-### Phase 4 — Remove the heuristic in v0.9.0
+### Phase 4 — Remove the heuristic (target: v0.9.0)
 
-`detectSubmitButtonName` and the call sites disappear. The migration target lines up with the `lvt-no-intercept` shim removal already planned for v0.9.0 (see client `dom/link-interceptor.ts` shim and `client/CHANGELOG.md` "Migration: Phase 1A breaking changes").
+`detectSubmitButtonName` and the call sites disappear. The migration target is proposed to coincide with the `lvt-no-intercept` shim removal scheduled for v0.9.0 in the client (see `client/dom/link-interceptor.ts` shim and `client/CHANGELOG.md` "Migration: Phase 1A breaking changes" — the shim's removal there is committed; this proposal asks to land the heuristic removal in the *same* server release for breaking-change consolidation).
+
+This phase is **conditional on the no-JS support decision** (Q3 below). If pure no-JS forms remain a supported audience, the heuristic must stay in some form — possibly behind a feature flag rather than removed outright. The Phase 4 milestone should not land until that decision is made.
 
 ## Risks and Open Questions
 
 1. **Reserved-field name conflicts.** `lvt-submitter` becomes a reserved form field name. If an app already uses that name for user data, the upgrade will route it as a submitter. Mitigation: this is the same shape as the existing `lvt-action` reservation; document in CHANGELOG with the rest of the Phase 1A migration.
 
-2. **The `lvt-form:emit-submitter` directive is opt-in for pure no-JS.** Without it, a no-JS form still relies on the heuristic. Should it be opt-out (default-on)? Argument for opt-in: no-JS users who don't have the client at all still get the heuristic and won't notice the difference; opt-in avoids surprising them with a sudden hidden field.
+2. **`lvt-form:emit-submitter` opt-in vs. opt-out.** The directive is proposed as opt-in. Argument for keeping opt-in: injecting a hidden field by default into every form submission is a wire-format change that affects all existing apps on upgrade; opt-in keeps the upgrade silent. **Recommendation: opt-in.**
 
-3. **Multipart form bodies need separate handling.** The existing helper handles both URL-encoded and multipart, so adding `lvt-submitter` to the skiplist works for both — but file-upload payloads can be large enough that the heuristic was meaningful as a "the action is whichever button you clicked, no extra fields" pattern. Worth verifying the file-upload examples still feel ergonomic.
+3. **No-JS support.** This is the load-bearing decision for Phase 4. If progressive-enhancement (server-only POST, no JS at all) is a first-class audience, the heuristic must stay in some form — `lvt-form:emit-submitter` and `lvt-submitter` injection both require JS to populate the field. Three sub-options:
+    - **(a)** Keep the heuristic permanently as the no-JS fallback; never remove it. Phase 4 just adds a soft warning and stops shipping no-JS-incompatible features.
+    - **(b)** Drop no-JS support entirely; remove the heuristic in v0.9.0; document in release notes that LiveTemplate now requires JS for form submission.
+    - **(c)** Keep the heuristic behind an opt-in option (`WithProgressiveEnhancement(true)`); default to off in v0.9.0; apps that need no-JS opt back in.
+    - **Decision needed before Phase 4 work begins.** Recommendation: (c) — splits the difference; the heuristic stays in the codebase but isn't on by default, so most apps get the cleaner contract while no-JS apps can still opt back in.
 
-4. **Should the server also emit a deprecation log when the heuristic fires AND `lvt-submitter` was absent?** The Phase 3 warning above is opinionated. Some teams will want it suppressible via an option. Suggestion: add `WithFormSubmitterMode("strict"|"compat"|"silent")`, default `"compat"` (current behavior) for v0.8.x → `"strict"` (warn) for v0.9.0 → fully strict (heuristic gone) for v1.0.
+4. **Deprecation-log suppression mechanism.** The Phase 3 warning fires when the heuristic resolves *and* `lvt-submitter` was absent. Two options for letting users suppress it:
+    - **(a)** New `WithFormSubmitterMode("strict"|"compat"|"silent")` option threaded through the parsing layer. Permanent API surface.
+    - **(b)** `LVT_FORM_SUBMITTER_COMPAT=silent` environment variable — same observability, no Go API surface to maintain post-removal.
+    - **Recommendation: (b)** — the warning is a transitional aid; an env var avoids permanent API debt for transitional behavior.
 
-5. **Naming.** `lvt-submitter` parallels `lvt-action` and `lvt-form:*`. Alternatives: `lvt-form:submitter`, `lvt-clicked`, `_submitter`. The proposal uses `lvt-submitter` for symmetry with `lvt-action`, which has the same precedence shape (explicit override of resolution order).
+5. **Naming.** `lvt-submitter` parallels `lvt-action` and `lvt-form:*`. Alternatives: `lvt-form:submitter`, `lvt-clicked`, `_submitter`. The proposal uses `lvt-submitter` for symmetry with `lvt-action`, which has the same precedence shape (explicit override of resolution order). On the WS path the field is just `submitter` because JSON keys don't need a `lvt-` namespace prefix — they're already inside a LiveTemplate-owned message envelope.
+
+6. **Multipart form bodies need separate handling.** The existing helper handles both URL-encoded and multipart, so adding `lvt-submitter` to the skiplist works for both — but file-upload payloads can be large enough that the heuristic was meaningful as a "the action is whichever button you clicked, no extra fields" pattern. Worth verifying the file-upload examples still feel ergonomic with the explicit submitter approach.
 
 ## Out of Scope
 
@@ -182,10 +229,11 @@ This makes the silent-ambiguity case loud: developers see "your form submitted v
 
 When this proposal is implemented:
 
-1. New tests in `internal/send/message_test.go` covering `lvt-submitter` as the routing source, including the collision scenarios that the heuristic gets wrong today.
-2. New e2e test (or extend an existing form submission e2e in the lvt repo) verifying the explicit submitter path round-trips.
-3. Manual smoke on the patterns examples (login, blog, etc.) confirming no regression in the heuristic-driven path.
-4. iPhone-on-Tailscale smoke per CLAUDE.md for any form-submit UI that the lvt examples cover.
+1. New tests in `internal/send/message_test.go` covering `lvt-submitter` as the routing source, including the collision scenarios that the heuristic gets wrong today (multiple empty fields, user-supplied empty inputs, `<button name="action">`).
+2. New WS-path tests in the same file covering `ActionMessage.Submitter` resolution: `action="" + submitter="X"` → action becomes `X`; `action="Y" + submitter="X"` → action stays `Y`.
+3. New e2e test (or extend an existing form submission e2e in the lvt repo at `e2e/livetemplate_core_test.go`) verifying the explicit submitter path round-trips through both the HTTP and WS paths.
+4. Manual smoke on the patterns examples (login, blog, etc.) confirming no regression in the heuristic-driven path.
+5. Cross-repo verification: bump client to a version that emits `lvt-submitter`, then confirm the lvt examples still work end-to-end.
 
 ## Appendix: References
 
