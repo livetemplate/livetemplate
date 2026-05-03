@@ -2,7 +2,9 @@
 
 Reactive web UIs in standard HTML and Go. No custom template language. No client-side framework. No persistent connection required.
 
-**[Quick Start](#quick-start)** | **[Docs](docs/)** | **[Examples](https://github.com/livetemplate/examples)** | **[API Reference](https://pkg.go.dev/github.com/livetemplate/livetemplate)**
+📚 **Documentation:** **<https://livetemplate.fly.dev>** — guides, recipes, patterns catalog, full reference.
+
+**[Quick Start](#quick-start)** | **[Docs site](https://livetemplate.fly.dev)** | **[Examples](https://github.com/livetemplate/examples)** | **[API Reference](https://pkg.go.dev/github.com/livetemplate/livetemplate)**
 
 > **Alpha** — Core features work and are tested, but the API may change before v1.0.
 
