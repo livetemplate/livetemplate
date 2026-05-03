@@ -1260,8 +1260,9 @@ func TestGenerateRangeDifferentialOperations_InsertionNoReorder(t *testing.T) {
 // streamStateFor builds a RangeStreamState snapshot from a slice of items, as
 // the Phase 3 producer will do. ASSUMES homogeneous items: the helper takes
 // the first item's statics fingerprint as canonical and never re-checks. Tests
-// that need heterogeneous setups must build the streamState manually.
-func streamStateFor(items []*TreeNode, keyPos int) *RangeStreamState {
+// that need heterogeneous setups must build the streamState manually. Keys
+// are read from dynamic position 0, matching how all current callers use it.
+func streamStateFor(items []*TreeNode) *RangeStreamState {
 	state := &RangeStreamState{
 		Keys:   make([]string, len(items)),
 		Hashes: make([]uint64, len(items)),
@@ -1270,8 +1271,8 @@ func streamStateFor(items []*TreeNode, keyPos int) *RangeStreamState {
 		state.Fingerprint = build.CalculateStaticsFingerprint(items[0])
 	}
 	for i, item := range items {
-		if keyPos >= 0 && keyPos < len(item.Dynamics) {
-			if keyStr, ok := item.Dynamics[keyPos].(string); ok {
+		if len(item.Dynamics) > 0 {
+			if keyStr, ok := item.Dynamics[0].(string); ok {
 				state.Keys[i] = keyStr
 			}
 		}
@@ -1285,7 +1286,7 @@ func TestGenerateRangeStreamOperations_NoChange(t *testing.T) {
 	item1 := &TreeNode{Dynamics: []interface{}{"id1", "Name 1"}}
 	item2 := &TreeNode{Dynamics: []interface{}{"id2", "Name 2"}}
 
-	streamState := streamStateFor([]*TreeNode{item1, item2}, 0)
+	streamState := streamStateFor([]*TreeNode{item1, item2})
 	newItems := []interface{}{item1, item2}
 
 	ops := GenerateRangeStreamOperations(streamState, newItems, statics, nil, false)
@@ -1299,7 +1300,7 @@ func TestGenerateRangeStreamOperations_Update_FullDynamicsPayload(t *testing.T) 
 	oldItem := &TreeNode{Dynamics: []interface{}{"id1", "Old Name"}}
 	newItem := &TreeNode{Dynamics: []interface{}{"id1", "New Name"}}
 
-	streamState := streamStateFor([]*TreeNode{oldItem}, 0)
+	streamState := streamStateFor([]*TreeNode{oldItem})
 	newItems := []interface{}{newItem}
 
 	ops := GenerateRangeStreamOperations(streamState, newItems, statics, nil, false)
@@ -1330,7 +1331,7 @@ func TestGenerateRangeStreamOperations_UpdateClearsAbsentPositions(t *testing.T)
 	// Position 2 (status) clears to nil — wire payload must encode "" per §5c.
 	newItem := &TreeNode{Dynamics: []interface{}{"id1", "Name", nil}}
 
-	streamState := streamStateFor([]*TreeNode{oldItem}, 0)
+	streamState := streamStateFor([]*TreeNode{oldItem})
 	newItems := []interface{}{newItem}
 
 	ops := GenerateRangeStreamOperations(streamState, newItems, statics, nil, false)
@@ -1350,7 +1351,7 @@ func TestGenerateRangeStreamOperations_NilToEmptyStringPhantomUpdate(t *testing.
 	oldItem := &TreeNode{Dynamics: []interface{}{"id1", nil}}
 	newItem := &TreeNode{Dynamics: []interface{}{"id1", ""}}
 
-	streamState := streamStateFor([]*TreeNode{oldItem}, 0)
+	streamState := streamStateFor([]*TreeNode{oldItem})
 	newItems := []interface{}{newItem}
 
 	ops := GenerateRangeStreamOperations(streamState, newItems, statics, nil, false)
@@ -1369,7 +1370,7 @@ func TestGenerateRangeStreamOperations_Removal(t *testing.T) {
 	item2 := &TreeNode{Dynamics: []interface{}{"id2", "Name 2"}}
 	item3 := &TreeNode{Dynamics: []interface{}{"id3", "Name 3"}}
 
-	streamState := streamStateFor([]*TreeNode{item1, item2, item3}, 0)
+	streamState := streamStateFor([]*TreeNode{item1, item2, item3})
 	newItems := []interface{}{item1, item3} // item2 removed
 
 	ops := GenerateRangeStreamOperations(streamState, newItems, statics, nil, false)
@@ -1398,7 +1399,7 @@ func TestGenerateRangeStreamOperations_TailAppend4Items(t *testing.T) {
 			fmt.Sprintf("Name %d", i),
 		}}
 	}
-	streamState := streamStateFor(oldItems, 0)
+	streamState := streamStateFor(oldItems)
 
 	newItems := make([]interface{}, 9)
 	for i := 0; i < 5; i++ {
@@ -1431,7 +1432,7 @@ func TestGenerateRangeStreamOperations_HeadPrepend(t *testing.T) {
 	item2 := &TreeNode{Dynamics: []interface{}{"id2", "Name 2"}}
 	item0 := &TreeNode{Dynamics: []interface{}{"id0", "Name 0"}}
 
-	streamState := streamStateFor([]*TreeNode{item1, item2}, 0)
+	streamState := streamStateFor([]*TreeNode{item1, item2})
 	newItems := []interface{}{item0, item1, item2}
 
 	ops := GenerateRangeStreamOperations(streamState, newItems, statics, nil, false)
@@ -1450,7 +1451,7 @@ func TestGenerateRangeStreamOperations_MidInsert(t *testing.T) {
 	item2 := &TreeNode{Dynamics: []interface{}{"id2", "Name 2"}}
 	itemMid := &TreeNode{Dynamics: []interface{}{"idMid", "Mid"}}
 
-	streamState := streamStateFor([]*TreeNode{item1, item2}, 0)
+	streamState := streamStateFor([]*TreeNode{item1, item2})
 	newItems := []interface{}{item1, itemMid, item2}
 
 	ops := GenerateRangeStreamOperations(streamState, newItems, statics, nil, false)
@@ -1472,7 +1473,7 @@ func TestGenerateRangeStreamOperations_PureReorder(t *testing.T) {
 	item1 := &TreeNode{Dynamics: []interface{}{"id1", "Name 1"}}
 	item2 := &TreeNode{Dynamics: []interface{}{"id2", "Name 2"}}
 
-	streamState := streamStateFor([]*TreeNode{item1, item2}, 0)
+	streamState := streamStateFor([]*TreeNode{item1, item2})
 	newItems := []interface{}{item2, item1} // reordered, identical content
 
 	ops := GenerateRangeStreamOperations(streamState, newItems, statics, nil, false)
@@ -1495,7 +1496,7 @@ func TestGenerateRangeStreamOperations_MixedUpdateAndReorder(t *testing.T) {
 	item2Old := &TreeNode{Dynamics: []interface{}{"id2", "Name 2"}}
 	item1New := &TreeNode{Dynamics: []interface{}{"id1", "Name 1 UPDATED"}}
 
-	streamState := streamStateFor([]*TreeNode{item1Old, item2Old}, 0)
+	streamState := streamStateFor([]*TreeNode{item1Old, item2Old})
 	newItems := []interface{}{item2Old, item1New} // reordered AND id1 content changed
 
 	ops := GenerateRangeStreamOperations(streamState, newItems, statics, nil, false)
@@ -1530,7 +1531,7 @@ func TestGenerateRangeStreamOperations_ScatteredInsertFallback(t *testing.T) {
 		{Dynamics: []interface{}{"c", "C"}},
 		{Dynamics: []interface{}{"d", "D"}},
 	}
-	streamState := streamStateFor(oldItems, 0)
+	streamState := streamStateFor(oldItems)
 
 	// Insert N1 before a, N2 between a&b, N3 between b&c, N4 between c&d (4 unique points).
 	newItems := []interface{}{
@@ -1557,7 +1558,7 @@ func TestGenerateRangeStreamOperations_AllItemsRemoved(t *testing.T) {
 	item1 := &TreeNode{Dynamics: []interface{}{"id1", "Name 1"}}
 	item2 := &TreeNode{Dynamics: []interface{}{"id2", "Name 2"}}
 
-	streamState := streamStateFor([]*TreeNode{item1, item2}, 0)
+	streamState := streamStateFor([]*TreeNode{item1, item2})
 	newItems := []interface{}{} // all removed
 
 	ops := GenerateRangeStreamOperations(streamState, newItems, statics, nil, false)
@@ -1599,7 +1600,7 @@ func TestGenerateRangeStreamOperations_HetRangeFallback(t *testing.T) {
 	// One new item has a divergent structural fingerprint (different Statics) → return nil.
 	statics := []string{`<li data-key="`, `">`, `</li>`}
 	oldItem := &TreeNode{Dynamics: []interface{}{"id1", "Name 1"}}
-	streamState := streamStateFor([]*TreeNode{oldItem}, 0)
+	streamState := streamStateFor([]*TreeNode{oldItem})
 
 	// New item has Statics → different fingerprint than the empty-Statics baseline.
 	newItem := &TreeNode{
@@ -1620,7 +1621,7 @@ func TestGenerateRangeStreamOperations_StripStatics(t *testing.T) {
 	item1 := &TreeNode{Dynamics: []interface{}{"id1", "Name 1"}}
 	item2New := &TreeNode{Dynamics: []interface{}{"id2", "Name 2"}}
 
-	streamState := streamStateFor([]*TreeNode{item1}, 0)
+	streamState := streamStateFor([]*TreeNode{item1})
 	newItems := []interface{}{item1, item2New}
 
 	ops := GenerateRangeStreamOperations(streamState, newItems, statics, nil, true)

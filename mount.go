@@ -703,7 +703,7 @@ eventLoop:
 			}
 
 			// Check if this is an upload-related action
-			uploadHandled, err := h.handleUploadAction(r.Context(), conn, rm.data, msg, connSt, uploadRegistry, connection)
+			uploadHandled, err := h.handleUploadAction(r.Context(), rm.data, msg, connSt, uploadRegistry, connection)
 			if err != nil {
 				slog.Warn("Upload action error",
 					slog.String("component", "live_handler"),
@@ -2051,7 +2051,7 @@ func (h *liveHandler) MetricsHandler() http.Handler {
 
 // handleUploadAction routes upload-related WebSocket actions to appropriate handlers.
 // Returns (handled=true, err) if this was an upload action, (handled=false, nil) otherwise.
-func (h *liveHandler) handleUploadAction(ctx context.Context, conn WSConn, rawData []byte, msg message, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) (bool, error) {
+func (h *liveHandler) handleUploadAction(ctx context.Context, rawData []byte, msg message, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) (bool, error) {
 	switch msg.Action {
 	case "upload_start", "upload_chunk", "upload_complete", "cancel_upload":
 		// handled below
@@ -2065,19 +2065,19 @@ func (h *liveHandler) handleUploadAction(ctx context.Context, conn WSConn, rawDa
 
 	switch msg.Action {
 	case "upload_start":
-		return true, h.handleUploadStart(ctx, conn, rawData, state, uploadRegistry, connection)
+		return true, h.handleUploadStart(rawData, state, uploadRegistry, connection)
 	case "upload_chunk":
-		return true, h.handleUploadChunk(ctx, conn, rawData, state, uploadRegistry, connection)
+		return true, h.handleUploadChunk(rawData, uploadRegistry, connection)
 	case "upload_complete":
-		return true, h.handleUploadComplete(ctx, conn, rawData, state, uploadRegistry, connection)
+		return true, h.handleUploadComplete(ctx, rawData, state, uploadRegistry, connection)
 	default: // cancel_upload — gate switch above guarantees only upload actions reach here
-		return true, h.handleCancelUpload(ctx, conn, rawData, state, uploadRegistry, connection)
+		return true, h.handleCancelUpload(rawData, uploadRegistry, connection)
 	}
 }
 
 // handleUploadStart processes upload_start action from WebSocket client.
 // Client sends file metadata, server creates upload entries and responds with entry IDs.
-func (h *liveHandler) handleUploadStart(ctx context.Context, conn WSConn, rawData []byte, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) error {
+func (h *liveHandler) handleUploadStart(rawData []byte, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) error {
 	// Parse upload_start message from raw WebSocket data
 	startMsg, err := upload.ParseUploadStartMessage(rawData)
 	if err != nil {
@@ -2244,7 +2244,7 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn WSConn, rawDat
 
 // handleUploadChunk processes upload_chunk action from WebSocket client.
 // Client sends base64-encoded chunk data, server decodes and appends to temp file.
-func (h *liveHandler) handleUploadChunk(ctx context.Context, conn WSConn, rawData []byte, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) error {
+func (h *liveHandler) handleUploadChunk(rawData []byte, uploadRegistry uploadRegistry, connection *session.Connection) error {
 	// Parse upload_chunk message from raw WebSocket data
 	chunkMsg, err := upload.ParseUploadChunkMessage(rawData)
 	if err != nil {
@@ -2349,7 +2349,7 @@ func (h *liveHandler) handleUploadChunk(ctx context.Context, conn WSConn, rawDat
 
 // handleUploadComplete processes upload_complete action from WebSocket client.
 // Client indicates all chunks sent, server marks entries as done and calls ConsumeUpload.
-func (h *liveHandler) handleUploadComplete(ctx context.Context, conn WSConn, rawData []byte, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) error {
+func (h *liveHandler) handleUploadComplete(ctx context.Context, rawData []byte, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) error {
 	// Parse upload_complete message from raw WebSocket data
 	completeMsg, err := upload.ParseUploadCompleteMessage(rawData)
 	if err != nil {
@@ -2440,7 +2440,7 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn WSConn, raw
 
 // handleCancelUpload processes cancel_upload action from WebSocket client.
 // Client cancels an upload, server cleans up temp file and removes entry.
-func (h *liveHandler) handleCancelUpload(ctx context.Context, conn WSConn, rawData []byte, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) error {
+func (h *liveHandler) handleCancelUpload(rawData []byte, uploadRegistry uploadRegistry, connection *session.Connection) error {
 	// Parse cancel_upload message from raw WebSocket data
 	cancelMsg, err := upload.ParseCancelUploadMessage(rawData)
 	if err != nil {

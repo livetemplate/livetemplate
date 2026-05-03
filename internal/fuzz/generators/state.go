@@ -4,6 +4,7 @@ package generators
 import (
 	"fmt"
 	"math/rand"
+	"strings"
 
 	"pgregory.net/rapid"
 )
@@ -269,8 +270,7 @@ func genStateSimple(rng *rand.Rand, shape *StateShape, depth int) map[string]any
 func genFieldValueSimple(rng *rand.Rand, ftype FieldType, name string) any {
 	switch ftype {
 	case FieldString:
-		words := []string{"todo", "task", "item", "work", "project"}
-		return words[rng.Intn(len(words))]
+		return genStringValueSimple(rng, name)
 	case FieldInt:
 		return rng.Intn(100)
 	case FieldBool:
@@ -281,9 +281,51 @@ func genFieldValueSimple(rng *rand.Rand, ftype FieldType, name string) any {
 		if rng.Float32() > 0.5 {
 			return nil
 		}
-		return "pointer-value"
+		return genStringValueSimple(rng, name)
 	default:
 		return nil
+	}
+}
+
+// genStringValueSimple is the standard-rand counterpart of genStringValue.
+// Both must produce values from the same domain shapes so property-based
+// (rapid) and example-based (rand) tests exercise the same string variety.
+func genStringValueSimple(rng *rand.Rand, name string) string {
+	switch name {
+	case "ID":
+		const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+		b := make([]byte, 4)
+		for i := range b {
+			b[i] = alphabet[rng.Intn(len(alphabet))]
+		}
+		return "item-" + string(b)
+	case "Title", "Name", "Text", "Label":
+		words := []string{"todo", "task", "item", "work", "project", "feature", "bug", "test"}
+		n := 1 + rng.Intn(3)
+		parts := make([]string, n)
+		for i := 0; i < n; i++ {
+			parts[i] = words[rng.Intn(len(words))]
+		}
+		return strings.Join(parts, " ")
+	case "Email":
+		const lower = "abcdefghijklmnopqrstuvwxyz"
+		b := make([]byte, 6)
+		for i := range b {
+			b[i] = lower[rng.Intn(len(lower))]
+		}
+		return string(b) + "@example.com"
+	case "Status":
+		opts := []string{"active", "inactive", "pending", "complete"}
+		return opts[rng.Intn(len(opts))]
+	case "Priority":
+		opts := []string{"low", "medium", "high"}
+		return opts[rng.Intn(len(opts))]
+	case "Color":
+		opts := []string{"red", "green", "blue", "yellow", "purple"}
+		return opts[rng.Intn(len(opts))]
+	default:
+		words := []string{"todo", "task", "item", "work", "project"}
+		return words[rng.Intn(len(words))]
 	}
 }
 

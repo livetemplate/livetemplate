@@ -350,7 +350,7 @@ func TestVarEval_HandleAction_Direct(t *testing.T) {
 		return rangeNode.List.Nodes[0].(*parse.ActionNode)
 	}()
 
-	eval := testEval(nil)
+	eval := testEval()
 	varCtx := &varContext{
 		parent: map[string]interface{}{},
 		vars:   newOrderedVars(),
@@ -376,7 +376,7 @@ func TestVarEval_HandleAction_Direct(t *testing.T) {
 // TestVarEval_HandleAction_DotField tests handleAction accessing a dot field.
 func TestVarEval_HandleAction_DotField(t *testing.T) {
 	actionNode := parseActionNode(t, "{{.Type}}", nil)
-	eval := testEval(nil)
+	eval := testEval()
 	varCtx := &varContext{
 		parent: map[string]interface{}{},
 		vars:   newOrderedVars(),

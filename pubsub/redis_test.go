@@ -1,6 +1,7 @@
 package pubsub
 
 import (
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -9,6 +10,12 @@ import (
 	"github.com/livetemplate/livetemplate/internal/testutil"
 	"github.com/redis/go-redis/v9"
 )
+
+// errTestHandlerNilMsg is returned by test MessageHandler closures when the
+// broadcast layer delivers a nil message. The defensive return turns these
+// closures into real contract validators (and stops unparam from flagging
+// them as always-nil-result).
+var errTestHandlerNilMsg = errors.New("test handler received nil message")
 
 // getTestRedisClient returns a Redis client for testing using testcontainers.
 func getTestRedisClient(t *testing.T) redis.UniversalClient {
@@ -109,6 +116,9 @@ func TestRedisBroadcaster_SubscribeAndReceive(t *testing.T) {
 
 	var receivedMsg *BroadcastMessage
 	handler := func(msg *BroadcastMessage) error {
+		if msg == nil {
+			return errTestHandlerNilMsg
+		}
 		receivedMsg = msg
 		received.Done()
 		return nil
@@ -184,6 +194,9 @@ func TestRedisBroadcaster_LocalOptimization(t *testing.T) {
 	// Set up receiver
 	var receivedCount int
 	handler := func(msg *BroadcastMessage) error {
+		if msg == nil {
+			return errTestHandlerNilMsg
+		}
 		receivedCount++
 		return nil
 	}
@@ -241,6 +254,9 @@ func TestRedisBroadcaster_GroupBroadcast(t *testing.T) {
 
 	var receivedMsg *BroadcastMessage
 	handler := func(msg *BroadcastMessage) error {
+		if msg == nil {
+			return errTestHandlerNilMsg
+		}
 		receivedMsg = msg
 		received.Done()
 		return nil
@@ -326,6 +342,9 @@ func TestRedisBroadcaster_UserBroadcast(t *testing.T) {
 
 	var receivedMsg *BroadcastMessage
 	handler := func(msg *BroadcastMessage) error {
+		if msg == nil {
+			return errTestHandlerNilMsg
+		}
 		receivedMsg = msg
 		received.Done()
 		return nil
@@ -417,6 +436,9 @@ func TestRedisBroadcaster_MultipleSubscribers(t *testing.T) {
 	received.Add(2)
 
 	handler := func(msg *BroadcastMessage) error {
+		if msg == nil {
+			return errTestHandlerNilMsg
+		}
 		received.Done()
 		return nil
 	}

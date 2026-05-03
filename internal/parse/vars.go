@@ -65,7 +65,7 @@ func (ov orderedVars) Range(fn func(key string, value interface{})) {
 }
 
 // registerVarDeclaration evaluates a variable declaration and registers it in varCtx.
-func registerVarDeclaration(eval *evaluator, actionNode *parse.ActionNode, varCtx *varContext, ctx *Context) error {
+func registerVarDeclaration(eval *evaluator, actionNode *parse.ActionNode, varCtx *varContext) error {
 	if len(actionNode.Pipe.Cmds) == 0 {
 		return &ParseError{
 			Phase: "eval", NodeType: "var",

@@ -210,10 +210,10 @@ func TestHealthHandler_RegisterChecker_Concurrent(t *testing.T) {
 	// Register checkers concurrently
 	done := make(chan bool, 10)
 	for i := 0; i < 10; i++ {
-		go func(id int) {
+		go func() {
 			handler.RegisterChecker("checker", &mockHealthChecker{})
 			done <- true
-		}(i)
+		}()
 	}
 
 	// Wait for all goroutines

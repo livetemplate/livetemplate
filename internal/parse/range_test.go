@@ -11,11 +11,11 @@ import (
 
 // TestHandleRange_SimpleSlice tests range over simple slice.
 func TestHandleRange_SimpleSlice(t *testing.T) {
-	rangeNode := parseRangeNode(t, "{{range .Items}}<div>{{.}}</div>{{end}}", nil)
+	rangeNode := parseRangeNode(t, "{{range .Items}}<div>{{.}}</div>{{end}}")
 	data := map[string]interface{}{
 		"Items": []string{"a", "b", "c"},
 	}
-	eval := testEval(nil)
+	eval := testEval()
 	ctx := &Context{IncludeStatics: true}
 
 	tree, err := handleRange(rangeNode, eval, data, nil, ctx)
@@ -38,11 +38,11 @@ func TestHandleRange_SimpleSlice(t *testing.T) {
 
 // TestHandleRange_EmptySlice tests range over empty slice.
 func TestHandleRange_EmptySlice(t *testing.T) {
-	rangeNode := parseRangeNode(t, "{{range .Items}}<div>{{.}}</div>{{end}}", nil)
+	rangeNode := parseRangeNode(t, "{{range .Items}}<div>{{.}}</div>{{end}}")
 	data := map[string]interface{}{
 		"Items": []string{},
 	}
-	eval := testEval(nil)
+	eval := testEval()
 	ctx := &Context{IncludeStatics: true}
 
 	tree, err := handleRange(rangeNode, eval, data, nil, ctx)
@@ -65,14 +65,14 @@ func TestHandleRange_EmptySlice(t *testing.T) {
 
 // TestHandleRange_Map tests range over map.
 func TestHandleRange_Map(t *testing.T) {
-	rangeNode := parseRangeNode(t, "{{range .Items}}<div>{{.}}</div>{{end}}", nil)
+	rangeNode := parseRangeNode(t, "{{range .Items}}<div>{{.}}</div>{{end}}")
 	data := map[string]interface{}{
 		"Items": map[string]string{
 			"a": "alpha",
 			"b": "beta",
 		},
 	}
-	eval := testEval(nil)
+	eval := testEval()
 	ctx := &Context{IncludeStatics: true}
 
 	tree, err := handleRange(rangeNode, eval, data, nil, ctx)
@@ -95,11 +95,11 @@ func TestHandleRange_Map(t *testing.T) {
 
 // TestHandleRange_WithElse tests range with else branch.
 func TestHandleRange_WithElse(t *testing.T) {
-	rangeNode := parseRangeNode(t, "{{range .Items}}<div>{{.}}</div>{{else}}<div>empty</div>{{end}}", nil)
+	rangeNode := parseRangeNode(t, "{{range .Items}}<div>{{.}}</div>{{else}}<div>empty</div>{{end}}")
 	data := map[string]interface{}{
 		"Items": []string{},
 	}
-	eval := testEval(nil)
+	eval := testEval()
 	ctx := &Context{IncludeStatics: true}
 
 	tree, err := handleRange(rangeNode, eval, data, nil, ctx)
@@ -123,11 +123,11 @@ func TestHandleRange_WithElse(t *testing.T) {
 
 // TestHandleRange_WithVarDecls tests range with variable declarations.
 func TestHandleRange_WithVarDecls(t *testing.T) {
-	rangeNode := parseRangeNode(t, "{{range $i, $v := .Items}}<div>{{$i}}: {{$v}}</div>{{end}}", nil)
+	rangeNode := parseRangeNode(t, "{{range $i, $v := .Items}}<div>{{$i}}: {{$v}}</div>{{end}}")
 	data := map[string]interface{}{
 		"Items": []string{"a", "b"},
 	}
-	eval := testEval(nil)
+	eval := testEval()
 	ctx := &Context{IncludeStatics: true}
 
 	tree, err := handleRange(rangeNode, eval, data, nil, ctx)
@@ -150,11 +150,11 @@ func TestHandleRange_WithVarDecls(t *testing.T) {
 
 // TestExtractCollection_Simple tests simple collection extraction.
 func TestExtractCollection_Simple(t *testing.T) {
-	rangeNode := parseRangeNode(t, "{{range .Items}}{{.}}{{end}}", nil)
+	rangeNode := parseRangeNode(t, "{{range .Items}}{{.}}{{end}}")
 	data := map[string]interface{}{
 		"Items": []string{"a", "b"},
 	}
-	eval := testEval(nil)
+	eval := testEval()
 
 	collection, err := extractCollection(rangeNode, eval, data, nil)
 	if err != nil {
@@ -173,11 +173,11 @@ func TestExtractCollection_Simple(t *testing.T) {
 
 // TestExtractCollection_WithDecls tests extraction with variable declarations.
 func TestExtractCollection_WithDecls(t *testing.T) {
-	rangeNode := parseRangeNode(t, "{{range $i, $v := .Items}}{{$v}}{{end}}", nil)
+	rangeNode := parseRangeNode(t, "{{range $i, $v := .Items}}{{$v}}{{end}}")
 	data := map[string]interface{}{
 		"Items": []string{"a", "b"},
 	}
-	eval := testEval(nil)
+	eval := testEval()
 
 	collection, err := extractCollection(rangeNode, eval, data, nil)
 	if err != nil {
@@ -196,9 +196,9 @@ func TestExtractCollection_WithDecls(t *testing.T) {
 
 // TestExtractCollection_Error tests error handling.
 func TestExtractCollection_Error(t *testing.T) {
-	rangeNode := parseRangeNode(t, "{{range .Missing}}{{.}}{{end}}", nil)
+	rangeNode := parseRangeNode(t, "{{range .Missing}}{{.}}{{end}}")
 	data := map[string]interface{}{}
-	eval := testEval(nil)
+	eval := testEval()
 
 	_, err := extractCollection(rangeNode, eval, data, nil)
 	if err != nil {
@@ -235,8 +235,8 @@ func TestIsEmpty_AllTypes(t *testing.T) {
 
 // TestHandleEmptyRange_NoElse tests empty range without else.
 func TestHandleEmptyRange_NoElse(t *testing.T) {
-	rangeNode := parseRangeNode(t, "{{range .Items}}{{.}}{{end}}", nil)
-	eval := testEval(nil)
+	rangeNode := parseRangeNode(t, "{{range .Items}}{{.}}{{end}}")
+	eval := testEval()
 	data := map[string]interface{}{}
 	ctx := &Context{IncludeStatics: true}
 
@@ -260,8 +260,8 @@ func TestHandleEmptyRange_NoElse(t *testing.T) {
 
 // TestHandleEmptyRange_WithElse tests empty range with else branch.
 func TestHandleEmptyRange_WithElse(t *testing.T) {
-	rangeNode := parseRangeNode(t, "{{range .Items}}{{.}}{{else}}<div>empty</div>{{end}}", nil)
-	eval := testEval(nil)
+	rangeNode := parseRangeNode(t, "{{range .Items}}{{.}}{{else}}<div>empty</div>{{end}}")
+	eval := testEval()
 	data := map[string]interface{}{}
 	ctx := &Context{IncludeStatics: true}
 
@@ -281,11 +281,11 @@ func TestHandleEmptyRange_WithElse(t *testing.T) {
 
 // TestHandleRange_SliceViaHandleRange tests slice range processing through handleRange.
 func TestHandleRange_SliceViaHandleRange(t *testing.T) {
-	rangeNode := parseRangeNode(t, "{{range .Items}}<div>{{.}}</div>{{end}}", nil)
+	rangeNode := parseRangeNode(t, "{{range .Items}}<div>{{.}}</div>{{end}}")
 	data := map[string]interface{}{
 		"Items": []string{"a", "b"},
 	}
-	eval := testEval(nil)
+	eval := testEval()
 	ctx := &Context{IncludeStatics: true}
 
 	tree, err := handleRange(rangeNode, eval, data, nil, ctx)
@@ -308,11 +308,11 @@ func TestHandleRange_SliceViaHandleRange(t *testing.T) {
 
 // TestHandleRange_MapViaHandleRange tests map range processing through handleRange.
 func TestHandleRange_MapViaHandleRange(t *testing.T) {
-	rangeNode := parseRangeNode(t, "{{range .Items}}<div>{{.}}</div>{{end}}", nil)
+	rangeNode := parseRangeNode(t, "{{range .Items}}<div>{{.}}</div>{{end}}")
 	data := map[string]interface{}{
 		"Items": map[string]string{"a": "alpha", "b": "beta"},
 	}
-	eval := testEval(nil)
+	eval := testEval()
 	ctx := &Context{IncludeStatics: true}
 
 	tree, err := handleRange(rangeNode, eval, data, nil, ctx)
@@ -549,11 +549,11 @@ func TestHandleRange_NonIterableType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rangeNode := parseRangeNode(t, "{{range .Value}}{{.}}{{end}}", nil)
+			rangeNode := parseRangeNode(t, "{{range .Value}}{{.}}{{end}}")
 			data := map[string]interface{}{
 				"Value": tt.value,
 			}
-			eval := testEval(nil)
+			eval := testEval()
 			ctx := &Context{IncludeStatics: true}
 
 			_, err := handleRange(rangeNode, eval, data, nil, ctx)
