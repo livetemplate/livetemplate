@@ -232,7 +232,7 @@ The repository has a pre-commit hook that:
 | Linter | Catches |
 | --- | --- |
 | `errcheck` | Unchecked error returns |
-| `govet` | Suspicious constructs (printf formats, struct tags, copy locks, shadowed vars, plus the `inline` analyzer that flags constants like `reflect.Ptr` aliased to a canonical `reflect.Pointer`) |
+| `govet` | Suspicious constructs — printf formats, struct tags, copy locks, shadowed vars |
 | `ineffassign` | Ineffective assignments |
 | `staticcheck` | SA*/S*/ST* — wide static analysis |
 | `unparam` | Unused params, always-constant args, dead returns |
