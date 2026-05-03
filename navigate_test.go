@@ -205,6 +205,107 @@ func TestNavigateActionEmptyDataResetsQueryParams(t *testing.T) {
 	assertTreeSlot(t, "empty-data navigate", resp, "0", "")
 }
 
+// navigateBroadcastTestState carries the per-connection state for the
+// broadcast-from-navigate test. Greeting is populated by the RefreshGreeting
+// handler that fires on other connections when one tab navigates.
+type navigateBroadcastTestState struct {
+	Selected   string
+	Greeting   string
+	MountCount int
+}
+
+// navigateBroadcastTestController issues a BroadcastAction from inside Mount,
+// but only on re-mounts (MountCount > 0). The connect-time Mount of every
+// connection has MountCount == 0 so it does NOT broadcast — only the
+// __navigate__-driven Mount, which runs after the initial connect, does.
+//
+// This is the canonical pattern for "navigate-only side effect": the
+// navigate path explicitly clears ctx.Action() (mount.go) so Mount can be
+// idempotent, which means the controller cannot key off ctx.Action() and
+// must inspect state to tell the cases apart.
+type navigateBroadcastTestController struct{}
+
+func (c *navigateBroadcastTestController) Mount(state navigateBroadcastTestState, ctx *Context) (navigateBroadcastTestState, error) {
+	isReMount := state.MountCount > 0
+	state.Selected = ctx.GetString("s")
+	state.MountCount++
+	if isReMount {
+		ctx.BroadcastAction("RefreshGreeting", map[string]interface{}{
+			"greeting": "hello-from-" + state.Selected,
+		})
+	}
+	return state, nil
+}
+
+// RefreshGreeting is the action dispatched on other connections by the
+// BroadcastAction call inside Mount.
+func (c *navigateBroadcastTestController) RefreshGreeting(state navigateBroadcastTestState, ctx *Context) (navigateBroadcastTestState, error) {
+	state.Greeting = ctx.GetString("greeting")
+	return state, nil
+}
+
+// TestNavigateAction_BroadcastFromMountOnNavigate_DispatchesToOtherWS
+// exercises the gap called out by issue #346: a BroadcastAction issued from
+// inside Mount on the __navigate__ code path must reach other connections in
+// the same session group, just like a BroadcastAction from a regular WS
+// action does.
+//
+// Two WebSockets connect in the same group. Tab 1 sends __navigate__. Mount
+// re-runs on Tab 1 (MountCount > 0 → broadcast fires) and dispatches
+// RefreshGreeting to other connections. Tab 1 receives its own re-mount
+// update; Tab 2 receives the RefreshGreeting handler update.
+func TestNavigateAction_BroadcastFromMountOnNavigate_DispatchesToOtherWS(t *testing.T) {
+	auth := &fixedGroupAuth{groupID: t.Name()}
+	tmpl, err := New("test", WithAuthenticator(auth))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	tmpl, err = tmpl.Parse(`<div class="sel">{{.Selected}}</div><div class="greet">{{.Greeting}}</div><div class="count">{{.MountCount}}</div>`)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	handler := tmpl.Handle(&navigateBroadcastTestController{}, AsState(&navigateBroadcastTestState{}))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/?s=alpha"
+
+	ws1 := connectWS(t, wsURL)
+	defer func() {
+		if err := ws1.Close(); err != nil {
+			t.Logf("ws1 close: %v", err)
+		}
+	}()
+	ws2 := connectWS(t, wsURL)
+	defer func() {
+		if err := ws2.Close(); err != nil {
+			t.Logf("ws2 close: %v", err)
+		}
+	}()
+
+	// Tab 1 sends __navigate__. Mount re-runs on tab 1 (MountCount=1 → re-mount),
+	// updates Selected, and broadcasts RefreshGreeting.
+	sendWSAction(t, ws1, actionNavigate, map[string]interface{}{"s": "beta"})
+
+	// Tab 1: receives its own navigate response — slot 0 = Selected = "beta".
+	resp1 := readWSUpdate(t, ws1, 2*time.Second)
+	assertTreeSlot(t, "tab1 navigate response", resp1, "0", "beta")
+
+	// Tab 2: receives the broadcast — slot 1 = Greeting = "hello-from-beta".
+	// This is the assertion that pins issue #346: the broadcast issued from
+	// inside the navigate-driven Mount actually reaches other connections.
+	resp2 := readWSUpdate(t, ws2, 2*time.Second)
+	assertTreeSlot(t, "tab2 broadcast from navigate Mount", resp2, "1", "hello-from-beta")
+
+	meta2, ok := resp2["meta"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("tab2 response has no meta: %#v", resp2)
+	}
+	if success, _ := meta2["success"].(bool); !success {
+		t.Errorf("tab2 broadcast meta.success = false, want true; meta = %#v", meta2)
+	}
+}
+
 // navigateErrorController returns an error from Mount when the "s" param
 // equals "error" — used by TestNavigateActionMountErrorLeavesStateUnchanged.
 type navigateErrorController struct{}
