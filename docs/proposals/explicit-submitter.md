@@ -100,13 +100,16 @@ For "lite-JS" submits (browser has JS but the full client hasn't loaded yet, or 
 </form>
 ```
 
-The `lvt-form:emit-submitter` attribute wires a `<button>` click handler that writes a hidden `<input name="lvt-submitter" value="...">` before the browser submits. **This still requires JS to run** — it doesn't help truly no-JS users.
+The `lvt-form:emit-submitter` attribute wires a **`submit` event listener** (not a click handler) that reads `(e as SubmitEvent).submitter?.name` and writes it into a hidden `<input name="lvt-submitter">` before the browser serializes the form. The `submit` event is the right hook because it also fires for keyboard-triggered submits (Enter in a text field selects the form's default submit button as `submitter`, populating the field correctly), whereas a click handler would miss those entirely. **This still requires JS to run** — it doesn't help truly no-JS users.
 
-For genuinely no-JS forms (form-only HTML, no script tags loaded), the only way to send `lvt-submitter` is to render the field server-side at template time per button, e.g.:
+For genuinely no-JS forms (form-only HTML, no script tags loaded), the only way to send `lvt-submitter` is to render the value server-side per button using a tiny inline `onclick` (which is HTML-attribute scripting, not script-tag scripting, so it works even when JS is selectively disabled but the page allows event-attribute handlers):
 
 ```html
-<button name="draft" formenctype="..." onclick="this.form['lvt-submitter'].value='draft'">Save Draft</button>
-<input type="hidden" name="lvt-submitter" value="">
+<form action="/post" method="POST">
+  <input type="hidden" name="lvt-submitter" value="">
+  <button name="save"  onclick="this.form['lvt-submitter'].value='save'">Save</button>
+  <button name="draft" onclick="this.form['lvt-submitter'].value='draft'">Save as Draft</button>
+</form>
 ```
 
 Or, more practically: the heuristic stays as the fallback for no-JS forms (it covers the common case correctly today; the failure modes above mostly bite when JS is in the loop). Phase 4's removal of the heuristic is conditional on whether no-JS support is a goal — flagged as an open question below.
@@ -145,6 +148,8 @@ type ActionMessage struct {
 ```
 
 `ParseActionFromWebSocket` then applies the fallback: `if msg.Action == "" { msg.Action = msg.Submitter }`. When `action` is set explicitly (via `lvt-form:action`), `submitter` is informational. When `action` is empty and `submitter` is set, the server uses `submitter` as the action — which is what the current client already does inline; this just moves the resolution server-side and removes the duplicated logic.
+
+**Note on the WS fallback firing:** in normal operation, the client populates `action` from `submitter.name` *before* sending, so the server-side `if msg.Action == "" { ... }` fallback rarely runs in practice — it's belt-and-suspenders that lets the server stay correct if a future client refactor stops doing the inline action computation, or if a third-party WS client implementation only knows to send `submitter`. The visible signal stays in `msg.Action`; `msg.Submitter` is informational diagnostic context.
 
 **Important:** the WS field is `submitter` (top-level, structured), and the HTTP field is `lvt-submitter` (form key, prefixed for skiplist symmetry with `lvt-action`). These are intentionally different because they live in different wire formats — JSON vs URL-encoded — and follow each format's existing naming conventions. The Phase 2 client implementation must be careful to use the right name on each path.
 
@@ -192,6 +197,12 @@ After two minor versions of overlap (so the npm distribution has settled), mark 
 - the heuristic resolves to a name AND `lvt-submitter` was absent from the request.
 
 This makes the silent-ambiguity case loud: developers see "your form submitted via the heuristic; consider upgrading the client or adding `lvt-form:emit-submitter`."
+
+**Rate limiting.** Apps running mixed client versions during the migration window will hit this on every form submission, which can be noisy in production logs. The warning should be:
+
+- Emitted at most once per process start per (URL path, action name) tuple — long enough to surface the issue, short enough to avoid spam.
+- Structured (zap/slog fields, not free-form `printf`) so log aggregators can group / silence it without losing other warnings on the same logger.
+- Suppressible via `LVT_FORM_SUBMITTER_COMPAT=silent` (see Q4 below).
 
 ### Phase 4 — Remove the heuristic (target: v0.9.0)
 
