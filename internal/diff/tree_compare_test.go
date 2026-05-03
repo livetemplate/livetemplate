@@ -712,7 +712,6 @@ func TestHandleStructureValue(t *testing.T) {
 		name               string
 		newValue           interface{}
 		clientHasStructure bool
-		wantShouldTrack    bool
 		checkValue         func(t *testing.T, value interface{})
 	}{
 		{
@@ -722,7 +721,6 @@ func TestHandleStructureValue(t *testing.T) {
 				Dynamics: []interface{}{"content"},
 			},
 			clientHasStructure: true,
-			wantShouldTrack:    false,
 			checkValue: func(t *testing.T, value interface{}) {
 				// Stripped value should not include statics
 				if valueMap, ok := value.(map[string]interface{}); ok {
@@ -739,7 +737,6 @@ func TestHandleStructureValue(t *testing.T) {
 				Dynamics: []interface{}{"content"},
 			},
 			clientHasStructure: false,
-			wantShouldTrack:    false, // shouldTrack is always false now
 			checkValue: func(t *testing.T, value interface{}) {
 				// Should return original TreeNode
 				if _, ok := value.(*TreeNode); !ok {
@@ -754,7 +751,6 @@ func TestHandleStructureValue(t *testing.T) {
 				Dynamics: nil,
 			},
 			clientHasStructure: true,
-			wantShouldTrack:    false,
 			checkValue: func(t *testing.T, value interface{}) {
 				// With the fix to isStrippedValueEmpty, empty TreeNodes are now recognized
 				// So we should get an empty string
@@ -767,7 +763,6 @@ func TestHandleStructureValue(t *testing.T) {
 			name:               "nil value returns empty string",
 			newValue:           nil,
 			clientHasStructure: false,
-			wantShouldTrack:    false,
 			checkValue: func(t *testing.T, value interface{}) {
 				if value != "" {
 					t.Errorf("Expected empty string for nil value, got %v", value)
@@ -778,10 +773,7 @@ func TestHandleStructureValue(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			value, shouldTrack := handleStructureValue(tt.newValue, tt.clientHasStructure)
-			if shouldTrack != tt.wantShouldTrack {
-				t.Errorf("shouldTrack = %v, want %v", shouldTrack, tt.wantShouldTrack)
-			}
+			value := handleStructureValue(tt.newValue, tt.clientHasStructure)
 			if tt.checkValue != nil {
 				tt.checkValue(t, value)
 			}

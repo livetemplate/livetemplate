@@ -2266,7 +2266,7 @@ func TestTemplateGenerateInitialTreeFallsBackForBlockWithDynamicTemplate(t *test
 		t.Fatalf("expected AST parser to error for block with dynamic template invocation")
 	}
 
-	tree, err := tmpl.generateTreeInternalWithErrors(data, nil)
+	tree, err := tmpl.generateTreeInternalWithErrors(data)
 	if err != nil {
 		t.Fatalf("generateTreeInternalWithErrors failed: %v", err)
 	}
@@ -2308,7 +2308,7 @@ func TestTemplateGenerateInitialTreeFallsBackForChannelRange(t *testing.T) {
 		t.Fatalf("expected AST parser to error for channel range")
 	}
 
-	tree, err := tmpl.generateTreeInternalWithErrors(data, nil)
+	tree, err := tmpl.generateTreeInternalWithErrors(data)
 	if err != nil {
 		t.Fatalf("generateTreeInternalWithErrors failed: %v", err)
 	}
@@ -2350,7 +2350,7 @@ func TestTemplateGenerateInitialTreeFallsBackForChannelRangeWithDecls(t *testing
 		t.Fatalf("expected AST parser to error for channel range with declarations")
 	}
 
-	tree, err := tmpl.generateTreeInternalWithErrors(data, nil)
+	tree, err := tmpl.generateTreeInternalWithErrors(data)
 	if err != nil {
 		t.Fatalf("generateTreeInternalWithErrors failed: %v", err)
 	}
@@ -2386,7 +2386,7 @@ func TestTemplateGenerateInitialTreeFallsBackForIntegerRange(t *testing.T) {
 		t.Fatalf("expected AST parser to error for integer range")
 	}
 
-	tree, err := tmpl.generateTreeInternalWithErrors(nil, nil)
+	tree, err := tmpl.generateTreeInternalWithErrors(nil)
 	if err != nil {
 		t.Fatalf("generateTreeInternalWithErrors failed: %v", err)
 	}
@@ -2463,7 +2463,7 @@ func TestTemplateGenerateInitialTreeFallsBackForRangeBreak(t *testing.T) {
 		t.Fatalf("expected AST parser to error for range with break")
 	}
 
-	tree, err := tmpl.generateTreeInternalWithErrors(data, nil)
+	tree, err := tmpl.generateTreeInternalWithErrors(data)
 	if err != nil {
 		t.Fatalf("generateTreeInternalWithErrors failed: %v", err)
 	}
@@ -2501,7 +2501,7 @@ func TestTemplateGenerateInitialTreeFallsBackForRangeContinue(t *testing.T) {
 		t.Fatalf("expected AST parser to error for range with continue")
 	}
 
-	tree, err := tmpl.generateTreeInternalWithErrors(data, nil)
+	tree, err := tmpl.generateTreeInternalWithErrors(data)
 	if err != nil {
 		t.Fatalf("generateTreeInternalWithErrors failed: %v", err)
 	}
@@ -2550,7 +2550,7 @@ func TestTemplateGenerateInitialTreeFallsBackForDynamicTemplateInvocation(t *tes
 		t.Fatalf("expected AST parser to error for dynamic template invocation")
 	}
 
-	tree, err := tmpl.generateTreeInternalWithErrors(data, nil)
+	tree, err := tmpl.generateTreeInternalWithErrors(data)
 	if err != nil {
 		t.Fatalf("generateTreeInternalWithErrors failed: %v", err)
 	}
@@ -2599,7 +2599,7 @@ func TestTemplateGenerateInitialTreeFallsBackForWithIterSeq(t *testing.T) {
 		t.Fatalf("expected AST parser to error for with pipeline returning iter.Seq")
 	}
 
-	tree, err := tmpl.generateTreeInternalWithErrors(nil, nil)
+	tree, err := tmpl.generateTreeInternalWithErrors(nil)
 	if err != nil {
 		t.Fatalf("generateTreeInternalWithErrors failed: %v", err)
 	}

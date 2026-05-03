@@ -243,7 +243,7 @@ func TestConcurrentRegisterUnregister(t *testing.T) {
 	// Concurrent registrations and unregistrations
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
 				conn := &Connection{
@@ -255,7 +255,7 @@ func TestConcurrentRegisterUnregister(t *testing.T) {
 				time.Sleep(1 * time.Millisecond)
 				registry.Unregister(conn)
 			}
-		}(i)
+		}()
 	}
 
 	wg.Wait()

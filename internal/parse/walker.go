@@ -75,7 +75,7 @@ func walkList(node *parse.ListNode, eval *evaluator, data interface{}, varCtx *v
 		if varCtx != nil {
 			if actionNode, ok := child.(*parse.ActionNode); ok &&
 				actionNode.Pipe != nil && len(actionNode.Pipe.Decl) > 0 {
-				if err := registerVarDeclaration(eval, actionNode, varCtx, ctx); err != nil {
+				if err := registerVarDeclaration(eval, actionNode, varCtx); err != nil {
 					return nil, &ParseError{
 						Phase: "build", NodeType: "list",
 						Msg: fmt.Sprintf("child node %d: var declaration", i),

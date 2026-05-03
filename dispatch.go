@@ -128,7 +128,7 @@ func HasActionMethod(controller interface{}, state interface{}, action string) b
 	stateType := reflect.TypeOf(state)
 	// DispatchWithState receives dereferenced value types (e.g., TodoState not *TodoState).
 	// State.Inner() returns a pointer, so dereference to match the dispatch path.
-	if stateType.Kind() == reflect.Ptr {
+	if stateType.Kind() == reflect.Pointer {
 		stateType = stateType.Elem()
 	}
 	return getMethodIndexNewSignature(controllerType, stateType, action) >= 0

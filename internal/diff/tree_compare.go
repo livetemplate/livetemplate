@@ -202,15 +202,13 @@ func handleNewField(
 
 	// Handle tree node values - send full value with statics for new fields
 	if newTreeNode, ok := newValue.(*TreeNode); ok {
-		valueToSet, _ := handleStructureValue(newTreeNode, false)
-		changes.SetDynamic(k, valueToSet)
+		changes.SetDynamic(k, handleStructureValue(newTreeNode, false))
 		return
 	}
 
 	// Handle map values
 	if m, ok := newValue.(map[string]interface{}); ok {
-		valueToSet, _ := handleStructureValue(m, false)
-		changes.SetDynamic(k, valueToSet)
+		changes.SetDynamic(k, handleStructureValue(m, false))
 		return
 	}
 
@@ -251,7 +249,6 @@ func isStrippedValueEmpty(stripped interface{}) bool {
 //
 // Returns:
 //   - valueToSet: The value to send to client (stripped or full, or empty string)
-//   - shouldTrack: True if this structure should be tracked (always false now, kept for compatibility)
 //
 // Behavior:
 //   - If client has structure: returns stripped value (dynamics only)
@@ -263,10 +260,10 @@ func isStrippedValueEmpty(stripped interface{}) bool {
 func handleStructureValue(
 	newValue interface{},
 	clientHasStructure bool,
-) (valueToSet interface{}, shouldTrack bool) {
+) (valueToSet interface{}) {
 	// Defensive check: newValue should never be nil, but handle gracefully
 	if newValue == nil {
-		return "", false
+		return ""
 	}
 
 	// Prepare the value for client (strip statics if appropriate)
@@ -275,9 +272,9 @@ func handleStructureValue(
 	if clientHasStructure {
 		// Client already has structure - use stripped version
 		if isStrippedValueEmpty(stripped) {
-			return "", false
+			return ""
 		}
-		return stripped, false
+		return stripped
 	}
 
 	// Client doesn't have structure - send full value WITH statics
@@ -286,15 +283,15 @@ func handleStructureValue(
 	// Only return "" if the newValue itself has no content.
 	if treeNode, ok := newValue.(*TreeNode); ok {
 		if !treeNode.HasStatics() && !treeNode.HasDynamics() && !treeNode.HasRange() {
-			return "", false
+			return ""
 		}
-		return newValue, false
+		return newValue
 	}
 	// For non-TreeNode values, fall back to stripped check
 	if isStrippedValueEmpty(stripped) {
-		return "", false
+		return ""
 	}
-	return newValue, false
+	return newValue
 }
 
 // handleChangedField processes a field that exists but changed value.
@@ -446,8 +443,7 @@ func handleNewTreeNodeFromPrimitive(
 	changes *TreeNode,
 ) {
 	// New tree appearing where primitive was - client needs full structure with statics
-	valueToSet, _ := handleStructureValue(newTreeNodePtr, false)
-	changes.SetDynamic(k, valueToSet)
+	changes.SetDynamic(k, handleStructureValue(newTreeNodePtr, false))
 }
 
 // ClientNeedsStatics determines whether the client needs statics by comparing structure fingerprints.

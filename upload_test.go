@@ -469,6 +469,9 @@ func ExamplePresigner() {
 	}
 
 	presign := func(p *CustomPresigner, entry *UploadEntry) (UploadMeta, error) {
+		if entry.ClientType == "" {
+			return UploadMeta{}, errors.New("entry missing client content type")
+		}
 		return UploadMeta{
 			Uploader: "custom",
 			URL:      p.endpoint + "/upload/" + entry.ID,
@@ -546,7 +549,7 @@ func TestHandleUploadAction_NilTempFileManager(t *testing.T) {
 	actions := []string{"upload_start", "upload_chunk", "upload_complete", "cancel_upload"}
 	for _, action := range actions {
 		msg := message{Action: action}
-		handled, err := handler.handleUploadAction(context.Background(), nil, nil, msg, nil, nil, nil)
+		handled, err := handler.handleUploadAction(context.Background(), nil, msg, nil, nil, nil)
 		if !handled {
 			t.Errorf("action %q: expected handled=true, got false", action)
 		}
@@ -557,7 +560,7 @@ func TestHandleUploadAction_NilTempFileManager(t *testing.T) {
 
 	// Non-upload actions should return handled=false
 	msg := message{Action: "some_other_action"}
-	handled, err := handler.handleUploadAction(context.Background(), nil, nil, msg, nil, nil, nil)
+	handled, err := handler.handleUploadAction(context.Background(), nil, msg, nil, nil, nil)
 	if handled {
 		t.Error("non-upload action: expected handled=false, got true")
 	}

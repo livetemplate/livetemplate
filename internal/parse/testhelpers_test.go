@@ -27,13 +27,9 @@ func parseActionNode(t *testing.T, tmplStr string, funcs template.FuncMap) *pars
 }
 
 // parseRangeNode parses a template string and extracts the first RangeNode.
-func parseRangeNode(t *testing.T, tmplStr string, funcs template.FuncMap) *parse.RangeNode {
+func parseRangeNode(t *testing.T, tmplStr string) *parse.RangeNode {
 	t.Helper()
-	tmpl := template.New("test")
-	if funcs != nil {
-		tmpl = tmpl.Funcs(funcs)
-	}
-	parsed, err := tmpl.Parse(tmplStr)
+	parsed, err := template.New("test").Parse(tmplStr)
 	if err != nil {
 		t.Fatalf("failed to parse template %q: %v", tmplStr, err)
 	}
@@ -46,7 +42,7 @@ func parseRangeNode(t *testing.T, tmplStr string, funcs template.FuncMap) *parse
 	return nil
 }
 
-// testEval creates a test evaluator with the given FuncMap.
-func testEval(funcs template.FuncMap) *evaluator {
-	return newEvaluator(funcs)
+// testEval creates a test evaluator with no custom funcs.
+func testEval() *evaluator {
+	return newEvaluator(nil)
 }

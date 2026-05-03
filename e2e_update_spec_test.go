@@ -642,7 +642,7 @@ func TestUserJourney_TodoApp(t *testing.T) {
 	// Execute journey steps
 	for _, step := range steps {
 		t.Run(step.name, func(t *testing.T) {
-			tree, err := tmpl.generateTreeInternalWithErrors(step.state, nil)
+			tree, err := tmpl.generateTreeInternalWithErrors(step.state)
 			if err != nil {
 				t.Fatalf("Failed to generate tree: %v", err)
 			}
@@ -767,10 +767,7 @@ func TestComplexTemplate(t *testing.T) {
 	}
 
 	// Generate initial tree
-	initialTree, err := tmpl.generateInitialTreeWithoutRegistry(initialData, template)
-	if err != nil {
-		t.Fatalf("Failed to generate initial tree: %v", err)
-	}
+	initialTree := tmpl.generateInitialTreeWithoutRegistry(initialData, template)
 
 	// Validate initial tree structure
 
@@ -827,7 +824,7 @@ func BenchmarkSpecificationCompliance(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		data := struct{ Count int }{Count: i}
-		_, _ = tmpl.generateTreeInternalWithErrors(data, nil)
+		_, _ = tmpl.generateTreeInternalWithErrors(data)
 	}
 }
 

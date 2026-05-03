@@ -2095,7 +2095,7 @@ func (v *UpdateValidator) ValidateUpdate(tree interface{}, state interface{}, is
 			return err
 		}
 
-		if err := v.validateSubsequentUpdate(treeMap, v.LastTree); err != nil {
+		if err := v.validateSubsequentUpdate(treeMap); err != nil {
 			v.Violations = append(v.Violations, fmt.Sprintf("Update %d: %v", v.UpdateCount, err))
 			return err
 		}
@@ -2149,7 +2149,7 @@ func (v *UpdateValidator) validateFirstRender(tree map[string]interface{}) error
 }
 
 // validateSubsequentUpdate ensures updates only contain changes
-func (v *UpdateValidator) validateSubsequentUpdate(tree, lastTree map[string]interface{}) error {
+func (v *UpdateValidator) validateSubsequentUpdate(tree map[string]interface{}) error {
 	// Check for unnecessary statics
 	for k, value := range tree {
 		if k == "s" {
@@ -2522,14 +2522,10 @@ func FuzzUserJourneys(f *testing.F) {
 
 			// Generate tree update
 			var tree *build.TreeNode
-			var err error
 
 			if i == 0 && activity.Type == "visit" {
 				// First render
-				tree, err = tmpl.generateInitialTreeWithoutRegistry(state, todoTemplate)
-				if err != nil {
-					t.Fatalf("Failed to generate initial tree: %v", err)
-				}
+				tree = tmpl.generateInitialTreeWithoutRegistry(state, todoTemplate)
 
 				// Validate first render
 				if err := validator.ValidateUpdate(tree, state, true); err != nil {
@@ -2621,10 +2617,9 @@ func TestSpecificationCompliance(t *testing.T) {
 				state := simulator.GetState()
 
 				var tree *build.TreeNode
-				var err error
 
 				if i == 0 {
-					tree, err = tmpl.generateInitialTreeWithoutRegistry(state, tt.template)
+					tree = tmpl.generateInitialTreeWithoutRegistry(state, tt.template)
 				} else {
 					if tmpl.lastTree == nil {
 						continue
@@ -2632,10 +2627,6 @@ func TestSpecificationCompliance(t *testing.T) {
 					newTree, _ := compat.ParseTemplateToTree("test", tt.template, state)
 					tree = tmpl.compareTreesAndGetChanges(tmpl.lastTree, newTree)
 					tmpl.lastTree = newTree
-				}
-
-				if err != nil && !tt.wantErr {
-					t.Errorf("Unexpected error: %v", err)
 				}
 
 				if err := validator.ValidateUpdate(tree, state, i == 0); err != nil && !tt.wantErr {
@@ -3013,7 +3004,7 @@ func TestComplexScenarios(t *testing.T) {
 		state := simulator.GetState()
 
 		if i == 0 {
-			tree, _ := tmpl.generateInitialTreeWithoutRegistry(state, template)
+			tree := tmpl.generateInitialTreeWithoutRegistry(state, template)
 			if err := validator.ValidateUpdate(tree, state, true); err != nil {
 				t.Errorf("Step %d failed: %v", i, err)
 			}

@@ -1855,16 +1855,17 @@ func TestFuzzAppEmptyResults_Property(t *testing.T) {
 // at different hierarchy levels.
 // =============================================================================
 
-// runNestedRangeFuzzSession executes a fuzzing session with nested range state.
+// runNestedRangeFuzzSession executes a fuzzing session with nested range state
+// against app.NestedRangeTemplate.
 func runNestedRangeFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numMutations int,
-	templateStr string, weights mutations.MutationWeights) {
+	weights mutations.MutationWeights) {
 
 	// Create template
 	tmpl := &Template{
-		templateStr: templateStr,
+		templateStr: app.NestedRangeTemplate,
 	}
 
-	if _, err := tmpl.Parse(templateStr); err != nil {
+	if _, err := tmpl.Parse(app.NestedRangeTemplate); err != nil {
 		t.Skipf("Template parse error: %v", err)
 	}
 
@@ -1876,7 +1877,7 @@ func runNestedRangeFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numMuta
 	// Diff correctness is validated by TypeScript oracle tests
 
 	// First render
-	prevTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
+	prevTree, err := compat.ParseTemplateToTree("test", app.NestedRangeTemplate, state.ToMap())
 	if err != nil {
 		t.Fatalf("Initial render failed: %v", err)
 	}
@@ -1902,7 +1903,7 @@ func runNestedRangeFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numMuta
 		}
 
 		// Render new tree
-		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
+		newTree, err := compat.ParseTemplateToTree("test", app.NestedRangeTemplate, state.ToMap())
 		if err != nil {
 			t.Fatalf("Render failed after mutation %d (%s): %v\nState: %+v",
 				i, mutation.String(), err, state)
@@ -1949,7 +1950,7 @@ func TestFuzzNestedRanges_Property(t *testing.T) {
 		numMutations := rapid.IntRange(20, 60).Draw(rt, "numMutations")
 
 		rng := rand.New(rand.NewSource(seed))
-		runNestedRangeFuzzSession(t, rng, seed, numMutations, app.NestedRangeTemplate, weights)
+		runNestedRangeFuzzSession(t, rng, seed, numMutations, weights)
 	})
 }
 
@@ -1971,7 +1972,7 @@ func TestFuzzNestedRanges_ToggleExpand_Property(t *testing.T) {
 		numMutations := rapid.IntRange(30, 80).Draw(rt, "numMutations")
 
 		rng := rand.New(rand.NewSource(seed))
-		runNestedRangeFuzzSession(t, rng, seed, numMutations, app.NestedRangeTemplate, weights)
+		runNestedRangeFuzzSession(t, rng, seed, numMutations, weights)
 	})
 }
 
@@ -1993,7 +1994,7 @@ func TestFuzzNestedRanges_MoveItems_Property(t *testing.T) {
 		numMutations := rapid.IntRange(30, 80).Draw(rt, "numMutations")
 
 		rng := rand.New(rand.NewSource(seed))
-		runNestedRangeFuzzSession(t, rng, seed, numMutations, app.NestedRangeTemplate, weights)
+		runNestedRangeFuzzSession(t, rng, seed, numMutations, weights)
 	})
 }
 
@@ -2014,7 +2015,7 @@ func TestFuzzNestedRanges_Reorder_Property(t *testing.T) {
 		numMutations := rapid.IntRange(30, 80).Draw(rt, "numMutations")
 
 		rng := rand.New(rand.NewSource(seed))
-		runNestedRangeFuzzSession(t, rng, seed, numMutations, app.NestedRangeTemplate, weights)
+		runNestedRangeFuzzSession(t, rng, seed, numMutations, weights)
 	})
 }
 
@@ -2036,7 +2037,7 @@ func TestFuzzNestedRanges_EmptyCategories_Property(t *testing.T) {
 		numMutations := rapid.IntRange(30, 80).Draw(rt, "numMutations")
 
 		rng := rand.New(rand.NewSource(seed))
-		runNestedRangeFuzzSession(t, rng, seed, numMutations, app.NestedRangeTemplate, weights)
+		runNestedRangeFuzzSession(t, rng, seed, numMutations, weights)
 	})
 }
 

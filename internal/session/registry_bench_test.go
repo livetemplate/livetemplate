@@ -10,9 +10,9 @@ const benchWSTextMessage = 1 // RFC 6455 text message type (mirrors WSTextMessag
 // newDrainingBenchConn creates a connection with a dedicated drain goroutine
 // that consumes messages from sendChan, preventing "client too slow" errors.
 // The drain goroutine runs until cleanup is called.
-func newDrainingBenchConn(groupID string, bufferSize int) (conn *Connection, cleanup func()) {
+func newDrainingBenchConn(bufferSize int) (conn *Connection, cleanup func()) {
 	conn = &Connection{
-		GroupID: groupID,
+		GroupID: "bench-group",
 		UserID:  "bench-user",
 	}
 	conn.sendChan = make(chan *wsMessage, bufferSize)
@@ -38,7 +38,7 @@ func newDrainingBenchConn(groupID string, bufferSize int) (conn *Connection, cle
 // BenchmarkAsyncSendThroughput measures message sending throughput
 // with async channel-based sending.
 func BenchmarkAsyncSendThroughput(b *testing.B) {
-	conn, cleanup := newDrainingBenchConn("bench-group", 1000)
+	conn, cleanup := newDrainingBenchConn(1000)
 	defer cleanup()
 
 	b.ResetTimer()
@@ -61,7 +61,7 @@ func BenchmarkConcurrentConnections(b *testing.B) {
 			cleanups := make([]func(), count)
 
 			for i := 0; i < count; i++ {
-				connections[i], cleanups[i] = newDrainingBenchConn("bench-group", 50)
+				connections[i], cleanups[i] = newDrainingBenchConn(50)
 			}
 
 			b.ResetTimer()
@@ -104,7 +104,7 @@ func BenchmarkRegisterUnregister(b *testing.B) {
 
 // BenchmarkConcurrentSend measures concurrent sending from multiple goroutines.
 func BenchmarkConcurrentSend(b *testing.B) {
-	conn, cleanup := newDrainingBenchConn("bench-group", 10000)
+	conn, cleanup := newDrainingBenchConn(10000)
 	defer cleanup()
 
 	b.ResetTimer()
@@ -146,7 +146,7 @@ func BenchmarkCloseConnection(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
-		conn, _ := newDrainingBenchConn("bench-group", 50)
+		conn, _ := newDrainingBenchConn(50)
 		b.StartTimer()
 
 		if err := conn.Close(); err != nil {
@@ -228,7 +228,7 @@ func BenchmarkBufferSizes(b *testing.B) {
 
 	for _, bufferSize := range bufferSizes {
 		b.Run(fmt.Sprintf("buf_%d", bufferSize), func(b *testing.B) {
-			conn, cleanup := newDrainingBenchConn("bench-group", bufferSize)
+			conn, cleanup := newDrainingBenchConn(bufferSize)
 			defer func() { cleanup() }()
 
 			b.ResetTimer()
@@ -241,7 +241,7 @@ func BenchmarkBufferSizes(b *testing.B) {
 					if err == ErrClientTooSlow {
 						// Recreate connection to continue benchmarking
 						cleanup()
-						conn, cleanup = newDrainingBenchConn("bench-group", bufferSize)
+						conn, cleanup = newDrainingBenchConn(bufferSize)
 						continue
 					}
 					b.Fatalf("Send failed: %v", err)

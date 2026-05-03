@@ -922,7 +922,7 @@ func (t *Template) Clone() (*Template, error) {
 		templateStr:            templateStr,
 		tmpl:                   tmpl, // Share parsed template (concurrent Execute is safe)
 		wrapperID:              wrapperID,
-		funcs:                  funcs,       // Share FuncMap (read-only after Parse)
+		funcs:                  funcs, // Share FuncMap (read-only after Parse)
 		config:                 config,
 		cachedParseTemplate:    cachedParse, // Share parsed AST + builtins
 		cachedBodyContent:      bodyContent, // Share extracted body content
@@ -1291,8 +1291,8 @@ func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}, messages ...ma
 // generateTreeInternalWithErrors delegates to buildTree() for backward compatibility.
 // DEPRECATED: Tests should use buildTree() directly. This wrapper exists only for
 // existing test code and will be removed in a future version.
-func (t *Template) generateTreeInternalWithErrors(data interface{}, messages map[string]string) (*treeNode, error) {
-	return t.buildTree(data, messages)
+func (t *Template) generateTreeInternalWithErrors(data interface{}) (*treeNode, error) {
+	return t.buildTree(data, nil)
 }
 
 // getOrComputeBodyContent returns the cached body content from t.templateStr (the template
@@ -1330,7 +1330,9 @@ func (t *Template) buildTreeWithCache(data interface{}, ctx *build.Context) (*tr
 // generateInitialTreeWithoutRegistry creates tree with statics and dynamics for first render.
 // extractedContent is the pre-extracted HTML content (from wrapper extraction in buildTree).
 // NOTE: This method modifies template state. Caller must hold t.mu write lock.
-func (t *Template) generateInitialTreeWithoutRegistry(data interface{}, extractedContent string) (*treeNode, error) {
+// Errors from buildTreeWithCache are absorbed via the HTML structure-based fallback,
+// so this method never propagates failure to the caller.
+func (t *Template) generateInitialTreeWithoutRegistry(data interface{}, extractedContent string) *treeNode {
 	ctx := build.NewContext()
 	ctx.DevMode = t.config.DevMode
 
@@ -1351,7 +1353,7 @@ func (t *Template) generateInitialTreeWithoutRegistry(data interface{}, extracte
 	t.lastTree = tree
 
 	// NOTE: Caller is responsible for calling markAllStructuresAsSeen outside the lock
-	return tree, nil
+	return tree
 }
 
 // generateDiffBasedTree creates tree based on diff analysis
@@ -1665,7 +1667,7 @@ func (t *Template) buildTree(data interface{}, messages map[string]string) (*tre
 		}
 
 		t.lastHTML = contentToCache
-		tree, treeErr = t.generateInitialTreeWithoutRegistry(dataWithLvt, contentToCache)
+		tree = t.generateInitialTreeWithoutRegistry(dataWithLvt, contentToCache)
 	} else {
 		// Subsequent renders - use diffing approach
 		tree, treeErr = t.generateDiffBasedTree(t.lastHTML, currentHTML, dataWithLvt)

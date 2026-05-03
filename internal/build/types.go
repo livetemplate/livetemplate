@@ -374,7 +374,7 @@ func isTreeCompatible(v interface{}) bool {
 	kind := rv.Kind()
 
 	// Dereference pointers to check underlying type
-	if kind == reflect.Ptr {
+	if kind == reflect.Pointer {
 		if rv.IsNil() {
 			return true
 		}
