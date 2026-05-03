@@ -1,0 +1,31 @@
+# When a release tag is pushed to this repo, fire a repository_dispatch
+# event into livetemplate/docs so its sync workflow mirrors the new
+# version's markdown. See livetemplate/docs/CONTRIBUTING.md → Sync workflow
+# for the receiving end.
+name: dispatch docs sync
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fire repository_dispatch into livetemplate/docs
+        env:
+          # PAT with `Contents: Read and write` on livetemplate/docs.
+          # Same PAT used by all four source repos. Setup once via:
+          #   gh secret set DOCS_DISPATCH_TOKEN --repo livetemplate/<this> --body <token>
+          GH_TOKEN: ${{ secrets.DOCS_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::DOCS_DISPATCH_TOKEN not set; skipping docs sync dispatch"
+            exit 0
+          fi
+          gh api -X POST /repos/livetemplate/docs/dispatches \
+            -F event_type=sync-source \
+            -F "client_payload[source_repo]=https://github.com/${{ github.repository }}" \
+            -F "client_payload[ref]=${{ github.ref_name }}"
+          echo "::notice::dispatched docs sync for ${{ github.ref_name }}"
