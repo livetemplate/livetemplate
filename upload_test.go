@@ -469,8 +469,6 @@ func ExamplePresigner() {
 	}
 
 	presign := func(p *CustomPresigner, entry *UploadEntry) (UploadMeta, error) {
-		// Real presigners reject malformed inputs — checking ClientType here
-		// also doubles as documentation of the error-return contract.
 		if entry.ClientType == "" {
 			return UploadMeta{}, errors.New("entry missing client content type")
 		}

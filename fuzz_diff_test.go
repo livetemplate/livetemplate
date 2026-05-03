@@ -1624,7 +1624,7 @@ func runAppFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numMutations in
 	// Diff correctness is validated by TypeScript oracle tests
 
 	// First render
-	prevTree, err := compat.ParseTemplateToTree("test", app.NestedRangeTemplate, state.ToMap())
+	prevTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 	if err != nil {
 		t.Fatalf("Initial render failed: %v", err)
 	}
@@ -1650,7 +1650,7 @@ func runAppFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numMutations in
 		}
 
 		// Render new tree
-		newTree, err := compat.ParseTemplateToTree("test", app.NestedRangeTemplate, state.ToMap())
+		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 		if err != nil {
 			t.Fatalf("Render failed after mutation %d (%s): %v\nState: %+v",
 				i, mutation.String(), err, state)
@@ -2071,7 +2071,7 @@ func runBurstAppFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numRenderC
 	// Diff correctness is validated by TypeScript oracle tests
 
 	// First render
-	prevTree, err := compat.ParseTemplateToTree("test", app.NestedRangeTemplate, state.ToMap())
+	prevTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 	if err != nil {
 		t.Fatalf("Initial render failed: %v", err)
 	}
@@ -2105,7 +2105,7 @@ func runBurstAppFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numRenderC
 		}
 
 		// Now render after the burst
-		newTree, err := compat.ParseTemplateToTree("test", app.NestedRangeTemplate, state.ToMap())
+		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 		if err != nil {
 			t.Fatalf("Render failed after burst at cycle %d: %v\nApplied %d mutations",
 				cycle, err, len(appliedMutations))
@@ -2325,7 +2325,7 @@ func runUndoRedoSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int)
 	verifier := invariants.NewVerifier(seed)
 	// Diff correctness is validated by TypeScript oracle tests
 
-	prevTree, err := compat.ParseTemplateToTree("test", app.NestedRangeTemplate, state.ToMap())
+	prevTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 	if err != nil {
 		t.Fatalf("Initial render failed: %v", err)
 	}
@@ -2357,7 +2357,7 @@ func runUndoRedoSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int)
 		}
 
 		// Render
-		newTree, err := compat.ParseTemplateToTree("test", app.NestedRangeTemplate, state.ToMap())
+		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 		if err != nil {
 			t.Fatalf("Render failed at cycle %d: %v", cycle, err)
 		}
@@ -2425,7 +2425,7 @@ func runPaginationFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCycle
 	verifier := invariants.NewVerifier(seed)
 	// Diff correctness is validated by TypeScript oracle tests
 
-	initialTree, err := compat.ParseTemplateToTree("test", app.NestedRangeTemplate, state.ToMap())
+	initialTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 	if err != nil {
 		t.Fatalf("Initial render failed: %v", err)
 	}
@@ -2446,7 +2446,7 @@ func runPaginationFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCycle
 		}
 		app.DeriveVisibleItems(state)
 
-		newTree, err := compat.ParseTemplateToTree("test", app.NestedRangeTemplate, state.ToMap())
+		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 		if err != nil {
 			t.Fatalf("Render failed at cycle %d: %v", cycle, err)
 		}
@@ -2537,7 +2537,7 @@ func runModalFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int
 	verifier := invariants.NewVerifier(seed)
 	// Diff correctness is validated by TypeScript oracle tests
 
-	initialTree, err := compat.ParseTemplateToTree("test", app.NestedRangeTemplate, state.ToMap())
+	initialTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 	if err != nil {
 		t.Fatalf("Initial render failed: %v", err)
 	}
@@ -2557,7 +2557,7 @@ func runModalFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int
 			continue
 		}
 
-		newTree, err := compat.ParseTemplateToTree("test", app.NestedRangeTemplate, state.ToMap())
+		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 		if err != nil {
 			t.Fatalf("Render failed at cycle %d: %v", cycle, err)
 		}
@@ -2669,7 +2669,7 @@ func runFormFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int,
 	verifier := invariants.NewVerifier(seed)
 	// Diff correctness is validated by TypeScript oracle tests
 
-	initialTree, err := compat.ParseTemplateToTree("test", app.NestedRangeTemplate, state.ToMap())
+	initialTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 	if err != nil {
 		t.Fatalf("Initial render failed: %v", err)
 	}
@@ -2689,7 +2689,7 @@ func runFormFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int,
 			continue
 		}
 
-		newTree, err := compat.ParseTemplateToTree("test", app.NestedRangeTemplate, state.ToMap())
+		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 		if err != nil {
 			t.Fatalf("Render failed at cycle %d: %v", cycle, err)
 		}
@@ -2781,7 +2781,7 @@ func runAsyncFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int
 	verifier := invariants.NewVerifier(seed)
 	// Diff correctness is validated by TypeScript oracle tests
 
-	initialTree, err := compat.ParseTemplateToTree("test", app.NestedRangeTemplate, state.ToMap())
+	initialTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 	if err != nil {
 		t.Fatalf("Initial render failed: %v", err)
 	}
@@ -2801,7 +2801,7 @@ func runAsyncFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int
 			continue
 		}
 
-		newTree, err := compat.ParseTemplateToTree("test", app.NestedRangeTemplate, state.ToMap())
+		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 		if err != nil {
 			t.Fatalf("Render failed at cycle %d: %v", cycle, err)
 		}
@@ -2869,7 +2869,7 @@ func runNotificationFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCyc
 	verifier := invariants.NewVerifier(seed)
 	// Diff correctness is validated by TypeScript oracle tests
 
-	initialTree, err := compat.ParseTemplateToTree("test", app.NestedRangeTemplate, state.ToMap())
+	initialTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 	if err != nil {
 		t.Fatalf("Initial render failed: %v", err)
 	}
@@ -2889,7 +2889,7 @@ func runNotificationFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCyc
 			continue
 		}
 
-		newTree, err := compat.ParseTemplateToTree("test", app.NestedRangeTemplate, state.ToMap())
+		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 		if err != nil {
 			t.Fatalf("Render failed at cycle %d: %v", cycle, err)
 		}
@@ -2980,7 +2980,7 @@ func runBulkFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int,
 	verifier := invariants.NewVerifier(seed)
 	// Diff correctness is validated by TypeScript oracle tests
 
-	initialTree, err := compat.ParseTemplateToTree("test", app.NestedRangeTemplate, state.ToMap())
+	initialTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 	if err != nil {
 		t.Fatalf("Initial render failed: %v", err)
 	}
@@ -3000,7 +3000,7 @@ func runBulkFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int,
 			continue
 		}
 
-		newTree, err := compat.ParseTemplateToTree("test", app.NestedRangeTemplate, state.ToMap())
+		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 		if err != nil {
 			t.Fatalf("Render failed at cycle %d: %v", cycle, err)
 		}
