@@ -234,7 +234,7 @@ The authoritative linter list is `--enable-only=...` in `scripts/pre-commit.sh` 
 | Linter | Catches |
 | --- | --- |
 | `errcheck` | Unchecked error returns |
-| `govet` | Suspicious constructs — printf formats, struct tags, copy locks, shadowed vars |
+| `govet` | Suspicious constructs — printf formats, struct tags, copy locks |
 | `ineffassign` | Ineffective assignments |
 | `staticcheck` | SA*/S*/ST* — wide static analysis |
 | `unparam` | Unused params, always-constant args, dead returns |
