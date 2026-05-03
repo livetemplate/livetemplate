@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Pre-commit hook for LiveTemplate
 # Automatically formats code and runs validation
