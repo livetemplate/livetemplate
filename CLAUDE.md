@@ -222,9 +222,35 @@ For list updates, special operations are used:
 ## Pre-commit Hook
 The repository has a pre-commit hook that:
 1. Auto-formats Go code using `go fmt`
-2. Runs all tests with 30-second timeout
-3. Blocks commits if tests fail
-4. Automatically stages formatted files
+2. Runs `golangci-lint` with `errcheck,govet,ineffassign,staticcheck,unparam,unused`
+3. Runs all tests with 300-second timeout
+4. Blocks commits if any step fails
+5. Automatically stages formatted files
+
+### Linter Set Rationale
+
+The authoritative linter list is `--enable-only=...` in `scripts/pre-commit.sh` — this table is descriptive only and may drift if the script changes without a doc update.
+
+| Linter | Catches |
+| --- | --- |
+| `errcheck` | Unchecked error returns |
+| `govet` | Suspicious constructs — printf formats, struct tags, copy locks |
+| `ineffassign` | Ineffective assignments |
+| `staticcheck` | SA*/S*/ST* — wide static analysis |
+| `unparam` | Unused params, always-constant args, dead returns |
+| `unused` | Unused vars, funcs, types, constants |
+
+### `unparam` Scope and Limitations
+
+`unparam` was added to the gate after the cleanup landed in [PR #372](https://github.com/livetemplate/livetemplate/pull/372). It catches a class the other linters miss: **(a)** a param the body never references, **(b)** a param every caller passes the same constant value for, and **(c)** a returned value no caller reads.
+
+**Two limitations to know about:**
+
+1. **No transitive tracing.** A param passed through a chain of walker functions (e.g., `walkAST(keyGen) → walkList(keyGen) → handleRange(keyGen) → …`) counts as "used" at every level even when nothing ultimately invokes anything on it. The streaming-range Phase 8.5 cleanup ([PR #370](https://github.com/livetemplate/livetemplate/pull/370)) removed ~816 lines of exactly this kind of pass-through drift, none of which `unparam` flagged. **Periodic manual audit is still required** for that class — the methodology used in PR #370 (search for transitively-passed params; check what eventually calls anything on them) is the canonical recipe.
+
+2. **The gate is less strict than standalone `unparam -tests ./...`.** golangci-lint v2's default `unparam` config reliably catches always-nil-error returns, always-constant-arg patterns, and unused params on closures bound to typed function aliases — but it skips some pure-unused-param cases on unexported functions that the standalone tool flags. If you suspect drift the gate isn't catching, run `unparam -tests ./...` directly for a stricter pass.
+
+The pre-commit hook prints linter-specific fix guidance for AI assistants when lint fails — see `scripts/pre-commit.sh` for the full block.
 
 ## Common Tasks
 
