@@ -147,7 +147,7 @@ type ActionMessage struct {
 }
 ```
 
-`ParseActionFromWebSocket` then applies the fallback: `if msg.Action == "" { msg.Action = msg.Submitter }`. When `action` is set explicitly (via `lvt-form:action`), `submitter` is informational. When `action` is empty and `submitter` is set, the server uses `submitter` as the action — which is what the current client already does inline; this just moves the resolution server-side and removes the duplicated logic.
+A shared `resolveSubmitterFallback(msg *ActionMessage)` helper (proposed in Phase 1, see Migration Plan) applies the fallback for **all** content types: `if msg.Action == "" && msg.Submitter != "" { msg.Action = msg.Submitter }`. `ParseActionFromWebSocket`, `ParseActionFromHTTP`'s JSON branch, `parseURLEncodedForm`, and `parseMultipartForm` all call it. When `action` is set explicitly (via `lvt-form:action`), `submitter` is informational. When `action` is empty and `submitter` is set, the server uses `submitter` as the action — which is what the current client already does inline; this just moves the resolution server-side and removes the duplicated logic.
 
 **Note on the WS fallback firing:** in normal operation, the client populates `action` from `submitter.name` *before* sending, so the server-side `if msg.Action == "" { ... }` fallback rarely runs in practice — it's belt-and-suspenders that lets the server stay correct if a future client refactor stops doing the inline action computation, or if a third-party WS client implementation only knows to send `submitter`. The two views of `submitter` in this section ("server uses it as action" + "client pre-populates so it rarely fires") are intentionally redundant: the visible signal stays in `msg.Action` for current operation, while `msg.Submitter` is diagnostic context that protects future implementations from silently regressing.
 
@@ -168,7 +168,7 @@ type ActionMessage struct {
 
 In `parseMultipartForm` specifically, both `lvt-action` and `lvt-submitter` must be read **before** the `jsonDataParsed` branch (the same control-flow position the existing `lvt-action` read uses). This way they take precedence over the heuristic regardless of whether a JSON `data` envelope is present.
 
-The WS path layers the same way but inside `ParseActionFromWebSocket`: explicit `action` field → explicit `submitter` field → empty. The `submitter → action` fallback (`if msg.Action == "" { msg.Action = msg.Submitter }`) belongs **inside `ParseActionFromWebSocket`**, not in `mount.go` alongside `applyDefaultAction`. Co-locating the resolution logic with the parsing keeps the action-resolution semantics in one place and stops the call sites in `mount.go` from having to know about `Submitter` at all. After `ParseActionFromWebSocket` returns, `mount.go` continues to call `applyDefaultAction` (search anchor `applyDefaultAction` in `action.go` and `mount.go`) which ultimately defaults an empty action to `"submit"` — that step is unchanged. The WS path doesn't need a heuristic at all because the `action` and `submitter` fields are first-class on the wire — the client either populates them or the server returns `Submit`.
+The WS path layers the same way but inside `ParseActionFromWebSocket`: explicit `action` field → explicit `submitter` field → empty. `ParseActionFromWebSocket` calls `resolveSubmitterFallback(&msg)` after `Unmarshal` (see Phase 1), keeping the resolution logic co-located with parsing rather than scattering it across `mount.go`'s `applyDefaultAction` call sites. After `ParseActionFromWebSocket` returns, `mount.go` continues to call `applyDefaultAction` (search anchor `applyDefaultAction` in `action.go` and `mount.go`) which ultimately defaults an empty action to `"submit"` — that step is unchanged. The WS path doesn't need a heuristic at all because the `action` and `submitter` fields are first-class on the wire — the client either populates them or the server returns `Submit`.
 
 ## Migration Plan
 
@@ -176,11 +176,26 @@ This is a backwards-compatible protocol extension. No client or server is requir
 
 ### Phase 1 — Server accepts `lvt-submitter`
 
-- Add `Submitter string \`json:"submitter,omitempty"\`` to `ActionMessage` in `internal/send/message.go`. This single struct change covers the **JSON content-type path** automatically (struct decoder picks it up; `ParseActionFromHTTP`'s default-JSON branch needs no further code).
+- Add `Submitter string \`json:"submitter,omitempty"\`` to `ActionMessage` in `internal/send/message.go`. The struct decoder automatically populates this field for any JSON-marshalled message — but populating the field isn't the same as *resolving* it; see the helper below.
+- Extract a shared helper for the `Submitter → Action` fallback so all three content-type paths use the same resolution:
+   ```go
+   // resolveSubmitterFallback fills msg.Action from msg.Submitter when Action
+   // is empty, so an explicit `submitter` field on the wire is treated as the
+   // action of last resort. Idempotent; safe to call from any parser.
+   func resolveSubmitterFallback(msg *ActionMessage) {
+       if msg.Action == "" && msg.Submitter != "" {
+           msg.Action = msg.Submitter
+       }
+   }
+   ```
+   Call it from **all three** ParseActionFrom* paths:
+   - `ParseActionFromHTTP`'s default JSON branch (after `Decode` returns), so JSON-content-type form submissions get the fallback too.
+   - `ParseActionFromWebSocket` (after `Unmarshal`).
+   - `parseURLEncodedForm` and `parseMultipartForm` use the same helper after reading `lvt-submitter` into `msg.Submitter` (see next bullet).
 - Add `lvt-submitter` to the `actionFields` skiplist in `parseURLEncodedForm` and `parseMultipartForm` (so it's not echoed back into `msg.Data`).
-- Read `lvt-submitter` after `lvt-action` and before the heuristic. Critically: **guard the read with `if msg.Action == ""`**, mirroring the existing `detectSubmitButtonName` guard, so an explicit `lvt-action` is never overwritten by `lvt-submitter`.
+- Read `lvt-submitter` into `msg.Submitter` after `lvt-action` and before the heuristic, then call `resolveSubmitterFallback(&msg)`. The helper's internal `if msg.Action == ""` guard ensures an explicit `lvt-action` is never overwritten.
 - In `parseMultipartForm`, place the `lvt-submitter` read at the same control-flow position as `lvt-action` (before the `jsonDataParsed` branch) so it takes precedence over the heuristic regardless of whether a JSON `data` envelope is present.
-- In `ParseActionFromWebSocket`, add the `if msg.Action == "" { msg.Action = msg.Submitter }` fallback after unmarshal (see "WebSocket path" above for the rationale on co-locating this with parsing).
+- Add an "Action resolution order" doc comment to `parseMultipartForm` mirroring the one already in `parseURLEncodedForm`. Both functions will share the same 4-step order after Phase 1; documenting it in only one place is asymmetric.
 - Add tests in `internal/send/message_test.go` mirroring the existing button-name-as-action cases plus collision cases (empty input + explicit submitter, two empty inputs + explicit submitter, `lvt-action` set + `lvt-submitter` set — all must respect the documented precedence). Cover all three content types.
 - Server release: minor bump.
 
@@ -190,7 +205,7 @@ This is a backwards-compatible protocol extension. No client or server is requir
   - **HTTP path** (form submitted via `fetch`): inject as form key `lvt-submitter`.
   - **WS path** (lvt-driven submit): inject as top-level JSON key `submitter` on the action message.
 - Continue capturing the existing inline `action = submitter.name` for the WS path; the structured `submitter` field is additional belt-and-suspenders that survives a server-side rewrite.
-- Add a `lvt-form:emit-submitter` opt-in directive for lite-JS forms (it injects a tiny click-handler that writes a hidden `<input name="lvt-submitter">`). Pure no-JS forms cannot use this and stay on the heuristic.
+- Add a `lvt-form:emit-submitter` opt-in directive for lite-JS forms (it installs a `submit` event listener — *not* a click handler, see "HTTP path" above for the keyboard-submit reasoning — that writes a hidden `<input name="lvt-submitter">` from `(e as SubmitEvent).submitter?.name` before the browser serializes the form). Pure no-JS forms cannot use this and stay on the heuristic.
 - Client release: minor bump. Old client + new server: heuristic still runs (existing behavior). New client + old server: extra `lvt-submitter` / `submitter` fields are ignored by the old server's parsers — no breakage, the heuristic still wins. Both sides up-to-date: explicit submitter wins.
 
 ### Phase 3 — Deprecate the heuristic
