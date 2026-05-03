@@ -104,6 +104,8 @@ The `lvt-form:emit-submitter` attribute wires a **`submit` event listener** (not
 
 For genuinely no-JS forms (form-only HTML, no script tags loaded), the only way to send `lvt-submitter` is to render the value server-side per button using a tiny inline `onclick` (which is HTML-attribute scripting, not script-tag scripting, so it works even when JS is selectively disabled but the page allows event-attribute handlers):
 
+> **CSP caveat:** any app that ships a `Content-Security-Policy` header without `'unsafe-inline'` (the recommended posture) silently drops `onclick` handlers — the snippet below has zero effect under a strict CSP. Apps that need a strict CSP *and* the no-JS path *and* the explicit-submitter contract have no good option short of keeping the heuristic. This combination is the strongest argument for the no-JS support decision in Q3 below; option (a) or (c) — keeping the heuristic available — is the only path that serves it.
+
 ```html
 <form action="/post" method="POST">
   <input type="hidden" name="lvt-submitter" value="">
@@ -238,8 +240,8 @@ This phase is **conditional on the no-JS support decision** (Q3 below). If pure 
     - **(a)** Keep the heuristic permanently as the no-JS fallback; never remove it. Phase 4 just adds a soft warning and stops shipping no-JS-incompatible features.
     - **(b)** Drop no-JS support entirely; remove the heuristic in v0.9.0; document in release notes that LiveTemplate now requires JS for form submission.
     - **(c)** Keep the heuristic behind an opt-in option (`WithProgressiveEnhancement(true)`); default to off in v0.9.0; apps that need no-JS opt back in.
-    - **Decision needed before Phase 4 work begins.** Recommendation: (c) — splits the difference; the heuristic stays in the codebase but isn't on by default, so most apps get the cleaner contract while no-JS apps can still opt back in.
-    - **Phase 4 gating:** the decision must be recorded **before any Phase 4 PR opens** — either by updating this proposal's `Status` field with the resolved option (a/b/c) or by adding a short ADR under `docs/proposals/` referenced from here. "Decide in the implementation PR" is the failure mode to avoid.
+    - **Decision needed before Phase 4 work begins.** Recommendation: (c) — splits the difference; the heuristic stays in the codebase but isn't on by default, so most apps get the cleaner contract while no-JS apps can still opt back in. Apps with a strict Content-Security-Policy (no `'unsafe-inline'`) can't use the inline-`onclick` no-JS workaround at all (see CSP caveat in "HTTP path" above), making (a)/(c) the only viable choices for that audience.
+    - **Phase 4 gating:** the decision must be recorded **before any Phase 4 PR opens** by adding a short ADR at `docs/proposals/adr-no-js-support.md` and linking it from this proposal's `Status` block. Single source of truth — no scattered records. "Decide in the implementation PR" is the failure mode to avoid.
 
 4. **Deprecation-log suppression mechanism.** The Phase 3 warning fires when the heuristic resolves *and* `lvt-submitter` was absent. Two options for letting users suppress it:
     - **(a)** New `WithFormSubmitterMode("strict"|"compat"|"silent")` option threaded through the parsing layer. Permanent API surface.
@@ -261,9 +263,10 @@ When this proposal is implemented:
 
 1. New tests in `internal/send/message_test.go` covering `lvt-submitter` as the routing source, including the collision scenarios that the heuristic gets wrong today (multiple empty fields, user-supplied empty inputs, `<button name="action">`).
 2. New WS-path tests in the same file covering `ActionMessage.Submitter` resolution: `action="" + submitter="X"` → action becomes `X`; `action="Y" + submitter="X"` → action stays `Y`.
-3. New e2e test (or extend an existing form submission e2e in the lvt repo at `e2e/livetemplate_core_test.go`) verifying the explicit submitter path round-trips through both the HTTP and WS paths.
-4. Manual smoke on the patterns examples (login, blog, etc.) confirming no regression in the heuristic-driven path.
-5. Cross-repo verification: bump client to a version that emits `lvt-submitter`, then confirm the lvt examples still work end-to-end.
+3. **Phase 3 deprecation-warning tests:** unit tests around the `sync.Map` / `LoadOrStore` rate-limiting cache. Concurrently invoke the heuristic-resolved code path from N goroutines under `-race` and assert the warning fires *exactly once* per `(path, action)` tuple regardless of concurrency. Add a test that an explicit `lvt-submitter` suppresses the warning entirely. Add a test that `LVT_FORM_SUBMITTER_COMPAT=silent` suppresses the warning even in heuristic-only requests.
+4. New e2e test (or extend an existing form submission e2e in the lvt repo at `e2e/livetemplate_core_test.go`) verifying the explicit submitter path round-trips through both the HTTP and WS paths.
+5. Manual smoke on the patterns examples (login, blog, etc.) confirming no regression in the heuristic-driven path.
+6. Cross-repo verification: bump client to a version that emits `lvt-submitter`, then confirm the lvt examples still work end-to-end.
 
 ## Appendix: References
 
