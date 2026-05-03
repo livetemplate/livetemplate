@@ -229,6 +229,8 @@ The repository has a pre-commit hook that:
 
 ### Linter Set Rationale
 
+The authoritative linter list is `--enable-only=...` in `scripts/pre-commit.sh` — this table is descriptive only and may drift if the script changes without a doc update.
+
 | Linter | Catches |
 | --- | --- |
 | `errcheck` | Unchecked error returns |
