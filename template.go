@@ -1288,13 +1288,6 @@ func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}, messages ...ma
 // Internal Helper Methods (Phase 2: Build)
 // =============================================================================
 
-// generateTreeInternalWithErrors delegates to buildTree() for backward compatibility.
-// DEPRECATED: Tests should use buildTree() directly. This wrapper exists only for
-// existing test code and will be removed in a future version.
-func (t *Template) generateTreeInternalWithErrors(data interface{}) (*treeNode, error) {
-	return t.buildTree(data, nil)
-}
-
 // getOrComputeBodyContent returns the cached body content from t.templateStr (the template
 // source with {{}} action syntax), NOT from rendered HTML. The parser needs template actions
 // to identify dynamic slots, so this intentionally uses the source text.
