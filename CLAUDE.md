@@ -223,7 +223,7 @@ For list updates, special operations are used:
 The repository has a pre-commit hook that:
 1. Auto-formats Go code using `go fmt`
 2. Runs `golangci-lint` with `errcheck,govet,ineffassign,staticcheck,unparam,unused`
-3. Runs all tests with 300-second timeout
+3. Runs all tests with 300-second timeout (longer than the 30s manual-run example in "Running Tests" above to give the full suite headroom under cold caches)
 4. Blocks commits if any step fails
 5. Automatically stages formatted files
 
@@ -232,7 +232,7 @@ The repository has a pre-commit hook that:
 | Linter | Catches |
 | --- | --- |
 | `errcheck` | Unchecked error returns |
-| `govet` | Suspicious constructs (printf format, struct tags, nil pointer, `inline` hints) |
+| `govet` | Suspicious constructs (printf formats, struct tags, copy locks, shadowed vars, plus the `inline` analyzer that flags constants like `reflect.Ptr` aliased to a canonical `reflect.Pointer`) |
 | `ineffassign` | Ineffective assignments |
 | `staticcheck` | SA*/S*/ST* — wide static analysis |
 | `unparam` | Unused params, always-constant args, dead returns |
