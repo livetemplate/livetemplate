@@ -7,7 +7,9 @@ import (
 	"hash/fnv"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // =============================================================================
@@ -442,13 +444,25 @@ func BenchmarkCalculateStructureFingerprint_Range1000(b *testing.B) {
 // Algorithm Comparison Benchmarks (#90)
 // =============================================================================
 
+// visitPathPool reuses the cycle-detection map across benchmark iterations
+// so allocs/op for fingerprintWith reflect the hashing work, not per-call
+// map setup. Production fingerprinting (CalculateStructureFingerprint) does
+// its own allocation; this pool exists only for the benchmark helper.
+var visitPathPool = sync.Pool{
+	New: func() interface{} { return make(map[*TreeNode]struct{}, 16) },
+}
+
 // fingerprintWith computes a fingerprint using the given hash function.
 // Used for comparing MD5 (previous algorithm) vs FNV-1a 128 (current algorithm)
 // in benchmarks; the resulting digest is discarded since only timing matters.
 func fingerprintWith(tree *TreeNode, h hash.Hash) {
-	visitPath := make(map[*TreeNode]struct{})
+	visitPath := visitPathPool.Get().(map[*TreeNode]struct{})
 	hashStructureWithCircularDetection(tree, h, visitPath)
 	_ = hex.EncodeToString(h.Sum(nil))
+	for k := range visitPath {
+		delete(visitPath, k)
+	}
+	visitPathPool.Put(visitPath)
 }
 
 func BenchmarkFingerprintAlgorithms(b *testing.B) {
@@ -529,6 +543,96 @@ func TestFingerprintStress_ConcurrentCompute(t *testing.T) {
 		if results[i] != results[0] {
 			t.Errorf("goroutine %d got %q, expected %q", i, results[i], results[0])
 		}
+	}
+}
+
+// TestFingerprintStress_ConcurrentInvalidateAndRead pins the contract that
+// concurrent readers and invalidators on the same TreeNode never produce a
+// race, panic, or empty/torn fingerprint. Existing stress tests cover
+// concurrent reads (TestFingerprintStress_ConcurrentCompute) and sequential
+// invalidate-then-read (TestFingerprintStress_CacheCoherency); this one
+// covers the harder case — invalidate and read interleaved across goroutines.
+//
+// Because the tree's static structure never changes during the test, every
+// reader must observe the SAME fingerprint regardless of when an invalidate
+// race fired: the cache may flip between empty and the recomputed value, but
+// the recomputed value is deterministic from the structure.
+//
+// Run under `go test -race -run TestFingerprintStress_ConcurrentInvalidateAndRead`.
+func TestFingerprintStress_ConcurrentInvalidateAndRead(t *testing.T) {
+	tree := createBenchTreeMedium()
+	expected := tree.GetStructureFingerprint()
+	if expected == "" {
+		t.Fatal("expected non-empty baseline fingerprint")
+	}
+
+	const (
+		readers   = 50
+		writers   = 50
+		runFor    = 1 * time.Second
+		spinSleep = 0
+	)
+
+	var (
+		wg          sync.WaitGroup
+		stop        = make(chan struct{})
+		mismatchMu  sync.Mutex
+		mismatches  []string
+		readSamples atomic.Uint64
+	)
+
+	for i := 0; i < readers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				got := tree.GetStructureFingerprint()
+				if got != expected {
+					mismatchMu.Lock()
+					mismatches = append(mismatches, got)
+					mismatchMu.Unlock()
+				}
+				readSamples.Add(1)
+				if spinSleep > 0 {
+					time.Sleep(spinSleep)
+				}
+			}
+		}()
+	}
+
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				tree.InvalidateStructureFingerprint()
+				if spinSleep > 0 {
+					time.Sleep(spinSleep)
+				}
+			}
+		}()
+	}
+
+	time.Sleep(runFor)
+	close(stop)
+	wg.Wait()
+
+	if readSamples.Load() == 0 {
+		t.Fatal("readers logged no samples — test did not exercise the path")
+	}
+	if len(mismatches) > 0 {
+		t.Fatalf("readers observed %d mismatching fingerprints; first few: %v",
+			len(mismatches), mismatches[:min(5, len(mismatches))])
 	}
 }
 
