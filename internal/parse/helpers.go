@@ -59,7 +59,7 @@ func isZeroValue(v reflect.Value) bool {
 		return true
 	}
 	switch v.Kind() {
-	case reflect.Ptr, reflect.Interface:
+	case reflect.Pointer, reflect.Interface:
 		return v.IsNil()
 	case reflect.Slice, reflect.Map:
 		return v.IsNil() || v.Len() == 0

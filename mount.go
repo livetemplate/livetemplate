@@ -1388,7 +1388,7 @@ func (h *liveHandler) cloneStateTyped() (interface{}, error) {
 	// Get the type of the inner value
 	innerVal := h.config.State.Inner()
 	innerType := reflect.TypeOf(innerVal)
-	if innerType.Kind() == reflect.Ptr {
+	if innerType.Kind() == reflect.Pointer {
 		innerType = innerType.Elem()
 	}
 

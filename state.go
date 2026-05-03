@@ -74,7 +74,7 @@ func validatePureState[T any]() error {
 }
 
 func validatePureStateType(typ reflect.Type, path string, visited map[reflect.Type]bool) error {
-	if typ.Kind() == reflect.Ptr {
+	if typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
 	}
 	if typ.Kind() != reflect.Struct {
@@ -107,7 +107,7 @@ func checkFieldType(ft reflect.Type, fieldPath string, visited map[reflect.Type]
 	switch ft.Kind() {
 	case reflect.Struct:
 		return validatePureStateType(ft, fieldPath, visited)
-	case reflect.Ptr:
+	case reflect.Pointer:
 		if ft.Elem().Kind() == reflect.Struct {
 			return validatePureStateType(ft.Elem(), fieldPath, visited)
 		}
@@ -123,7 +123,7 @@ func checkFieldType(ft reflect.Type, fieldPath string, visited map[reflect.Type]
 }
 
 func isDependencyType(typ reflect.Type) bool {
-	if typ.Kind() != reflect.Ptr && typ.Kind() != reflect.Interface {
+	if typ.Kind() != reflect.Pointer && typ.Kind() != reflect.Interface {
 		return false
 	}
 	name := typ.String()
@@ -188,7 +188,7 @@ func (s *jsonState[T]) ExtractPersistFields(state interface{}) ([]byte, error) {
 		return nil, nil
 	}
 	v := reflect.ValueOf(state)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 	m := make(map[string]any, len(s.persistFields))
@@ -237,7 +237,7 @@ func detectPersistFields[T any]() []persistFieldInfo {
 	if t == nil {
 		return nil
 	}
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	if t.Kind() != reflect.Struct {

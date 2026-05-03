@@ -93,7 +93,7 @@ func buildDataMapWithContext(data interface{}, lvtContext *TemplateContext) inte
 	// Track whether input was a pointer so we can reuse it for method calls
 	// instead of allocating a new one via reflect.New.
 	var ptrVal reflect.Value
-	if val.Kind() == reflect.Ptr {
+	if val.Kind() == reflect.Pointer {
 		if val.IsNil() {
 			dataMap := make(map[string]interface{})
 			dataMap[TemplateContextKey] = lvtContext

@@ -922,7 +922,7 @@ func (t *Template) Clone() (*Template, error) {
 		templateStr:            templateStr,
 		tmpl:                   tmpl, // Share parsed template (concurrent Execute is safe)
 		wrapperID:              wrapperID,
-		funcs:                  funcs,       // Share FuncMap (read-only after Parse)
+		funcs:                  funcs, // Share FuncMap (read-only after Parse)
 		config:                 config,
 		cachedParseTemplate:    cachedParse, // Share parsed AST + builtins
 		cachedBodyContent:      bodyContent, // Share extracted body content

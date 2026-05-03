@@ -376,7 +376,7 @@ func isErrorResult(v reflect.Value) bool {
 	if !v.IsValid() || !v.Type().Implements(errorType) {
 		return false
 	}
-	if v.Kind() == reflect.Ptr || v.Kind() == reflect.Interface {
+	if v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
 		return !v.IsNil()
 	}
 	return true
@@ -485,7 +485,7 @@ func evalNumber(n *parse.NumberNode) interface{} {
 
 // deref dereferences a reflect.Value through pointers and interfaces.
 func deref(v reflect.Value) reflect.Value {
-	for v.IsValid() && (v.Kind() == reflect.Ptr || v.Kind() == reflect.Interface) {
+	for v.IsValid() && (v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface) {
 		if v.IsNil() {
 			return reflect.Value{}
 		}
@@ -520,7 +520,7 @@ func isTrue(val interface{}) bool {
 		return v.Bool()
 	case reflect.Complex64, reflect.Complex128:
 		return v.Complex() != 0
-	case reflect.Chan, reflect.Func, reflect.Ptr, reflect.UnsafePointer, reflect.Interface:
+	case reflect.Chan, reflect.Func, reflect.Pointer, reflect.UnsafePointer, reflect.Interface:
 		return !v.IsNil()
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return v.Int() != 0
