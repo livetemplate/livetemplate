@@ -190,10 +190,11 @@ This is a backwards-compatible protocol extension. No client or server is requir
        }
    }
    ```
-   Call it from **all three** ParseActionFrom* paths:
-   - `ParseActionFromHTTP`'s default JSON branch (after `Decode` returns), so JSON-content-type form submissions get the fallback too.
-   - `ParseActionFromWebSocket` (after `Unmarshal`).
-   - `parseURLEncodedForm` and `parseMultipartForm` use the same helper after reading `lvt-submitter` into `msg.Submitter` (see next bullet).
+   Call it from **all four** parser call sites:
+   1. `ParseActionFromHTTP`'s default JSON branch (after `Decode` returns), so JSON-content-type form submissions get the fallback too.
+   2. `ParseActionFromWebSocket` (after `Unmarshal`).
+   3. `parseURLEncodedForm`, after reading `lvt-submitter` into `msg.Submitter` (see next bullet).
+   4. `parseMultipartForm`, after reading `lvt-submitter` into `msg.Submitter` (see next bullet).
 - Add `lvt-submitter` to the `actionFields` skiplist in `parseURLEncodedForm` and `parseMultipartForm` (so it's not echoed back into `msg.Data`).
 - Read `lvt-submitter` into `msg.Submitter` after `lvt-action` and before the heuristic, then call `resolveSubmitterFallback(&msg)`. The helper's internal `if msg.Action == ""` guard ensures an explicit `lvt-action` is never overwritten.
 - In `parseMultipartForm`, place the `lvt-submitter` read at the same control-flow position as `lvt-action` (before the `jsonDataParsed` branch) so it takes precedence over the heuristic regardless of whether a JSON `data` envelope is present.
@@ -207,7 +208,7 @@ This is a backwards-compatible protocol extension. No client or server is requir
   - **HTTP path** (form submitted via `fetch`): inject as form key `lvt-submitter`.
   - **WS path** (lvt-driven submit): inject as top-level JSON key `submitter` on the action message.
 - Continue capturing the existing inline `action = submitter.name` for the WS path; the structured `submitter` field is additional belt-and-suspenders that survives a server-side rewrite.
-- Add a `lvt-form:emit-submitter` opt-in directive for lite-JS forms (it installs a `submit` event listener — *not* a click handler, see "HTTP path" above for the keyboard-submit reasoning — that writes a hidden `<input name="lvt-submitter">` from `(e as SubmitEvent).submitter?.name` before the browser serializes the form). Pure no-JS forms cannot use this and stay on the heuristic.
+- Add a `lvt-form:emit-submitter` opt-in directive for lite-JS forms. It installs a `submit` event listener — *not* a click handler, see "HTTP path" above for the keyboard-submit reasoning — that writes the hidden `<input name="lvt-submitter">` from `(e as SubmitEvent).submitter?.name` before the browser serializes the form. The listener implementation must **create the hidden input on first run if it doesn't already exist** (and update its `value` on each subsequent submit), so apps don't have to remember to render the input alongside the directive. Pure no-JS forms cannot use this and stay on the heuristic.
 - Client release: minor bump. Old client + new server: heuristic still runs (existing behavior). New client + old server: extra `lvt-submitter` / `submitter` fields are ignored by the old server's parsers — no breakage, the heuristic still wins. Both sides up-to-date: explicit submitter wins.
 
 ### Phase 3 — Deprecate the heuristic
