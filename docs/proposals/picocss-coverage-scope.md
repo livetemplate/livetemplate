@@ -1,6 +1,7 @@
 # `livetemplate.css` semantic-tag coverage scope
 
 **Status:** Decision Needed
+**To decide:** maintainer reply on this PR with the chosen option (A/B/C), or conversion of [#317](https://github.com/livetemplate/livetemplate/issues/317) into a tracking issue with the option recorded in the body.
 **Tracking issue:** [livetemplate/livetemplate#317](https://github.com/livetemplate/livetemplate/issues/317)
 **Related:** Client [`livetemplate.css`](https://github.com/livetemplate/client/blob/main/livetemplate.css)
 
@@ -42,8 +43,12 @@ Add styling only for tags/patterns that LVT-specific behaviors produce, not for 
 
 - `output[data-flash]` (already shipping) — flash messages.
 - `dialog[open]` — the standard Tier-1 modal pattern uses `<dialog>` with native `command`/`commandfor` (no `lvt-*` attributes; the client polyfills the Invoker Commands API for older browsers). `livetemplate.css` could ship transition/backdrop tweaks picocss doesn't cover, including the auto-close-on-success behavior the client implements.
-- `[data-lvt-loading="true"]` — the wrapper element gets this attribute set during in-flight requests (verified at `livetemplate-client.ts` search anchor `data-lvt-loading`). `livetemplate.css` could ship a default loading-indicator visual treatment (spinner overlay, skeleton, etc.) for apps that opt into the loading-indicator pattern. There is no current selector for the *disconnected* state — the client dispatches `lvt:connected` / `lvt:disconnected` events on the wrapper but doesn't toggle a CSS-friendly attribute. Adding one (e.g., `data-lvt-disconnected`) would be a small client change in scope for Option B.
-- `[lvt-fx\:highlight]` — the CSS selector for the HTML attribute `lvt-fx:highlight`. The `:` is reserved in CSS selectors so it must be backslash-escaped in the selector but not in the HTML attribute itself. The highlight directive flashes elements via custom-property-driven animations; picocss styles `<mark>` for static highlights but doesn't cover the animation hook this directive needs.
+- `[data-lvt-loading="true"]` — the wrapper element gets this attribute set during in-flight requests (verified at `livetemplate-client.ts` search anchor `data-lvt-loading`). `livetemplate.css` could ship a default loading-indicator visual treatment (spinner overlay, skeleton, etc.) for apps that opt into the loading-indicator pattern. There is no current selector for the *disconnected* state — the client dispatches `lvt:connected` / `lvt:disconnected` events on the wrapper but doesn't toggle a CSS-friendly attribute. Adding one (e.g., `data-lvt-disconnected`) would be a small **client-side** change — not just a CSS rule on existing markup — and so requires a separate client PR; recommend filing a tracking issue against the client repo if Option B is chosen and this hook is wanted.
+- `[lvt-fx\:highlight]` — the CSS selector for the HTML attribute `lvt-fx:highlight`. The highlight directive flashes elements via custom-property-driven animations; picocss styles `<mark>` for static highlights but doesn't cover the animation hook this directive needs.
+  ```css
+  /* HTML attribute: lvt-fx:highlight  →  CSS selector: [lvt-fx\:highlight] */
+  ```
+  The `:` is reserved in CSS selectors so it must be backslash-escaped in the selector, but not in the HTML attribute itself.
 - Range diff visual cues (insert/remove transitions) — selectors TBD; would need to be designed alongside the styling. Currently apps wire these themselves with custom CSS.
 
 The chat pattern (`.messages`, `.message`, `.message.mine`) stays under this option as a "reusable pattern" alongside layout and utilities.
@@ -57,7 +62,8 @@ The chat pattern (`.messages`, `.message`, `.message.mine`) stays under this opt
 
 Treat `livetemplate.css` as a curated picocss companion: opinionated styles for all HTML5 semantic tags that picocss leaves bare, plus the LVT-specific patterns above. This is the "extend picocss semantic tags" reading taken literally.
 
-Candidate tags picocss is currently silent or thin on:
+Candidate tags picocss is currently silent or thin on (coverage status reflects picocss at time of writing — verify against the live repo before implementing, since picocss defaults shift between releases):
+
 - `<aside>`, `<figure>`/`<figcaption>` (picocss styles these but minimally)
 - `<details>`/`<summary>` (picocss has light coverage)
 - `<dialog>` (picocss has some, LVT-specific pattern adds more)
@@ -97,7 +103,14 @@ Before #317 is implemented, these need answers:
 
 Concretely:
 
-- Add a header comment to `livetemplate.css` stating: "This file ships styling only for (a) `lvt-fx:*` directive defaults, (b) tags/attributes LVT emits or processes (e.g. `output[data-flash]`, `[data-lvt-loading]`, `dialog[open]`), and (c) opinionated reusable patterns (`.container`, `.compact`, chat layout). General-purpose HTML5 tag styling is delegated to picocss — apps wanting broader coverage should pick a CSS framework alongside LVT."
+- Add a short header comment to `livetemplate.css` (kept terse to be readable in an editor; full rationale lives in this proposal):
+  ```css
+  /* Scope: lvt-fx:* directive defaults, LVT-emitted tag patterns
+     (e.g. output[data-flash], [data-lvt-loading], dialog[open]), and
+     opinionated reusable layouts (.container, .compact, chat).
+     General HTML5 tag coverage is delegated to picocss.
+     See docs/proposals/picocss-coverage-scope.md */
+  ```
 - File a follow-up issue per concrete pattern someone wants added (e.g. "Style `dialog[open]` for the lvt-form:no-intercept Tier 1 pattern") so each addition is justified by a concrete need.
 - Close #317 as "needs concrete scope" or convert it into a tracking issue for the policy commit + first follow-up.
 
