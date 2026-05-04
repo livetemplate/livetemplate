@@ -8,7 +8,7 @@
 
 Issue #317 asks to "extend picocss semantic tags in `livetemplate.css`" without naming a target set. The current file is small and tightly scoped: directive custom properties + one semantic-tag rule (`output[data-flash]`) + layout + utility classes + a chat pattern. **Before adding more, we need a written policy on what coverage is in scope.** This doc frames the choice; it does not decide it.
 
-## Current `livetemplate.css` (as-of v0.8.40 client)
+## Current `livetemplate.css` (at time of writing; see the **Related** link above for the live file)
 
 | Category | Rules |
 |----------|-------|
@@ -41,10 +41,9 @@ Three coherent scope options:
 Add styling only for tags/patterns that LVT-specific behaviors produce, not for general HTML5 coverage. Concretely, this means hooks like:
 
 - `output[data-flash]` (already shipping) — flash messages.
-- `dialog` — `lvt-form:no-intercept` and `<dialog>` are the recommended Tier-1 pattern; `livetemplate.css` could style the LVT-emitted dialog patterns picocss doesn't cover (e.g., transition behavior on `dialog[open]`).
-- `[data-lvt-state="pending"]`, `[data-lvt-state="error"]` — connection-state visual cues for the loading-indicator and disconnected states.
-- `[data-lvt-disabled]` — buttons disabled by `lvt-form:disable-with` already get a class via the directive; visual treatment could ship here.
-- `mark[lvt-fx:highlight]` (or whatever attribute the highlight directive applies) — picocss styles `<mark>` but the directive flash needs animation hooks.
+- `dialog[open]` — the standard Tier-1 modal pattern uses `<dialog>` with native `command`/`commandfor` (no `lvt-*` attributes; the client polyfills the Invoker Commands API for older browsers). `livetemplate.css` could ship transition/backdrop tweaks picocss doesn't cover, including the auto-close-on-success behavior the client implements.
+- `[data-lvt-state="pending"]`, `[data-lvt-state="error"]` — connection-state visual cues for the loading-indicator and disconnected states (selector names illustrative; actual attribute names belong to the client and should be confirmed at implementation time).
+- `[lvt-fx\:highlight]` (escape needed because `:` is reserved in CSS selectors) — the highlight directive flashes elements via custom-property-driven animations; picocss styles `<mark>` for static highlights but doesn't cover the animation hook that `lvt-fx:highlight` needs.
 - Range diff visual cues (insert/remove transitions) — currently apps wire these themselves.
 
 The chat pattern (`.messages`, `.message`, `.message.mine`) stays under this option as a "reusable pattern" alongside layout and utilities.
@@ -104,9 +103,9 @@ Concretely:
 
 Option A is too minimal (the chat pattern already shipped under it would have to come out). Option C is too maintenance-heavy and pushes LVT toward a domain (design system) outside its stated mission. Option B with a written policy threads the needle.
 
-## Verification
+## Implementation checklist (for the follow-up PR)
 
-When this scope decision lands:
+This proposal is pre-decision (see the **Status** field at the top). The items below describe what the *implementing* PR should land once a scope option is chosen — they are not gates for merging this proposal.
 
 1. The chosen policy is written into `livetemplate.css`'s header comment.
 2. Issue #317 is either closed or converted to a tracking issue with a concrete next step.
@@ -123,4 +122,4 @@ When this scope decision lands:
 
 - Current `livetemplate.css`: client repo, root path.
 - Picocss default semantic-tag coverage: [picocss/pico/css](https://github.com/picocss/pico/tree/main/css).
-- Issue #41 (client) — closed as done; the CSS extension API (custom properties + npm distribution) is in place. This proposal is about *what styles ship*, not *how users override*.
+- [Issue #41 (client)](https://github.com/livetemplate/client/issues/41) — closed as done; the CSS extension API (custom properties + npm distribution) is in place. This proposal is about *what styles ship*, not *how users override*.
