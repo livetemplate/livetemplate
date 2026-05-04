@@ -92,6 +92,8 @@ title=My+Post&draft=&lvt-submitter=draft
 
 The `lvt-submitter` key carries the explicit submitter name. The empty-value `draft=` is left as-is so progressive-enhancement falls back to the heuristic when an old client (no shim) submits to a new server.
 
+**JSON HTTP path:** `application/json` HTTP requests are JSON-decoded directly into `ActionMessage` and so use the `submitter` key (same as WebSocket), populated via `ActionMessage.Submitter` — the `lvt-submitter` form field name applies only to `application/x-www-form-urlencoded` and `multipart/form-data` submissions. No additional code is needed for the JSON path beyond the `ActionMessage.Submitter` field addition; the same `resolveSubmitterFallback` helper is called after `Decode`.
+
 For "lite-JS" submits (browser has JS but the full client hasn't loaded yet, or a small subset of the client is in use), the developer can opt in to a directive that injects the field before submit:
 
 ```html
@@ -262,6 +264,7 @@ This phase is **conditional on the no-JS support decision** (Q3 below). If pure 
 - **Input-type-image submitters.** `<input type="image">` submits coordinates (`name.x`, `name.y`) instead of an empty value. Current heuristic doesn't handle this either. Adding `lvt-submitter` does — coordinate inputs become orthogonal.
 - **`<form name="search">` HTTP routing after Phase 4.** A form with a `name` attribute and no named buttons / no `lvt-submitter` field falls through to `applyDefaultAction("submit")` both today (heuristic returns `""`) and after Phase 4 (explicit-submitter lookup returns `""`). No special handling required — the `form.name` → action mapping is a *client-side* convenience implemented in `dom/event-delegation.ts` and the server simply receives a fully-resolved `action` for the WS path. The HTTP no-JS path has never resolved actions from `form.name` and Phase 4 doesn't change that.
 - **Re-entrant double-submit guards in `lvt-form:emit-submitter`.** If two rapid submits race (e.g., double-click before the first fetch returns), the listener fires twice. The second fire updates the hidden input's value, but the first fetch has already serialized the body with the original value — harmless, since both submits carry the same `submitter`. Implementations should *not* add mutex-style locks for this.
+- **`submitter` collision inside the JSON `data` blob.** A client that accidentally puts a key named `submitter` inside the JSON `data` envelope (rather than at the message top level) does not get routing behavior — it surfaces as `msg.Data["submitter"]` and stays as user data. This mirrors how `action` inside `data` works today and is intentional: the routing-layer fields live at the envelope level, the data dictionary is a leaf. Test matrix should cover the `{lvt-submitter set on form} + {submitter set inside data blob}` case to confirm the form-level value wins for routing.
 
 ## Verification
 
@@ -269,7 +272,7 @@ When this proposal is implemented:
 
 1. New tests in `internal/send/message_test.go` covering `lvt-submitter` as the routing source, including the collision scenarios that the heuristic gets wrong today (multiple empty fields, user-supplied empty inputs, `<button name="action">`).
 2. New WS-path tests in the same file covering `ActionMessage.Submitter` resolution: `action="" + submitter="X"` → action becomes `X`; `action="Y" + submitter="X"` → action stays `Y`.
-3. **Phase 3 deprecation-warning tests:** unit tests around the `sync.Map` / `LoadOrStore` rate-limiting cache. Concurrently invoke the heuristic-resolved code path from N goroutines under `-race` and assert the warning fires *exactly once* per `(path, action)` tuple regardless of concurrency. Add a test that an explicit `lvt-submitter` suppresses the warning entirely. Add a test that `LVT_FORM_SUBMITTER_COMPAT=silent` suppresses the warning even in heuristic-only requests.
+3. **Phase 3 deprecation-warning tests:** unit tests around the rate-limiting cache (whether `sync.Map` + `LoadOrStore` or a bounded LRU per Q4's recommendation). Concurrently invoke the heuristic-resolved code path from N goroutines under `-race` and assert the warning fires **at most once** per `(path, action)` tuple per process — "at most" rather than "exactly" because a bounded LRU may evict and re-warn legitimately when the cache fills. Add a test that an explicit `lvt-submitter` suppresses the warning entirely. Add a test that `LVT_FORM_SUBMITTER_COMPAT=silent` suppresses the warning even in heuristic-only requests. If a bounded LRU is chosen, add a separate test that intentional eviction (insert > capacity entries) causes a previously-warned tuple to be re-warned on next miss.
 4. New e2e test (or extend an existing form submission e2e in the lvt repo at `e2e/livetemplate_core_test.go`) verifying the explicit submitter path round-trips through both the HTTP and WS paths.
 5. Manual smoke on the patterns examples (login, blog, etc.) confirming no regression in the heuristic-driven path.
 6. Cross-repo verification: bump client to a version that emits `lvt-submitter`, then confirm the lvt examples still work end-to-end.
