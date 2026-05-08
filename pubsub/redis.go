@@ -348,11 +348,19 @@ func (b *RedisBroadcaster) SubscribeToGroupAction(groupID string) error {
 	return b.subscribeTo(channelGroupAction+groupID, "group action")
 }
 
+// subscribeHook is a test-only hook invoked from trySubscribe immediately
+// before the Redis SUBSCRIBE network call (and outside any lock). It allows
+// tests to inject delay or block to verify that mu is not held across the
+// network call. Production code leaves this nil.
+var subscribeHook func()
+
 // subscribeTo subscribes to a Redis channel with dedup and retry.
 //
-// Retries handle transient Redis failures. The lock is released between
-// attempts so reconnect() can complete and install a fresh b.pubsub —
-// the next attempt then succeeds against the new connection.
+// The lock is released across the Redis SUBSCRIBE network call so concurrent
+// publishes/subscribes/closes are not blocked. Retries handle transient
+// Redis failures and the rare race where reconnect() swaps b.pubsub
+// between our snapshot and our state-update phase (we detect the swap and
+// retry against the new connection).
 func (b *RedisBroadcaster) subscribeTo(channel, label string) error {
 	const maxAttempts = 3
 	const retryDelay = 100 * time.Millisecond
@@ -386,27 +394,58 @@ func (b *RedisBroadcaster) subscribeTo(channel, label string) error {
 	return fmt.Errorf("failed to subscribe to %s channel after %d attempts: %w", label, maxAttempts, lastErr)
 }
 
+// trySubscribe performs one subscribe attempt using a check-lock-check pattern:
+//  1. Read-lock to fast-path closed/already-subscribed/pubsub-nil checks and
+//     to snapshot b.pubsub.
+//  2. Release the lock and perform the Redis SUBSCRIBE outside any lock.
+//  3. Re-acquire the write lock and verify state is still valid (not closed,
+//     pubsub not swapped by a concurrent reconnect, not already recorded by a
+//     racing call) before recording the channel.
+//
+// A duplicate Redis SUBSCRIBE issued by a racing call is harmless — the
+// command is idempotent on the Redis side. A pubsub-pointer swap during
+// the network call is treated as a transient failure; the retry loop will
+// re-snapshot and try again against the new pubsub.
 func (b *RedisBroadcaster) trySubscribe(channel, label string) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
+	b.mu.RLock()
 	if b.closed {
+		b.mu.RUnlock()
 		return fmt.Errorf("broadcaster is closed")
 	}
-
 	if b.pubsub == nil {
+		b.mu.RUnlock()
 		return fmt.Errorf("not subscribed")
 	}
-
 	if _, exists := b.subscribedChannels[channel]; exists {
+		b.mu.RUnlock()
 		return nil
 	}
+	pubsub := b.pubsub
+	b.mu.RUnlock()
 
-	if err := b.pubsub.Subscribe(b.ctx, channel); err != nil {
+	if subscribeHook != nil {
+		subscribeHook()
+	}
+
+	if err := pubsub.Subscribe(b.ctx, channel); err != nil {
 		return fmt.Errorf("failed to subscribe to %s channel: %w", label, err)
 	}
 
+	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return fmt.Errorf("broadcaster is closed")
+	}
+	if b.pubsub != pubsub {
+		b.mu.Unlock()
+		return fmt.Errorf("pubsub connection changed during subscribe to %s channel", label)
+	}
+	if _, exists := b.subscribedChannels[channel]; exists {
+		b.mu.Unlock()
+		return nil
+	}
 	b.subscribedChannels[channel] = struct{}{}
+	b.mu.Unlock()
 
 	slog.Info("Subscribed to "+label+" channel",
 		slog.String("component", "redis_broadcaster"),
@@ -571,40 +610,66 @@ func dispatchTypedMessage[T any](redisMsg *redis.Message, getHandler func() func
 
 // reconnect attempts to re-establish the Redis subscription after a failure.
 // It replays all dynamic channel subscriptions that were active before disconnection.
+//
+// The lock is released across the reconnect-delay sleep and across the
+// Redis SUBSCRIBE/Receive network calls so concurrent publishes,
+// subscribes, and Close() are not blocked for the duration. The flow is:
+//  1. Lock to close the stale pubsub and snapshot the channel list.
+//  2. Release the lock; sleep (interruptible via b.ctx.Done()) so Close()
+//     can short-circuit a long reconnectDelay.
+//  3. Issue Redis SUBSCRIBE + Receive outside any lock.
+//  4. Re-acquire the lock; if Close() raced ahead, tear down the new
+//     pubsub. Otherwise install it as the live one.
 func (b *RedisBroadcaster) reconnect() error {
 	b.mu.Lock()
-	defer b.mu.Unlock()
-
 	if b.closed {
+		b.mu.Unlock()
 		return fmt.Errorf("broadcaster is closed")
 	}
 
-	// Close old subscription
+	// Close old subscription under lock
 	if b.pubsub != nil {
 		_ = b.pubsub.Close()
+		b.pubsub = nil
 	}
 
-	// Wait before reconnecting
-	time.Sleep(b.reconnectDelay)
-
-	// Collect all channels to subscribe: global + all dynamic channels
+	// Snapshot channels to replay (global + all dynamic channels)
 	channels := make([]string, 0, 1+len(b.subscribedChannels))
 	channels = append(channels, channelGlobal)
 	for ch := range b.subscribedChannels {
 		channels = append(channels, ch)
 	}
+	delay := b.reconnectDelay
+	b.mu.Unlock()
 
-	// Re-subscribe to all channels at once
-	b.pubsub = b.client.Subscribe(b.ctx, channels...)
+	// Wait before reconnecting (interruptible so Close() doesn't block for delay)
+	select {
+	case <-b.ctx.Done():
+		return fmt.Errorf("context cancelled before reconnect: %w", b.ctx.Err())
+	case <-time.After(delay):
+	}
 
-	// Wait for confirmation
-	if _, err := b.pubsub.Receive(b.ctx); err != nil {
+	// Re-subscribe to all channels at once (outside any lock)
+	newPubSub := b.client.Subscribe(b.ctx, channels...)
+	if _, err := newPubSub.Receive(b.ctx); err != nil {
+		_ = newPubSub.Close()
 		return fmt.Errorf("failed to resubscribe: %w", err)
 	}
 
+	// Install new pubsub under lock
+	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		_ = newPubSub.Close()
+		return fmt.Errorf("broadcaster is closed")
+	}
+	b.pubsub = newPubSub
+	dynamicCount := len(b.subscribedChannels)
+	b.mu.Unlock()
+
 	slog.Info("Reconnected successfully",
 		slog.String("component", "redis_broadcaster"),
-		slog.Int("dynamic_channels", len(b.subscribedChannels)))
+		slog.Int("dynamic_channels", dynamicCount))
 	return nil
 }
 
