@@ -236,7 +236,7 @@ func (c *Context) ClearFlash(key string)
 func FlashExpiry(d time.Duration) FlashOption
 ```
 
-Sets, clears, or auto-expires a flash message available in templates via `.lvt.Flash(key)`. Common keys: `"success"`, `"error"`, `"info"`, `"warning"`.
+Manages flash messages available in templates via `.lvt.Flash(key)`. Common keys: `"success"`, `"error"`, `"info"`, `"warning"`.
 
 Flash **persists until explicitly cleared** with `ClearFlash` (or until `FlashExpiry` elapses). Background updates such as `TriggerAction` or scan-loop refreshes do not touch flash. See [Flash Message Lifecycle](error-handling.md#flash-message-lifecycle) for the full lifecycle, multi-tab behavior, and v0.8 → v0.9 migration guidance.
 

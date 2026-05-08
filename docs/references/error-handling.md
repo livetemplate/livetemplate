@@ -633,8 +633,9 @@ ctx.ClearFlash("success")
 // Option B: auto-expire after a fixed duration
 ctx.SetFlash("success", "Saved!", livetemplate.FlashExpiry(5*time.Second))
 
-// Option C: dismiss client-side (e.g., on click) and call ClearFlash from
-// the dismiss handler, or simply re-render without the flash key set
+// Option C: dismiss client-side (e.g., on click); the dismiss handler
+// calls ctx.ClearFlash("success") — same effect as Option A, triggered
+// by user gesture instead of a follow-up server action
 ```
 
 ---
