@@ -230,6 +230,7 @@ type Template struct {
 	cachedParseTemplate    *parse.Template // Cached AST to avoid re-parsing on every render
 	cachedBodyContent      string          // Cached result of ExtractTemplateBodyContent(t.templateStr)
 	cachedBodyContentValid bool            // Whether cachedBodyContent has been computed (empty string is valid)
+	formSchema             *FormSchema     // Cached schema extracted from templateStr; nil if no rules
 }
 
 // Funcs registers a template.FuncMap that will be applied to all template parsing and execution.
@@ -911,6 +912,7 @@ func (t *Template) Clone() (*Template, error) {
 	cachedParse := t.cachedParseTemplate
 	bodyContent := t.cachedBodyContent
 	bodyContentValid := t.cachedBodyContentValid
+	formSchema := t.formSchema
 	t.mu.RUnlock()
 
 	// Share immutable data from master instead of re-creating per clone.
@@ -927,6 +929,7 @@ func (t *Template) Clone() (*Template, error) {
 		cachedParseTemplate:    cachedParse, // Share parsed AST + builtins
 		cachedBodyContent:      bodyContent, // Share extracted body content
 		cachedBodyContentValid: bodyContentValid,
+		formSchema:             formSchema, // Share extracted form schema (immutable)
 		// Don't copy lastData, lastHTML, lastTree, etc. - start fresh per session
 	}
 
@@ -1035,6 +1038,7 @@ func (t *Template) parseInternal(text string, baseTemplate *template.Template, i
 	t.cachedParseTemplate = nil // Invalidate cached AST when template source changes
 	t.cachedBodyContent = ""    // Invalidate cached body content
 	t.cachedBodyContentValid = false
+	t.formSchema = extractFormSchemaFromTemplateStr(text)
 
 	// Validate that tree generation works with this template
 	// This ensures templates with {{define}}/{{block}} are caught during initialization

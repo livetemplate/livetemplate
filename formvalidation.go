@@ -33,6 +33,26 @@ type FormSchema struct {
 // inputAttrRegex matches HTML input/textarea/select elements and captures their attributes.
 var inputAttrRegex = regexp.MustCompile(`<(?:input|textarea|select)\b([^>]*)>`)
 
+// templateDirectiveRegex matches Go template actions like {{...}} so we can strip
+// them from the raw template source before form-attribute extraction. Dynamic
+// attribute values (e.g. name="{{.Field}}") collapse to name="" and are then
+// discarded by ExtractFormSchema, matching the documented limitation that
+// dynamic field names are not auto-detected.
+var templateDirectiveRegex = regexp.MustCompile(`(?s)\{\{.*?\}\}`)
+
+// extractFormSchemaFromTemplateStr derives a FormSchema from the raw template
+// source by stripping {{...}} directives and scanning the literal HTML for
+// validation attributes. Returns nil if the template has no rules so callers
+// can skip wiring entirely.
+func extractFormSchemaFromTemplateStr(templateStr string) *FormSchema {
+	stripped := templateDirectiveRegex.ReplaceAllString(templateStr, "")
+	schema := ExtractFormSchema([]string{stripped})
+	if schema == nil || len(schema.Rules) == 0 {
+		return nil
+	}
+	return schema
+}
+
 // attrRegex matches individual HTML attributes.
 // Handles double-quoted values only. This is sufficient because Go's html/template
 // always renders attributes with double quotes in statics.

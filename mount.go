@@ -729,6 +729,9 @@ eventLoop:
 			actionCtx = actionCtx.WithUploads(uploadRegistry)
 			actionCtx = actionCtx.WithFlashSetter(connSt)
 			actionCtx = actionCtx.WithSession(newLocalSession(h, groupID))
+			if schema := connTmpl.formSchema; schema != nil {
+				actionCtx = actionCtx.WithFormSchema(schema)
+			}
 
 			// actionNavigate re-runs Mount with msg.Data as query params. Rebind
 			// actionCtx itself (not a discarded copy) so BroadcastAction calls
@@ -1218,6 +1221,9 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	actionCtx = actionCtx.WithUploads(uploadRegistry)
 	actionCtx = actionCtx.WithFlashSetter(connSt)
 	actionCtx = actionCtx.WithSession(newLocalSession(h, groupID))
+	if schema := h.config.Template.formSchema; schema != nil {
+		actionCtx = actionCtx.WithFormSchema(schema)
+	}
 
 	// Dispatch action using Controller+State pattern
 	newState, actionErr := DispatchWithState(h.config.Controller, connSt.state, actionCtx)
@@ -1511,6 +1517,9 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 	ctx := NewContext(context.Background(), req.Action, req.Data)
 	ctx = ctx.WithUserID(userID)
 	ctx = ctx.WithFlashSetter(connSt)
+	if schema := h.config.Template.formSchema; schema != nil {
+		ctx = ctx.WithFormSchema(schema)
+	}
 	// Wire Session so dispatched actions (from BroadcastAction or
 	// Session.TriggerAction) can also call ctx.Session().TriggerAction
 	// for follow-on server pushes. pendingBroadcasts from ctx is still

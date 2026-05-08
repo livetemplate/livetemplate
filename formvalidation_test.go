@@ -3,7 +3,11 @@ package livetemplate
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -227,5 +231,120 @@ func TestContext_ValidateForm(t *testing.T) {
 	err := ctx.ValidateForm()
 	if err == nil {
 		t.Fatal("Expected validation error for short title")
+	}
+}
+
+func TestExtractFormSchemaFromTemplateStr_StripsDirectives(t *testing.T) {
+	// Mixed static + dynamic attributes: name="title" is literal, value
+	// is dynamic. The directive must be stripped so the literal name is found.
+	src := `<form><input type="email" name="title" value="{{.Title}}" required minlength="5"></form>`
+	schema := extractFormSchemaFromTemplateStr(src)
+	if schema == nil {
+		t.Fatal("Expected schema, got nil")
+	}
+	if len(schema.Rules) != 1 {
+		t.Fatalf("Expected 1 rule, got %d", len(schema.Rules))
+	}
+	if schema.Rules[0].Field != "title" || !schema.Rules[0].Required {
+		t.Errorf("unexpected rule: %+v", schema.Rules[0])
+	}
+
+	// Template with no validation attributes returns nil so callers can skip.
+	none := extractFormSchemaFromTemplateStr(`<div>{{.Body}}</div>`)
+	if none != nil {
+		t.Errorf("Expected nil for template with no input rules, got %+v", none)
+	}
+}
+
+// validateFormController exercises ctx.ValidateForm() inside an action method
+// without ever calling WithFormSchema manually — this regression-tests
+// issue #236 ("ValidateForm silently a no-op for real users").
+type validateFormController struct{}
+
+type validateFormState struct {
+	Errors map[string]string
+}
+
+func (c *validateFormController) Mount(s validateFormState, ctx *Context) (validateFormState, error) {
+	return s, nil
+}
+
+func (c *validateFormController) Submit(s validateFormState, ctx *Context) (validateFormState, error) {
+	if err := ctx.ValidateForm(); err != nil {
+		var multi MultiError
+		if errors.As(err, &multi) {
+			out := make(map[string]string, len(multi))
+			for _, fe := range multi {
+				out[fe.Field] = fe.Message
+			}
+			s.Errors = out
+		}
+		return s, err
+	}
+	s.Errors = nil
+	return s, nil
+}
+
+func TestMount_AutoWiresFormSchema_HTTP(t *testing.T) {
+	tmpl, err := New("autowire-http")
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse(`<div>
+		<form method="POST">
+			<input type="email" name="email" required>
+			<input type="text" name="name" required minlength="3">
+		</form>
+	</div>`)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	if tmpl.formSchema == nil {
+		t.Fatal("Template.formSchema should be populated after Parse")
+	}
+	if len(tmpl.formSchema.Rules) != 2 {
+		t.Fatalf("Expected 2 rules cached on template, got %d", len(tmpl.formSchema.Rules))
+	}
+
+	handler := tmpl.Handle(&validateFormController{}, AsState(&validateFormState{}))
+
+	form := url.Values{}
+	form.Set("lvt-action", "Submit")
+	form.Set("email", "not-an-email")
+	form.Set("name", "ab") // too short
+
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	// JSON response should carry both per-field validation errors emitted by
+	// ValidateForm — proving the schema was auto-wired without the controller
+	// ever calling WithFormSchema.
+	if !strings.Contains(body, "valid email") {
+		t.Errorf("Expected email validation error in response, got: %s", body)
+	}
+	if !strings.Contains(body, "at least 3 characters") {
+		t.Errorf("Expected minlength validation error in response, got: %s", body)
+	}
+}
+
+func TestMount_AutoWiresFormSchema_NoFormFields(t *testing.T) {
+	// Templates without input/textarea/select rules should leave formSchema
+	// nil so the auto-wire branch in mount.go is a no-op (preserves existing
+	// behavior for non-form templates).
+	tmpl, err := New("autowire-noform")
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	if _, err := tmpl.Parse(`<div>{{.Title}}</div>`); err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+	if tmpl.formSchema != nil {
+		t.Errorf("Expected formSchema=nil for template without inputs, got %+v", tmpl.formSchema)
 	}
 }
