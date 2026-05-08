@@ -458,7 +458,7 @@ func (c *ProfileController) Update(state ProfileState, ctx *livetemplate.Context
         return state, fmt.Errorf("failed to update profile: %w", err)
     }
 
-    // Persists until ClearFlash — fine if the next user action will dismiss it
+    // persists until ctx.ClearFlash("success") is called
     ctx.SetFlash("success", "Profile updated successfully!")
 
     state.Profile = input.ToProfile()
@@ -622,7 +622,7 @@ If a user has multiple tabs open (same session group):
 
 In earlier releases, flash was automatically cleared after each render (one-shot). Flash now **persists** on WebSocket connections until `ClearFlash` is explicitly called or `FlashExpiry` elapses. Existing handlers that relied on auto-clear and don't call `ClearFlash` will accumulate flash across re-renders.
 
-To restore one-shot behavior, choose one of:
+To avoid accumulation when migrating from v0.8, choose one of:
 
 ```go
 // Option A: persist and clear explicitly in the follow-up handler
