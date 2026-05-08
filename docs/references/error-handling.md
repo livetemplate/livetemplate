@@ -445,7 +445,7 @@ Flash messages are page-level notifications that don't affect form success/failu
 
 ### Setting Flash Messages
 
-Use `ctx.SetFlash(key, message)` in your action methods:
+Use `ctx.SetFlash(key, message)` in your action methods. By default, flash messages persist on a WebSocket connection until you call `ctx.ClearFlash(key)` — see [Flash Message Lifecycle](#flash-message-lifecycle) below.
 
 ```go
 func (c *ProfileController) Update(state ProfileState, ctx *livetemplate.Context) (ProfileState, error) {
@@ -458,10 +458,33 @@ func (c *ProfileController) Update(state ProfileState, ctx *livetemplate.Context
         return state, fmt.Errorf("failed to update profile: %w", err)
     }
 
-    // Set success flash message
+    // Persists until ClearFlash — fine if the next user action will dismiss it
     ctx.SetFlash("success", "Profile updated successfully!")
 
     state.Profile = input.ToProfile()
+    return state, nil
+}
+```
+
+### Auto-Expiring Flash with `FlashExpiry`
+
+Pass `livetemplate.FlashExpiry(d)` for transient feedback that should disappear on its own:
+
+```go
+ctx.SetFlash("success", "Saved!", livetemplate.FlashExpiry(5*time.Second))
+```
+
+The message is pruned on the next render that walks flash state after the duration elapses — there is no background timer, so the user must trigger a render (action, broadcast, or scan-loop refresh) to see it disappear. A duration of `0` or less disables auto-expiry, behaving as if `FlashExpiry` were not provided.
+
+`FlashExpiry` has no observable effect on HTTP connections — HTTP flash is already one-shot per request.
+
+### Clearing Flash Explicitly
+
+Call `ctx.ClearFlash(key)` when the user has acknowledged the message (e.g., after a follow-up action or navigation):
+
+```go
+func (c *MyController) Acknowledge(state MyState, ctx *livetemplate.Context) (MyState, error) {
+    ctx.ClearFlash("error")
     return state, nil
 }
 ```
@@ -572,16 +595,21 @@ func (c *TodoController) BulkDelete(state TodoState, ctx *livetemplate.Context) 
 
 ### Flash Message Lifecycle
 
-Flash messages follow a "show once" pattern:
+Flash follows a **persist-until-cleared** lifecycle. On a WebSocket connection, a flash message remains visible across re-renders until you remove it explicitly with `ctx.ClearFlash(key)` or attach an expiry with `livetemplate.FlashExpiry(d)`. This matches the Phoenix LiveView model where flash is a separate namespace from assigns: background updates (`TriggerAction`, scan-loop refreshes) that change state fields do not touch flash messages.
 
-1. **Set**: Action handler calls `ctx.SetFlash("success", "Saved!")`
-2. **Render**: Template displays flash via `{{.lvt.Flash "success"}}`
-3. **Clear**: Flash is automatically cleared after the response is sent
+| Step | Action |
+|------|--------|
+| **Set** | Action handler calls `ctx.SetFlash("success", "Saved!")` |
+| **Render** | Template displays flash via `{{.lvt.Flash "success"}}` |
+| **Persist** | Flash survives subsequent re-renders (no auto-clear) |
+| **Clear** | `ctx.ClearFlash("success")` or `FlashExpiry` removes it |
 
 **Key behaviors:**
 - Flash messages are **per-connection**, not shared across browser tabs
-- Flash is cleared after each action response (show once pattern)
-- Flash does **NOT** survive page refresh or WebSocket reconnects (not persisted to session)
+- Flash **persists** across re-renders until explicitly cleared (or expired)
+- Flash does **NOT** survive page refresh or WebSocket reconnects (not persisted to session — a fresh connection starts with empty flash)
+- On HTTP connections (form submissions with progressive enhancement) flash is inherently one-shot regardless of `ClearFlash`, because the per-request connection state is GC'd after the handler returns
+- Flash set in a handler that also calls `ctx.Redirect()` does **not** survive the redirect — no flash cookie is written before the redirect response, so the message is lost. Use a session-backed mechanism (or a query param) if you need flash to survive an HTTP redirect
 - Flash messages don't affect `ResponseMetadata.Success` (only field errors do)
 
 **Multi-tab behavior:**
@@ -589,6 +617,25 @@ If a user has multiple tabs open (same session group):
 - Tab 1 triggers action → sets flash → Tab 1 sees flash
 - Tab 2 does NOT see Tab 1's flash (flash is per-connection)
 - State changes ARE broadcast to Tab 2 (state is shared)
+
+#### Migration: v0.8 → v0.9 (PR #344)
+
+In earlier releases, flash was automatically cleared after each render (one-shot). Flash now **persists** on WebSocket connections until `ClearFlash` is explicitly called or `FlashExpiry` elapses. Existing handlers that relied on auto-clear and don't call `ClearFlash` will accumulate flash across re-renders.
+
+To restore one-shot behavior, choose one of:
+
+```go
+// Option A: persist and clear explicitly in the follow-up handler
+ctx.SetFlash("success", "Saved!")
+// ...later, in the action that acknowledges the message:
+ctx.ClearFlash("success")
+
+// Option B: auto-expire after a fixed duration
+ctx.SetFlash("success", "Saved!", livetemplate.FlashExpiry(5*time.Second))
+
+// Option C: dismiss client-side (e.g., on click) and call ClearFlash from
+// the dismiss handler, or simply re-render without the flash key set
+```
 
 ---
 
