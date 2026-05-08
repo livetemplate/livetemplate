@@ -1517,9 +1517,6 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 	ctx := NewContext(context.Background(), req.Action, req.Data)
 	ctx = ctx.WithUserID(userID)
 	ctx = ctx.WithFlashSetter(connSt)
-	if schema := h.config.Template.formSchema; schema != nil {
-		ctx = ctx.WithFormSchema(schema)
-	}
 	// Wire Session so dispatched actions (from BroadcastAction or
 	// Session.TriggerAction) can also call ctx.Session().TriggerAction
 	// for follow-on server pushes. pendingBroadcasts from ctx is still
@@ -1530,6 +1527,9 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 	// re-triggers itself, which is a caller bug rather than framework
 	// amplification.
 	ctx = ctx.WithSession(newLocalSession(h, connSt.groupID))
+	if schema := h.config.Template.formSchema; schema != nil {
+		ctx = ctx.WithFormSchema(schema)
+	}
 
 	newState, err := DispatchWithState(h.config.Controller, connSt.state, ctx)
 	if err != nil {
@@ -1877,6 +1877,9 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 		actionCtx = actionCtx.WithUserID(msg.UserID)
 		actionCtx = actionCtx.WithFlashSetter(state)
 		actionCtx = actionCtx.WithSession(newLocalSession(h, conn.GroupID))
+		if schema := h.config.Template.formSchema; schema != nil {
+			actionCtx = actionCtx.WithFormSchema(schema)
+		}
 
 		// Dispatch action using Controller+State pattern
 		newState, actionErr := DispatchWithState(h.config.Controller, state.state, actionCtx)

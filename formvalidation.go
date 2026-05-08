@@ -40,12 +40,25 @@ var inputAttrRegex = regexp.MustCompile(`<(?:input|textarea|select)\b([^>]*)>`)
 // dynamic field names are not auto-detected.
 var templateDirectiveRegex = regexp.MustCompile(`(?s)\{\{.*?\}\}`)
 
+// dynamicNameAttrRegex matches a name attribute whose double-quoted value
+// contains a {{...}} template directive (fully or partially dynamic). We blank
+// the value before stripping directives so partially-dynamic names like
+// name="user_{{.ID}}" do not collapse to a misleading literal (name="user_")
+// and produce a wrong-field rule. Blanking forces ExtractFormSchema to skip
+// the input entirely, matching the documented limitation that dynamic field
+// names are not auto-detected.
+var dynamicNameAttrRegex = regexp.MustCompile(`(?s)(\bname\s*=\s*")[^"]*\{\{.*?\}\}[^"]*"`)
+
 // extractFormSchemaFromTemplateStr derives a FormSchema from the raw template
 // source by stripping {{...}} directives and scanning the literal HTML for
 // validation attributes. Returns nil if the template has no rules so callers
 // can skip wiring entirely.
 func extractFormSchemaFromTemplateStr(templateStr string) *FormSchema {
-	stripped := templateDirectiveRegex.ReplaceAllString(templateStr, "")
+	// Pre-pass: blank any name attribute that contains a template directive
+	// so partially-dynamic names are skipped instead of misdetected after the
+	// global directive strip.
+	blanked := dynamicNameAttrRegex.ReplaceAllString(templateStr, `${1}"`)
+	stripped := templateDirectiveRegex.ReplaceAllString(blanked, "")
 	schema := ExtractFormSchema([]string{stripped})
 	if schema == nil || len(schema.Rules) == 0 {
 		return nil

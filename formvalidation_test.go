@@ -256,6 +256,38 @@ func TestExtractFormSchemaFromTemplateStr_StripsDirectives(t *testing.T) {
 	}
 }
 
+func TestExtractFormSchemaFromTemplateStr_SkipsDynamicNames(t *testing.T) {
+	// Names that contain a template directive are dynamic — even partially —
+	// and must produce no rule. Without the dynamic-name pre-pass, a partial
+	// directive like name="user_{{.ID}}" would collapse to name="user_" after
+	// the global strip and yield a rule for a field that never exists, causing
+	// ValidateForm to emit spurious required/format errors.
+	cases := []struct {
+		name string
+		src  string
+	}{
+		{"fully dynamic", `<input type="email" name="{{.Field}}" required>`},
+		{"prefix + directive", `<input type="email" name="user_{{.ID}}" required>`},
+		{"directive + suffix", `<input type="email" name="{{.Prefix}}_field" required>`},
+		{"directive in middle", `<input type="text" name="a{{.Mid}}b" required minlength="3">`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			schema := extractFormSchemaFromTemplateStr(tc.src)
+			if schema != nil {
+				t.Errorf("Expected nil schema for dynamic name (%s), got rules: %+v", tc.src, schema.Rules)
+			}
+		})
+	}
+
+	// Sanity: a fully literal name alongside a dynamic value still yields a rule.
+	mixed := `<form><input type="email" name="literal" value="{{.X}}" required></form>`
+	schema := extractFormSchemaFromTemplateStr(mixed)
+	if schema == nil || len(schema.Rules) != 1 || schema.Rules[0].Field != "literal" {
+		t.Fatalf("Expected single rule for literal name, got %+v", schema)
+	}
+}
+
 // validateFormController exercises ctx.ValidateForm() inside an action method
 // without ever calling WithFormSchema manually — this regression-tests
 // issue #236 ("ValidateForm silently a no-op for real users").
