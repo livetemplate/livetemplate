@@ -33,10 +33,9 @@ type FormSchema struct {
 // inputAttrRegex matches HTML input/textarea/select elements and captures their attributes.
 var inputAttrRegex = regexp.MustCompile(`<(?:input|textarea|select)\b([^>]*)>`)
 
-// Strips Go template actions before HTML attribute extraction.
 var templateDirectiveRegex = regexp.MustCompile(`(?s)\{\{.*?\}\}`)
 
-// Pre-blanks partially-dynamic names like name="user_{{.ID}}" so they don't collapse to misleading literals after the directive strip.
+// name attrs containing any directive are blanked so partial-dynamic forms don't collapse to spurious literal rules.
 var dynamicNameAttrRegex = regexp.MustCompile(`(?s)(\bname\s*=\s*")[^"]*\{\{.*?\}\}[^"]*"`)
 
 func extractFormSchemaFromTemplateStr(templateStr string) *FormSchema {

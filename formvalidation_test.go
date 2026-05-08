@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestExtractFormSchema_BasicAttributes(t *testing.T) {
@@ -362,6 +363,64 @@ func TestMount_AutoWiresFormSchema_HTTP(t *testing.T) {
 	}
 	if !strings.Contains(body, "at least 3 characters") {
 		t.Errorf("Expected minlength validation error in response, got: %s", body)
+	}
+}
+
+func TestMount_AutoWiresFormSchema_WS(t *testing.T) {
+	tmpl, err := New("autowire-ws")
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse(`<div>
+		<form method="POST">
+			<input type="email" name="email" required>
+			<input type="text" name="name" required minlength="3">
+		</form>
+	</div>`)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	if tmpl.formSchema == nil {
+		t.Fatal("Template.formSchema should be populated after Parse")
+	}
+
+	handler := tmpl.Handle(&validateFormController{}, AsState(&validateFormState{}))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+	ws := connectWS(t, wsURL)
+	defer func() {
+		if err := ws.Close(); err != nil {
+			t.Logf("ws close: %v", err)
+		}
+	}()
+
+	sendWSAction(t, ws, "Submit", map[string]interface{}{
+		"email": "not-an-email",
+		"name":  "ab",
+	})
+	resp := readWSUpdate(t, ws, 3*time.Second)
+
+	meta, ok := resp["meta"].(map[string]any)
+	if !ok {
+		t.Fatalf("Submit response has no meta: %#v", resp)
+	}
+	if success, _ := meta["success"].(bool); success {
+		t.Errorf("meta.success = true, want false (validation should have failed)")
+	}
+	errs, ok := meta["errors"].(map[string]any)
+	if !ok {
+		t.Fatalf("meta.errors missing or wrong type: %#v", meta)
+	}
+	emailMsg, _ := errs["email"].(string)
+	if !strings.Contains(emailMsg, "valid email") {
+		t.Errorf("meta.errors[email] = %q, want substring 'valid email'", emailMsg)
+	}
+	nameMsg, _ := errs["name"].(string)
+	if !strings.Contains(nameMsg, "at least 3 characters") {
+		t.Errorf("meta.errors[name] = %q, want substring 'at least 3 characters'", nameMsg)
 	}
 }
 

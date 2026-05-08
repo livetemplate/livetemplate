@@ -1877,9 +1877,6 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 		actionCtx = actionCtx.WithUserID(msg.UserID)
 		actionCtx = actionCtx.WithFlashSetter(state)
 		actionCtx = actionCtx.WithSession(newLocalSession(h, conn.GroupID))
-		if schema := h.config.Template.formSchema; schema != nil {
-			actionCtx = actionCtx.WithFormSchema(schema)
-		}
 
 		// Dispatch action using Controller+State pattern
 		newState, actionErr := DispatchWithState(h.config.Controller, state.state, actionCtx)
