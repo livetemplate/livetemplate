@@ -393,16 +393,27 @@ func (b *RedisBroadcaster) subscribeTo(channel, label string) error {
 	b.mu.RUnlock()
 	notReadyDeadline := time.Now().Add(reconnectBudget)
 
+	// Two separate counters:
+	//   * iteration: gates the inter-attempt sleep so any retry (notReady or
+	//     normal-error) waits retryDelay before re-issuing trySubscribe.
+	//   * normalAttempts: gates the maxAttempts break and is only incremented
+	//     for non-notReady errors. Without this split, notReady spins (up to
+	//     ~reconnectDelay/retryDelay of them) would silently consume the
+	//     3-attempt budget, so a single real error after reconnect completes
+	//     would terminate the loop and produce a misleading "after 3 attempts"
+	//     error message.
 	var lastErr error
-	attempt := 0
+	iteration := 0
+	normalAttempts := 0
 	for {
-		if attempt > 0 {
+		if iteration > 0 {
 			select {
 			case <-b.ctx.Done():
 				return fmt.Errorf("context cancelled while retrying %s channel subscribe: %w", label, b.ctx.Err())
 			case <-time.After(retryDelay):
 			}
 		}
+		iteration++
 
 		err := b.trySubscribe(channel, label)
 		if err == nil {
@@ -412,23 +423,24 @@ func (b *RedisBroadcaster) subscribeTo(channel, label string) error {
 
 		// Transient: reconnect in progress. Keep retrying until the
 		// reconnect window elapses, then fall through to normal budget.
+		// Does NOT consume the normalAttempts budget — those retries are
+		// reserved for actual subscribe failures.
 		if errors.Is(err, errPubsubNotReady) && time.Now().Before(notReadyDeadline) {
 			slog.Debug("Subscribe waiting for reconnect to complete",
 				slog.String("component", "redis_broadcaster"),
 				slog.String("channel", channel))
-			attempt++
 			continue
 		}
 
-		attempt++
-		if attempt >= maxAttempts {
+		normalAttempts++
+		if normalAttempts >= maxAttempts {
 			break
 		}
 
 		slog.Warn("Subscribe attempt failed, retrying",
 			slog.String("component", "redis_broadcaster"),
 			slog.String("channel", channel),
-			slog.Int("attempt", attempt),
+			slog.Int("attempt", normalAttempts),
 			slog.Int("max_attempts", maxAttempts),
 			slog.Any("error", err))
 	}
