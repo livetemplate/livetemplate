@@ -33,30 +33,13 @@ type FormSchema struct {
 // inputAttrRegex matches HTML input/textarea/select elements and captures their attributes.
 var inputAttrRegex = regexp.MustCompile(`<(?:input|textarea|select)\b([^>]*)>`)
 
-// templateDirectiveRegex matches Go template actions like {{...}} so we can strip
-// them from the raw template source before form-attribute extraction. Dynamic
-// attribute values (e.g. name="{{.Field}}") collapse to name="" and are then
-// discarded by ExtractFormSchema, matching the documented limitation that
-// dynamic field names are not auto-detected.
+// Strips Go template actions before HTML attribute extraction.
 var templateDirectiveRegex = regexp.MustCompile(`(?s)\{\{.*?\}\}`)
 
-// dynamicNameAttrRegex matches a name attribute whose double-quoted value
-// contains a {{...}} template directive (fully or partially dynamic). We blank
-// the value before stripping directives so partially-dynamic names like
-// name="user_{{.ID}}" do not collapse to a misleading literal (name="user_")
-// and produce a wrong-field rule. Blanking forces ExtractFormSchema to skip
-// the input entirely, matching the documented limitation that dynamic field
-// names are not auto-detected.
+// Pre-blanks partially-dynamic names like name="user_{{.ID}}" so they don't collapse to misleading literals after the directive strip.
 var dynamicNameAttrRegex = regexp.MustCompile(`(?s)(\bname\s*=\s*")[^"]*\{\{.*?\}\}[^"]*"`)
 
-// extractFormSchemaFromTemplateStr derives a FormSchema from the raw template
-// source by stripping {{...}} directives and scanning the literal HTML for
-// validation attributes. Returns nil if the template has no rules so callers
-// can skip wiring entirely.
 func extractFormSchemaFromTemplateStr(templateStr string) *FormSchema {
-	// Pre-pass: blank any name attribute that contains a template directive
-	// so partially-dynamic names are skipped instead of misdetected after the
-	// global directive strip.
 	blanked := dynamicNameAttrRegex.ReplaceAllString(templateStr, `${1}"`)
 	stripped := templateDirectiveRegex.ReplaceAllString(blanked, "")
 	schema := ExtractFormSchema([]string{stripped})
