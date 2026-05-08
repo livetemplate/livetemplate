@@ -3,6 +3,7 @@ package pubsub
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -49,6 +50,7 @@ type RedisBroadcaster struct {
 	wg                  sync.WaitGroup
 	mu                  sync.RWMutex
 	closed              bool
+	reconnecting        bool                // True while reconnect() is in its sleep/SUBSCRIBE window (pubsub is nil)
 	reconnectDelay      time.Duration       // Delay before reconnecting after subscription failure (default: 1s)
 	subscribedChannels  map[string]struct{} // Tracks dynamic channel subscriptions for reconnect replay
 }
@@ -354,6 +356,19 @@ func (b *RedisBroadcaster) SubscribeToGroupAction(groupID string) error {
 // network call. Production code leaves this nil.
 var subscribeHook func()
 
+// reconnectHook is a test-only hook invoked from reconnect() immediately
+// after the lock has been released and before the reconnect-delay sleep.
+// It allows tests to deterministically wait for reconnect() to enter its
+// no-lock window without relying on time-based synchronization.
+// Production code leaves this nil.
+var reconnectHook func()
+
+// errPubsubNotReady is a sentinel signaling that pubsub is currently nil
+// because reconnect() is in progress. It's distinct from "broadcaster is
+// closed" (permanent) and lets subscribeTo() extend its retry window to
+// cover the reconnect-delay rather than failing fast in ~200ms.
+var errPubsubNotReady = fmt.Errorf("pubsub not ready (reconnect in progress)")
+
 // subscribeTo subscribes to a Redis channel with dedup and retry.
 //
 // The lock is released across the Redis SUBSCRIBE network call so concurrent
@@ -361,12 +376,26 @@ var subscribeHook func()
 // Redis failures and the rare race where reconnect() swaps b.pubsub
 // between our snapshot and our state-update phase (we detect the swap and
 // retry against the new connection).
+//
+// When trySubscribe reports errPubsubNotReady (pubsub is nil because
+// reconnect() is in progress), the retry budget is extended to cover the
+// reconnect window so subscriptions arriving mid-reconnect succeed against
+// the new connection rather than failing fast.
 func (b *RedisBroadcaster) subscribeTo(channel, label string) error {
 	const maxAttempts = 3
 	const retryDelay = 100 * time.Millisecond
 
+	// When reconnect is in progress, extend the deadline to cover the
+	// full reconnect-delay (plus slack for the SUBSCRIBE/Receive round-trip
+	// after the sleep). Bounded so a permanently-broken pubsub doesn't hang.
+	b.mu.RLock()
+	reconnectBudget := b.reconnectDelay + 2*time.Second
+	b.mu.RUnlock()
+	notReadyDeadline := time.Now().Add(reconnectBudget)
+
 	var lastErr error
-	for attempt := 0; attempt < maxAttempts; attempt++ {
+	attempt := 0
+	for {
 		if attempt > 0 {
 			select {
 			case <-b.ctx.Done():
@@ -381,14 +410,27 @@ func (b *RedisBroadcaster) subscribeTo(channel, label string) error {
 		}
 		lastErr = err
 
-		if attempt < maxAttempts-1 {
-			slog.Warn("Subscribe attempt failed, retrying",
+		// Transient: reconnect in progress. Keep retrying until the
+		// reconnect window elapses, then fall through to normal budget.
+		if errors.Is(err, errPubsubNotReady) && time.Now().Before(notReadyDeadline) {
+			slog.Debug("Subscribe waiting for reconnect to complete",
 				slog.String("component", "redis_broadcaster"),
-				slog.String("channel", channel),
-				slog.Int("attempt", attempt+1),
-				slog.Int("max_attempts", maxAttempts),
-				slog.Any("error", err))
+				slog.String("channel", channel))
+			attempt++
+			continue
 		}
+
+		attempt++
+		if attempt >= maxAttempts {
+			break
+		}
+
+		slog.Warn("Subscribe attempt failed, retrying",
+			slog.String("component", "redis_broadcaster"),
+			slog.String("channel", channel),
+			slog.Int("attempt", attempt),
+			slog.Int("max_attempts", maxAttempts),
+			slog.Any("error", err))
 	}
 
 	return fmt.Errorf("failed to subscribe to %s channel after %d attempts: %w", label, maxAttempts, lastErr)
@@ -413,7 +455,16 @@ func (b *RedisBroadcaster) trySubscribe(channel, label string) error {
 		return fmt.Errorf("broadcaster is closed")
 	}
 	if b.pubsub == nil {
+		// Distinguish two cases for the caller:
+		//   * reconnecting = true  → transient (reconnect in progress); the
+		//     retry loop should wait for the new pubsub.
+		//   * reconnecting = false → permanent (Subscribe never called); the
+		//     normal 3-attempt budget should fail fast.
+		reconnecting := b.reconnecting
 		b.mu.RUnlock()
+		if reconnecting {
+			return fmt.Errorf("%s: %w", label, errPubsubNotReady)
+		}
 		return fmt.Errorf("not subscribed")
 	}
 	if _, exists := b.subscribedChannels[channel]; exists {
@@ -614,12 +665,20 @@ func dispatchTypedMessage[T any](redisMsg *redis.Message, getHandler func() func
 // The lock is released across the reconnect-delay sleep and across the
 // Redis SUBSCRIBE/Receive network calls so concurrent publishes,
 // subscribes, and Close() are not blocked for the duration. The flow is:
-//  1. Lock to close the stale pubsub and snapshot the channel list.
+//  1. Lock to close the stale pubsub, set b.reconnecting = true, and
+//     snapshot the channel list.
 //  2. Release the lock; sleep (interruptible via b.ctx.Done()) so Close()
 //     can short-circuit a long reconnectDelay.
 //  3. Issue Redis SUBSCRIBE + Receive outside any lock.
 //  4. Re-acquire the lock; if Close() raced ahead, tear down the new
 //     pubsub. Otherwise install it as the live one.
+//  5. On every exit path, clear b.reconnecting via deferred unlock so
+//     a stalled reconnect doesn't trap concurrent subscribeTo callers.
+//
+// While b.reconnecting is true, trySubscribe distinguishes "transient
+// pubsub-nil" from "permanent pubsub-nil" via errPubsubNotReady so
+// dynamic subscribes arriving mid-reconnect can wait for the new
+// connection rather than failing fast inside their normal retry budget.
 func (b *RedisBroadcaster) reconnect() error {
 	b.mu.Lock()
 	if b.closed {
@@ -627,11 +686,14 @@ func (b *RedisBroadcaster) reconnect() error {
 		return fmt.Errorf("broadcaster is closed")
 	}
 
-	// Close old subscription under lock
+	// Close old subscription under lock and mark reconnect-in-progress so
+	// concurrent trySubscribe calls see "transient unavailable" rather than
+	// "permanent failure" while pubsub is nil.
 	if b.pubsub != nil {
 		_ = b.pubsub.Close()
 		b.pubsub = nil
 	}
+	b.reconnecting = true
 
 	// Snapshot channels to replay (global + all dynamic channels)
 	channels := make([]string, 0, 1+len(b.subscribedChannels))
@@ -641,6 +703,19 @@ func (b *RedisBroadcaster) reconnect() error {
 	}
 	delay := b.reconnectDelay
 	b.mu.Unlock()
+
+	// Clear the reconnecting flag on every exit path (success, sleep cancel,
+	// Subscribe/Receive failure, closed-during-install) so subscribeTo doesn't
+	// hang waiting for a reconnect that has already aborted.
+	defer func() {
+		b.mu.Lock()
+		b.reconnecting = false
+		b.mu.Unlock()
+	}()
+
+	if reconnectHook != nil {
+		reconnectHook()
+	}
 
 	// Wait before reconnecting (interruptible so Close() doesn't block for delay)
 	select {

@@ -1123,6 +1123,10 @@ func TestSubscribeTo_DoesNotBlockConcurrentOperations(t *testing.T) {
 // the reconnect() path: the lock must be released across the reconnect-delay
 // sleep and the Redis SUBSCRIBE/Receive calls. With the bug, a 1s default
 // reconnectDelay stalled all publishes for the full second.
+//
+// Synchronization uses reconnectHook (signalled when reconnect() has released
+// its initial lock and is about to enter the sleep window) rather than
+// time-based sleep, so the test is deterministic on slow CI runners.
 func TestReconnect_DoesNotBlockConcurrentPublish(t *testing.T) {
 	client := getTestRedisClient(t)
 	defer func() {
@@ -1150,16 +1154,32 @@ func TestReconnect_DoesNotBlockConcurrentPublish(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
+	// Hook fires after reconnect() has released its initial lock and is about
+	// to enter the sleep window. Use it to deterministically time the publish
+	// rather than guessing with time.Sleep.
+	hookEntered := make(chan struct{})
+	prevHook := reconnectHook
+	reconnectHook = func() {
+		select {
+		case <-hookEntered:
+		default:
+			close(hookEntered)
+		}
+	}
+	defer func() { reconnectHook = prevHook }()
+
 	// Trigger a reconnect from a goroutine.
 	reconnectDone := make(chan error, 1)
 	go func() {
 		reconnectDone <- broadcaster.reconnect()
 	}()
 
-	// Wait long enough for reconnect() to enter its sleep window (it acquires
-	// and releases the lock first, then sleeps), but short enough that we're
-	// well within the 800ms delay.
-	time.Sleep(50 * time.Millisecond)
+	// Wait for reconnect() to enter the no-lock sleep window.
+	select {
+	case <-hookEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("reconnect never reached the hook (lock-release phase did not run)")
+	}
 
 	// Publish must not block on the lock while reconnect() is sleeping.
 	start := time.Now()
@@ -1186,6 +1206,10 @@ func TestReconnect_DoesNotBlockConcurrentPublish(t *testing.T) {
 // TestReconnect_InterruptibleByContextCancel verifies that Close() (which
 // cancels the broadcaster context) short-circuits a long reconnectDelay
 // rather than blocking for the full delay.
+//
+// Uses reconnectHook to deterministically signal that reconnect() has entered
+// its sleep window, then calls Close() (preferred over the bare cancel() so
+// b.closed is set, matching production semantics).
 func TestReconnect_InterruptibleByContextCancel(t *testing.T) {
 	client := getTestRedisClient(t)
 	defer func() {
@@ -1202,14 +1226,37 @@ func TestReconnect_InterruptibleByContextCancel(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
+	hookEntered := make(chan struct{})
+	prevHook := reconnectHook
+	reconnectHook = func() {
+		select {
+		case <-hookEntered:
+		default:
+			close(hookEntered)
+		}
+	}
+	defer func() { reconnectHook = prevHook }()
+
 	reconnectDone := make(chan error, 1)
 	go func() {
 		reconnectDone <- broadcaster.reconnect()
 	}()
 
-	// Let reconnect enter its sleep, then cancel the context.
-	time.Sleep(50 * time.Millisecond)
-	broadcaster.cancel()
+	// Wait for reconnect to enter its sleep, then trigger Close to cancel
+	// the context. Close() also sets b.closed = true (matches production
+	// semantics; using the bare cancel() left b.closed = false).
+	select {
+	case <-hookEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("reconnect never reached the hook")
+	}
+	closeDone := make(chan error, 1)
+	go func() {
+		// Best-effort: Close may report an error because the racing reconnect
+		// can tear down the pubsub from underneath it. The interrupt itself
+		// is the load-bearing assertion below.
+		closeDone <- broadcaster.Close()
+	}()
 
 	select {
 	case <-reconnectDone:
@@ -1218,7 +1265,97 @@ func TestReconnect_InterruptibleByContextCancel(t *testing.T) {
 		t.Fatal("reconnect did not honor context cancellation; would have slept 5s")
 	}
 
-	// Best-effort cleanup; Close may report errors because the underlying
-	// pubsub was torn down by the cancelled reconnect.
-	_ = broadcaster.Close()
+	// Drain Close to avoid leaking the goroutine.
+	select {
+	case <-closeDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close() did not return")
+	}
+}
+
+// TestSubscribeTo_SucceedsDuringReconnectWindow verifies the fix for the
+// follow-up issue surfaced in PR #389 review: with b.pubsub == nil during
+// reconnect, a concurrent SubscribeToGroup must not fail-fast inside its
+// 3×100ms retry budget. The extended retry window (bounded by reconnectDelay)
+// keeps retrying until reconnect installs the new pubsub, then succeeds.
+func TestSubscribeTo_SucceedsDuringReconnectWindow(t *testing.T) {
+	client := getTestRedisClient(t)
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
+
+	// 600ms > 200ms naive retry budget; with the fix, subscribeTo waits for
+	// the reconnect window before giving up.
+	broadcaster := NewRedisBroadcaster(client, WithReconnectDelay(600*time.Millisecond))
+	defer func() {
+		if err := broadcaster.Close(); err != nil {
+			t.Errorf("Failed to close broadcaster: %v", err)
+		}
+	}()
+
+	go func() {
+		if err := broadcaster.Subscribe(func(msg *BroadcastMessage) error {
+			return nil
+		}); err != nil {
+			t.Errorf("Subscribe failed: %v", err)
+		}
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	hookEntered := make(chan struct{})
+	prevHook := reconnectHook
+	reconnectHook = func() {
+		select {
+		case <-hookEntered:
+		default:
+			close(hookEntered)
+		}
+	}
+	defer func() { reconnectHook = prevHook }()
+
+	// Start reconnect; pubsub is nilled inside the lock then released before
+	// the hook fires.
+	reconnectDone := make(chan error, 1)
+	go func() {
+		reconnectDone <- broadcaster.reconnect()
+	}()
+
+	// Wait until reconnect is in its sleep window — this is the worst case
+	// for SubscribeToGroup because pubsub is observably nil for the full
+	// reconnectDelay.
+	select {
+	case <-hookEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("reconnect never reached the hook")
+	}
+
+	// SubscribeToGroup MUST succeed even though it lands during the
+	// pubsub-is-nil window. With the bug (3×100ms fail-fast), this would
+	// return "not subscribed" well before reconnect installs the new pubsub.
+	subDone := make(chan error, 1)
+	go func() {
+		subDone <- broadcaster.SubscribeToGroup("late-subscribe-group")
+	}()
+
+	select {
+	case err := <-subDone:
+		if err != nil {
+			t.Fatalf("SubscribeToGroup failed during reconnect window: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("SubscribeToGroup did not complete within reconnect window")
+	}
+
+	// reconnect must complete successfully too.
+	select {
+	case err := <-reconnectDone:
+		if err != nil {
+			t.Fatalf("reconnect failed: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("reconnect did not complete")
+	}
 }
