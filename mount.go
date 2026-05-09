@@ -173,12 +173,15 @@ type wsReadMessage struct {
 	err  error
 }
 
+// flashKey is a bare flash key (no "_flash:" prefix) — distinct from prefixed keys in connState.messages.
+type flashKey string
+
 type connState struct {
-	state       interface{}          // Typed state (cloned per session)
-	messages    map[string]string    // keys: field errors (plain) + flash (prefixed with "_flash:"); note: flashExpiry below uses bare keys
-	flashExpiry map[string]time.Time // keys: bare flash key WITHOUT "_flash:" prefix (unlike messages above)
-	messagesMu  sync.RWMutex         // Mutex for thread-safe message access
-	groupID     string               // Session/group ID for this connection
+	state       interface{}            // Typed state (cloned per session)
+	messages    map[string]string      // keys: field errors (plain) + flash (prefixed with "_flash:"); note: flashExpiry below uses bare keys (typed as flashKey)
+	flashExpiry map[flashKey]time.Time // keys: bare flash key WITHOUT "_flash:" prefix (typed flashKey, see comment above)
+	messagesMu  sync.RWMutex           // Mutex for thread-safe message access
+	groupID     string                 // Session/group ID for this connection
 }
 
 func (c *connState) setError(field, message string) {
@@ -231,13 +234,13 @@ func (c *connState) setFlash(key, message string, expiry time.Duration) {
 	c.messages[lvtcontext.FlashPrefix+key] = message
 	if expiry > 0 {
 		if c.flashExpiry == nil {
-			c.flashExpiry = make(map[string]time.Time)
+			c.flashExpiry = make(map[flashKey]time.Time)
 		}
-		c.flashExpiry[key] = time.Now().Add(expiry)
+		c.flashExpiry[flashKey(key)] = time.Now().Add(expiry)
 	} else {
 		// No expiry — persist until ClearFlash. Remove any prior expiry.
 		// delete on a nil map is a safe no-op in Go, so no nil guard needed.
-		delete(c.flashExpiry, key)
+		delete(c.flashExpiry, flashKey(key))
 	}
 }
 
@@ -249,7 +252,7 @@ func (c *connState) clearFlashKey(key string) {
 	defer c.messagesMu.Unlock()
 	delete(c.messages, lvtcontext.FlashPrefix+key)
 	// delete on a nil map is a safe no-op in Go, so no nil guard needed here.
-	delete(c.flashExpiry, key)
+	delete(c.flashExpiry, flashKey(key))
 }
 
 // pruneExpiredFlash removes only flash messages whose expiry has
@@ -282,7 +285,7 @@ func (c *connState) pruneExpiredFlash() {
 	now := time.Now()
 	for key, exp := range c.flashExpiry {
 		if now.After(exp) {
-			delete(c.messages, lvtcontext.FlashPrefix+key)
+			delete(c.messages, lvtcontext.FlashPrefix+string(key))
 			delete(c.flashExpiry, key)
 		}
 	}
