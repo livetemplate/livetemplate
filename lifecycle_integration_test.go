@@ -266,15 +266,6 @@ func treeContainsString(node map[string]interface{}, want string) bool {
 	return false
 }
 
-// =============================================================================
-// WebSocket Lifecycle Context Cancellation (issue #303)
-// =============================================================================
-//
-// Mount runs on every WebSocket connect/reconnect (PR #301). The lifecycleCtx
-// passed to Mount must inherit cancellation from the upgraded HTTP request so
-// that DB work or other context-aware operations cancel when the client
-// disconnects, rather than orphaning until they complete on their own.
-
 type wsCtxCancelState struct {
 	Count int
 }
@@ -310,8 +301,6 @@ func TestWebSocketLifecycleCtx_CancelsOnDisconnect(t *testing.T) {
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
 
-	// connectWSRaw blocks until the initial render frame arrives, which
-	// means Mount has run and the server is in its event loop.
 	ws, _ := connectWSRaw(t, wsURL)
 
 	var mountCtx context.Context

@@ -547,10 +547,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		groupID:  groupID,
 	}
 
-	// Create context for lifecycle methods with query params from initial connection.
-	// Use r.Context() so Mount/OnConnect inherit cancellation from the WS request
-	// lifetime — when the client disconnects, in-flight DB work cancels rather than
-	// orphaning queries (issue #303).
+	// Use r.Context() (not context.Background()) so Mount/OnConnect cancel on disconnect (#303).
 	wsQueryData := send.QueryParamsToData(r)
 	lifecycleCtx := NewContext(ctx, "", wsQueryData)
 	lifecycleCtx = lifecycleCtx.WithUserID(userID)
