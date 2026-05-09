@@ -1512,9 +1512,7 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 		HasSync:                HasActionMethod(controller, state.Inner(), syncMethodName),
 	}
 
-	if HasActionMethod(controller, state.Inner(), CapabilityChange) {
-		mountCfg.Capabilities = []string{CapabilityChange}
-	}
+	mountCfg.Capabilities = detectCapabilities(controller, state.Inner(), &mountCfg)
 
 	limits := session.NewConnectionLimits(mountCfg.MaxConnections, mountCfg.MaxConnectionsPerGroup)
 	metrics := observe.NewMetrics(slog.Default())

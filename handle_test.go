@@ -1746,8 +1746,60 @@ func (c *capControllerWithoutChange) Submit(state capState, ctx *Context) (capSt
 	return state, nil
 }
 
+type capControllerWithValidate struct{}
+
+func (c *capControllerWithValidate) Validate(state capState, ctx *Context) (capState, error) {
+	return state, nil
+}
+
+type capControllerWithChangeAndValidate struct{}
+
+func (c *capControllerWithChangeAndValidate) Change(state capState, ctx *Context) (capState, error) {
+	return state, nil
+}
+
+func (c *capControllerWithChangeAndValidate) Validate(state capState, ctx *Context) (capState, error) {
+	return state, nil
+}
+
+// readCapabilities issues an Accept: application/json request to the handler
+// and returns the capabilities slice from the initial render meta. Any nil
+// return signals that capabilities was omitted.
+func readCapabilities(t *testing.T, handler http.Handler) []interface{} {
+	t.Helper()
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Accept", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d", rec.Code)
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Failed to parse response JSON: %v", err)
+	}
+	meta, ok := resp["meta"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Expected meta field in response")
+	}
+	caps, ok := meta["capabilities"].([]interface{})
+	if !ok {
+		return nil
+	}
+	return caps
+}
+
+func capsContain(caps []interface{}, name string) bool {
+	for _, c := range caps {
+		if c == name {
+			return true
+		}
+	}
+	return false
+}
+
 func TestHandle_CapabilitiesInInitialRender(t *testing.T) {
-	tmpl, err := New("test")
+	tmpl, err := New("test", WithProgressiveEnhancement(false))
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
@@ -1756,43 +1808,19 @@ func TestHandle_CapabilitiesInInitialRender(t *testing.T) {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	ctrl := &capControllerWithChange{}
-	state := AsState(&capState{Name: "test"})
+	handler := tmpl.Handle(&capControllerWithChange{}, AsState(&capState{Name: "test"}))
 
-	handler := tmpl.Handle(ctrl, state)
-
-	req := httptest.NewRequest("GET", "/", nil)
-	req.Header.Set("Accept", "application/json")
-	rec := httptest.NewRecorder()
-
-	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("Expected status 200, got %d", rec.Code)
-	}
-
-	var resp map[string]interface{}
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("Failed to parse response JSON: %v", err)
-	}
-
-	meta, ok := resp["meta"].(map[string]interface{})
-	if !ok {
-		t.Fatal("Expected meta field in response")
-	}
-
-	caps, ok := meta["capabilities"].([]interface{})
-	if !ok {
-		t.Fatal("Expected capabilities array in meta")
-	}
-
+	caps := readCapabilities(t, handler)
 	if len(caps) != 1 || caps[0] != "change" {
 		t.Errorf("Expected capabilities=[\"change\"], got %v", caps)
 	}
 }
 
 func TestHandle_NoCapabilitiesWithoutChangeMethod(t *testing.T) {
-	tmpl, err := New("test")
+	// Disable progressive enhancement so the only candidate capability is
+	// "change". With it disabled and no Change() method, no capabilities
+	// should be advertised.
+	tmpl, err := New("test", WithProgressiveEnhancement(false))
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
@@ -1801,38 +1829,16 @@ func TestHandle_NoCapabilitiesWithoutChangeMethod(t *testing.T) {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	ctrl := &capControllerWithoutChange{}
-	state := AsState(&capState{Name: "test"})
+	handler := tmpl.Handle(&capControllerWithoutChange{}, AsState(&capState{Name: "test"}))
 
-	handler := tmpl.Handle(ctrl, state)
-
-	req := httptest.NewRequest("GET", "/", nil)
-	req.Header.Set("Accept", "application/json")
-	rec := httptest.NewRecorder()
-
-	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("Expected status 200, got %d", rec.Code)
-	}
-
-	var resp map[string]interface{}
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("Failed to parse response JSON: %v", err)
-	}
-
-	meta, ok := resp["meta"].(map[string]interface{})
-	if !ok {
-		t.Fatal("Expected meta field in response")
-	}
-
-	if _, exists := meta["capabilities"]; exists {
-		t.Error("Expected capabilities to be omitted when controller has no Change() method")
+	caps := readCapabilities(t, handler)
+	if caps != nil {
+		t.Errorf("Expected capabilities to be omitted, got %v", caps)
 	}
 }
 
 func TestHandle_CapabilitiesInWebSocketInitialRender(t *testing.T) {
-	tmpl, err := New("test")
+	tmpl, err := New("test", WithProgressiveEnhancement(false))
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
@@ -1882,6 +1888,140 @@ func TestHandle_CapabilitiesInWebSocketInitialRender(t *testing.T) {
 
 	if len(caps) != 1 || caps[0] != "change" {
 		t.Errorf("Expected capabilities=[\"change\"], got %v", caps)
+	}
+}
+
+func TestHandle_CapabilitiesValidateDetected(t *testing.T) {
+	tmpl, err := New("test", WithProgressiveEnhancement(false))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>{{.Name}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	handler := tmpl.Handle(&capControllerWithValidate{}, AsState(&capState{Name: "test"}))
+
+	caps := readCapabilities(t, handler)
+	if !capsContain(caps, "validate") {
+		t.Errorf("Expected capabilities to include \"validate\", got %v", caps)
+	}
+	if capsContain(caps, "change") {
+		t.Errorf("Did not expect \"change\" without Change() method, got %v", caps)
+	}
+}
+
+func TestHandle_CapabilitiesValidateAndChange(t *testing.T) {
+	tmpl, err := New("test", WithProgressiveEnhancement(false))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>{{.Name}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	handler := tmpl.Handle(&capControllerWithChangeAndValidate{}, AsState(&capState{Name: "test"}))
+
+	caps := readCapabilities(t, handler)
+	if !capsContain(caps, "change") || !capsContain(caps, "validate") {
+		t.Errorf("Expected both \"change\" and \"validate\", got %v", caps)
+	}
+}
+
+func TestHandle_CapabilitiesValidateOmittedWithoutMethod(t *testing.T) {
+	tmpl, err := New("test", WithProgressiveEnhancement(false))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>{{.Name}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	handler := tmpl.Handle(&capControllerWithChange{}, AsState(&capState{Name: "test"}))
+
+	caps := readCapabilities(t, handler)
+	if capsContain(caps, "validate") {
+		t.Errorf("Did not expect \"validate\" without Validate() method, got %v", caps)
+	}
+}
+
+func TestHandle_CapabilitiesUploadDetected(t *testing.T) {
+	tmpl, err := New("test",
+		WithProgressiveEnhancement(false),
+		WithUpload("attachment", UploadConfig{}),
+	)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>{{.Name}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	handler := tmpl.Handle(&capControllerWithoutChange{}, AsState(&capState{Name: "test"}))
+
+	caps := readCapabilities(t, handler)
+	if !capsContain(caps, "upload") {
+		t.Errorf("Expected capabilities to include \"upload\", got %v", caps)
+	}
+}
+
+func TestHandle_CapabilitiesUploadOmittedWithoutConfig(t *testing.T) {
+	tmpl, err := New("test", WithProgressiveEnhancement(false))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>{{.Name}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	handler := tmpl.Handle(&capControllerWithChange{}, AsState(&capState{Name: "test"}))
+
+	caps := readCapabilities(t, handler)
+	if capsContain(caps, "upload") {
+		t.Errorf("Did not expect \"upload\" without UploadConfigs, got %v", caps)
+	}
+}
+
+func TestHandle_CapabilitiesProgressiveEnhancementDefault(t *testing.T) {
+	// ProgressiveEnhancement defaults to true and is advertised whenever the
+	// option is enabled.
+	tmpl, err := New("test")
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>{{.Name}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	handler := tmpl.Handle(&capControllerWithoutChange{}, AsState(&capState{Name: "test"}))
+
+	caps := readCapabilities(t, handler)
+	if !capsContain(caps, "progressive_enhancement") {
+		t.Errorf("Expected capabilities to include \"progressive_enhancement\" by default, got %v", caps)
+	}
+}
+
+func TestHandle_CapabilitiesProgressiveEnhancementDisabled(t *testing.T) {
+	tmpl, err := New("test", WithProgressiveEnhancement(false))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>{{.Name}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	handler := tmpl.Handle(&capControllerWithoutChange{}, AsState(&capState{Name: "test"}))
+
+	caps := readCapabilities(t, handler)
+	if capsContain(caps, "progressive_enhancement") {
+		t.Errorf("Did not expect \"progressive_enhancement\" when disabled, got %v", caps)
 	}
 }
 
@@ -1966,7 +2106,10 @@ func TestFaviconDoesNotResetState(t *testing.T) {
 }
 
 func TestHandle_NoCapabilitiesInWebSocketWithoutChangeMethod(t *testing.T) {
-	tmpl, err := New("test")
+	// Disable progressive enhancement so the only candidate capability is
+	// "change". With it disabled and no Change() method, no capabilities
+	// should be advertised.
+	tmpl, err := New("test", WithProgressiveEnhancement(false))
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}

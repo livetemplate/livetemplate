@@ -13,8 +13,26 @@ import (
 // ErrMethodNotFound is returned when Dispatch cannot find a method matching the action.
 var ErrMethodNotFound = errors.New("method not found for action")
 
-// CapabilityChange is the capability name for controllers with a Change() method.
-const CapabilityChange = "change"
+// Capability names advertised in ResponseMetadata.Capabilities so the client
+// can adapt its behavior to features the server supports.
+//
+// A capability should only be in the list if the client changes its behavior
+// based on it. Detection happens once at Handle() time.
+const (
+	// CapabilityChange is set when the controller has a Change() method,
+	// detected via reflection (see HasActionMethod).
+	CapabilityChange = "change"
+	// CapabilityValidate is set when the controller has a Validate() method,
+	// detected via reflection (see HasActionMethod).
+	CapabilityValidate = "validate"
+	// CapabilityUpload is set when the template has at least one upload
+	// configuration registered via WithUpload.
+	CapabilityUpload = "upload"
+	// CapabilityProgressiveEnhancement is set when non-JS form fallback is
+	// enabled (default: enabled). Clients can use it to know the server
+	// handles plain POSTs end-to-end.
+	CapabilityProgressiveEnhancement = "progressive_enhancement"
+)
 
 // DispatchError provides context about a failed dispatch.
 type DispatchError struct {
@@ -132,6 +150,32 @@ func HasActionMethod(controller interface{}, state interface{}, action string) b
 		stateType = stateType.Elem()
 	}
 	return getMethodIndexNewSignature(controllerType, stateType, action) >= 0
+}
+
+// detectCapabilities builds the capability list advertised to the client.
+// Order is fixed (change, validate, upload, progressive_enhancement) so wire
+// output is deterministic.
+//
+// Returns nil when no capabilities apply so JSON marshaling can omit the
+// field via `omitempty`.
+func detectCapabilities(controller interface{}, state interface{}, cfg *mountConfig) []string {
+	caps := make([]string, 0, 4)
+	if HasActionMethod(controller, state, CapabilityChange) {
+		caps = append(caps, CapabilityChange)
+	}
+	if HasActionMethod(controller, state, CapabilityValidate) {
+		caps = append(caps, CapabilityValidate)
+	}
+	if len(cfg.UploadConfigs) > 0 {
+		caps = append(caps, CapabilityUpload)
+	}
+	if cfg.ProgressiveEnhancement {
+		caps = append(caps, CapabilityProgressiveEnhancement)
+	}
+	if len(caps) == 0 {
+		return nil
+	}
+	return caps
 }
 
 // methodCacheNewSignature caches method lookups for new signature
