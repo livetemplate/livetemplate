@@ -22,6 +22,12 @@ import (
 type localSession struct {
 	handler *liveHandler
 	groupID string
+	// fromDispatched is true when this localSession was constructed inside
+	// a dispatched-action handler (i.e. the action context originated from
+	// EnqueueDispatch, not from an HTTP request or initial WS connect).
+	// When set, TriggerAction emits a slog.Debug line on each invocation so
+	// that infinite chained-dispatch loops are visible in logs (#337).
+	fromDispatched bool
 }
 
 // newLocalSession constructs a localSession scoped to a specific session
@@ -29,6 +35,14 @@ type localSession struct {
 // to store in a controller across goroutines.
 func newLocalSession(handler *liveHandler, groupID string) *localSession {
 	return &localSession{handler: handler, groupID: groupID}
+}
+
+// newLocalSessionFromDispatched constructs a localSession that knows it
+// was created inside a dispatched-action handler. TriggerAction calls on
+// the returned value emit an observability log line so that recursive or
+// runaway chained dispatches are detectable (#337 Option A).
+func newLocalSessionFromDispatched(handler *liveHandler, groupID string) *localSession {
+	return &localSession{handler: handler, groupID: groupID, fromDispatched: true}
 }
 
 // TriggerAction dispatches a server-initiated action to every connection
@@ -102,6 +116,18 @@ func (s *localSession) TriggerAction(action string, data map[string]interface{})
 	}
 	if s.groupID == "" {
 		return fmt.Errorf("livetemplate: session has no groupID")
+	}
+
+	// Observability log for chained TriggerAction calls (#337 Option A).
+	// Emitted before EnqueueDispatch so that an unbounded recursion (a
+	// handler that re-triggers its own action) shows up in logs even if
+	// the WebSocket disconnects before the loop terminates.
+	if s.fromDispatched {
+		slog.Debug("Session.TriggerAction called from within a dispatched action",
+			slog.String("component", "local_session"),
+			slog.String("group_id", s.groupID),
+			slog.String("action", action),
+		)
 	}
 
 	connections := s.handler.registry.GetByGroup(s.groupID)
