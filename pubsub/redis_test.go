@@ -33,10 +33,8 @@ const waitForTimeout = 2 * time.Second
 // adding Receive() to subscribeTo for symmetry with Subscribe.)
 const subscribeAckWindow = 50 * time.Millisecond
 
-// waitFor polls cond at 10ms intervals up to waitForTimeout. Returns true if
-// cond became true within the deadline, false otherwise. Used to replace
-// time.Sleep-based test synchronization where we're waiting for an
-// observable state change (e.g. reconnect completion, message arrival).
+// waitFor replaces time.Sleep-based synchronization when an observable state
+// change (e.g. reconnect completion, message arrival) is the real trigger.
 func waitFor(cond func() bool) bool {
 	deadline := time.Now().Add(waitForTimeout)
 	for time.Now().Before(deadline) {
