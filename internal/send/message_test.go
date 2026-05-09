@@ -804,6 +804,357 @@ func TestQueryParamsToData(t *testing.T) {
 	}
 }
 
+// TestParseActionFromHTTP_URLEncoded_ExplicitSubmitter covers Phase 1 of the
+// explicit-submitter proposal (docs/proposals/explicit-submitter.md): the
+// "lvt-submitter" form field is the explicit, client-emitted SubmitEvent.
+// submitter.name. It populates msg.Action when no lvt-action is provided,
+// is preserved on msg.Submitter for diagnostics, is stripped from msg.Data,
+// and takes precedence over the empty-value heuristic in collision cases
+// the heuristic gets wrong today.
+func TestParseActionFromHTTP_URLEncoded_ExplicitSubmitter(t *testing.T) {
+	tests := []struct {
+		name          string
+		body          string
+		wantAction    string
+		wantSubmitter string
+		wantData      map[string]interface{}
+	}{
+		{
+			name:          "explicit submitter populates action",
+			body:          "lvt-submitter=save&title=hello",
+			wantAction:    "save",
+			wantSubmitter: "save",
+			wantData: map[string]interface{}{
+				"title": "hello",
+			},
+		},
+		{
+			name:          "lvt-action takes precedence over lvt-submitter",
+			body:          "lvt-action=foo&lvt-submitter=bar&title=hello",
+			wantAction:    "foo",
+			wantSubmitter: "bar",
+			wantData: map[string]interface{}{
+				"title": "hello",
+			},
+		},
+		{
+			// Heuristic alone would misroute to "search" (sole empty-value field).
+			// Explicit submitter wins and routes to "save". The empty "search"
+			// input is preserved as user data.
+			name:          "explicit submitter beats empty user input collision",
+			body:          "search=&lvt-submitter=save&title=hello",
+			wantAction:    "save",
+			wantSubmitter: "save",
+			wantData: map[string]interface{}{
+				"search": "",
+				"title":  "hello",
+			},
+		},
+		{
+			// Heuristic returns "" (ambiguous) for two empty-value fields.
+			// Explicit submitter resolves the ambiguity.
+			name:          "explicit submitter resolves ambiguous heuristic",
+			body:          "delete=&archive=&lvt-submitter=delete&title=hello",
+			wantAction:    "delete",
+			wantSubmitter: "delete",
+			wantData: map[string]interface{}{
+				"delete":  "",
+				"archive": "",
+				"title":   "hello",
+			},
+		},
+		{
+			// Documented heuristic workaround: <button name="action"> is excluded
+			// from the empty-value scan to avoid <form action> ambiguity. An
+			// explicit submitter routes correctly even when the clicked button
+			// is named "action".
+			name:          "explicit submitter resolves <button name=action> collision",
+			body:          "action=&lvt-submitter=action&title=hello",
+			wantAction:    "action",
+			wantSubmitter: "action",
+			wantData: map[string]interface{}{
+				"action": "",
+				"title":  "hello",
+			},
+		},
+		{
+			// lvt-submitter must not be echoed back into msg.Data.
+			name:          "lvt-submitter is consumed, not surfaced as user data",
+			body:          "lvt-submitter=save&name=Jane",
+			wantAction:    "save",
+			wantSubmitter: "save",
+			wantData: map[string]interface{}{
+				"name": "Jane",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("POST", "/", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+			msg, err := ParseActionFromHTTP(req)
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+
+			if msg.Action != tt.wantAction {
+				t.Errorf("Action = %q, want %q", msg.Action, tt.wantAction)
+			}
+			if msg.Submitter != tt.wantSubmitter {
+				t.Errorf("Submitter = %q, want %q", msg.Submitter, tt.wantSubmitter)
+			}
+			if _, ok := msg.Data["lvt-submitter"]; ok {
+				t.Errorf("lvt-submitter must not appear in msg.Data, got %v", msg.Data["lvt-submitter"])
+			}
+
+			for key, want := range tt.wantData {
+				got := msg.Data[key]
+				if got != want {
+					t.Errorf("Data[%q] = %v, want %v", key, got, want)
+				}
+			}
+			for key := range msg.Data {
+				if _, ok := tt.wantData[key]; !ok {
+					t.Errorf("Unexpected data field: %q = %v", key, msg.Data[key])
+				}
+			}
+		})
+	}
+}
+
+// TestParseActionFromHTTP_Multipart_ExplicitSubmitter mirrors the URL-encoded
+// explicit-submitter coverage for multipart form bodies. It exercises both the
+// individual-fields branch and the JSON-data-envelope branch (the proposal
+// requires lvt-submitter to take precedence even when a JSON "data" envelope
+// is present).
+func TestParseActionFromHTTP_Multipart_ExplicitSubmitter(t *testing.T) {
+	t.Run("submitter populates action with individual fields", func(t *testing.T) {
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+		multipartField(t, writer, "lvt-submitter", "save")
+		multipartField(t, writer, "title", "hello")
+		closeMultipart(t, writer)
+
+		req := httptest.NewRequest("POST", "/", &body)
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+
+		msg, err := ParseActionFromHTTP(req)
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		if msg.Action != "save" {
+			t.Errorf("Action = %q, want %q", msg.Action, "save")
+		}
+		if msg.Submitter != "save" {
+			t.Errorf("Submitter = %q, want %q", msg.Submitter, "save")
+		}
+		if _, ok := msg.Data["lvt-submitter"]; ok {
+			t.Error("lvt-submitter must not appear in msg.Data")
+		}
+		if msg.Data["title"] != "hello" {
+			t.Errorf("Data[title] = %v, want %q", msg.Data["title"], "hello")
+		}
+	})
+
+	t.Run("lvt-action takes precedence over lvt-submitter", func(t *testing.T) {
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+		multipartField(t, writer, "lvt-action", "foo")
+		multipartField(t, writer, "lvt-submitter", "bar")
+		multipartField(t, writer, "title", "hello")
+		closeMultipart(t, writer)
+
+		req := httptest.NewRequest("POST", "/", &body)
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+
+		msg, err := ParseActionFromHTTP(req)
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		if msg.Action != "foo" {
+			t.Errorf("Action = %q, want %q", msg.Action, "foo")
+		}
+		// Submitter is preserved as diagnostic context even when lvt-action wins.
+		if msg.Submitter != "bar" {
+			t.Errorf("Submitter = %q, want %q (preserved as diagnostic)", msg.Submitter, "bar")
+		}
+	})
+
+	t.Run("submitter beats empty user input collision", func(t *testing.T) {
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+		multipartField(t, writer, "search", "") // legitimate empty user input
+		multipartField(t, writer, "lvt-submitter", "save")
+		multipartField(t, writer, "title", "hello")
+		closeMultipart(t, writer)
+
+		req := httptest.NewRequest("POST", "/", &body)
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+
+		msg, err := ParseActionFromHTTP(req)
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		if msg.Action != "save" {
+			t.Errorf("Action = %q, want %q (heuristic would have misrouted to \"search\")", msg.Action, "save")
+		}
+		if msg.Data["search"] != "" {
+			t.Errorf("Data[search] = %v, want empty string preserved", msg.Data["search"])
+		}
+	})
+
+	t.Run("submitter resolves ambiguous heuristic", func(t *testing.T) {
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+		multipartField(t, writer, "delete", "")
+		multipartField(t, writer, "archive", "")
+		multipartField(t, writer, "lvt-submitter", "delete")
+		multipartField(t, writer, "title", "hello")
+		closeMultipart(t, writer)
+
+		req := httptest.NewRequest("POST", "/", &body)
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+
+		msg, err := ParseActionFromHTTP(req)
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		if msg.Action != "delete" {
+			t.Errorf("Action = %q, want %q (heuristic ambiguous)", msg.Action, "delete")
+		}
+	})
+
+	t.Run("submitter takes precedence with JSON data envelope", func(t *testing.T) {
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+		multipartField(t, writer, "lvt-submitter", "save")
+		multipartField(t, writer, "data", `{"title":"hello"}`)
+		closeMultipart(t, writer)
+
+		req := httptest.NewRequest("POST", "/", &body)
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+
+		msg, err := ParseActionFromHTTP(req)
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		if msg.Action != "save" {
+			t.Errorf("Action = %q, want %q (lvt-submitter must win even with JSON data envelope)", msg.Action, "save")
+		}
+		if msg.Data["title"] != "hello" {
+			t.Errorf("Data[title] = %v, want %q", msg.Data["title"], "hello")
+		}
+		if _, ok := msg.Data["lvt-submitter"]; ok {
+			t.Error("lvt-submitter must not appear in msg.Data")
+		}
+	})
+}
+
+// TestParseActionFromWebSocket_Submitter exercises the WS path's submitter
+// fallback: when action="" but submitter is set, the server promotes
+// submitter to action; when action is set, submitter is preserved as
+// diagnostic context but never overrides.
+func TestParseActionFromWebSocket_Submitter(t *testing.T) {
+	tests := []struct {
+		name          string
+		data          string
+		wantAction    string
+		wantSubmitter string
+	}{
+		{
+			name:          "empty action falls back to submitter",
+			data:          `{"action":"","submitter":"X","data":{}}`,
+			wantAction:    "X",
+			wantSubmitter: "X",
+		},
+		{
+			name:          "missing action falls back to submitter",
+			data:          `{"submitter":"X","data":{}}`,
+			wantAction:    "X",
+			wantSubmitter: "X",
+		},
+		{
+			name:          "explicit action wins over submitter",
+			data:          `{"action":"Y","submitter":"X","data":{}}`,
+			wantAction:    "Y",
+			wantSubmitter: "X",
+		},
+		{
+			name:          "no submitter leaves action empty",
+			data:          `{"action":"","data":{}}`,
+			wantAction:    "",
+			wantSubmitter: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg, err := ParseActionFromWebSocket([]byte(tt.data))
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+
+			if msg.Action != tt.wantAction {
+				t.Errorf("Action = %q, want %q", msg.Action, tt.wantAction)
+			}
+			if msg.Submitter != tt.wantSubmitter {
+				t.Errorf("Submitter = %q, want %q", msg.Submitter, tt.wantSubmitter)
+			}
+		})
+	}
+}
+
+// TestParseActionFromHTTP_JSON_Submitter exercises the JSON HTTP content-type
+// path: the JSON decoder populates ActionMessage.Submitter, and
+// resolveSubmitterFallback fills Action when it would otherwise be empty.
+func TestParseActionFromHTTP_JSON_Submitter(t *testing.T) {
+	tests := []struct {
+		name          string
+		body          string
+		wantAction    string
+		wantSubmitter string
+	}{
+		{
+			name:          "empty action falls back to submitter (JSON HTTP)",
+			body:          `{"action":"","submitter":"X","data":{}}`,
+			wantAction:    "X",
+			wantSubmitter: "X",
+		},
+		{
+			name:          "explicit action wins over submitter (JSON HTTP)",
+			body:          `{"action":"Y","submitter":"X","data":{}}`,
+			wantAction:    "Y",
+			wantSubmitter: "X",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("POST", "/", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+
+			msg, err := ParseActionFromHTTP(req)
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+
+			if msg.Action != tt.wantAction {
+				t.Errorf("Action = %q, want %q", msg.Action, tt.wantAction)
+			}
+			if msg.Submitter != tt.wantSubmitter {
+				t.Errorf("Submitter = %q, want %q", msg.Submitter, tt.wantSubmitter)
+			}
+		})
+	}
+}
+
 // TestMergeData tests merging of data maps with precedence.
 func TestMergeData(t *testing.T) {
 	tests := []struct {
