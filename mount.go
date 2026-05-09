@@ -729,6 +729,9 @@ eventLoop:
 			actionCtx = actionCtx.WithUploads(uploadRegistry)
 			actionCtx = actionCtx.WithFlashSetter(connSt)
 			actionCtx = actionCtx.WithSession(newLocalSession(h, groupID))
+			if schema := connTmpl.formSchema; schema != nil {
+				actionCtx = actionCtx.WithFormSchema(schema)
+			}
 
 			// actionNavigate re-runs Mount with msg.Data as query params. Rebind
 			// actionCtx itself (not a discarded copy) so BroadcastAction calls
@@ -1218,6 +1221,9 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	actionCtx = actionCtx.WithUploads(uploadRegistry)
 	actionCtx = actionCtx.WithFlashSetter(connSt)
 	actionCtx = actionCtx.WithSession(newLocalSession(h, groupID))
+	if schema := h.config.Template.formSchema; schema != nil {
+		actionCtx = actionCtx.WithFormSchema(schema)
+	}
 
 	// Dispatch action using Controller+State pattern
 	newState, actionErr := DispatchWithState(h.config.Controller, connSt.state, actionCtx)
@@ -1521,6 +1527,9 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 	// re-triggers itself, which is a caller bug rather than framework
 	// amplification.
 	ctx = ctx.WithSession(newLocalSession(h, connSt.groupID))
+	if schema := h.config.Template.formSchema; schema != nil {
+		ctx = ctx.WithFormSchema(schema)
+	}
 
 	newState, err := DispatchWithState(h.config.Controller, connSt.state, ctx)
 	if err != nil {
