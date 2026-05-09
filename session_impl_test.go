@@ -1,8 +1,10 @@
 package livetemplate
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -201,5 +203,235 @@ func TestLocalSession_TriggerActionDisconnectedReturnsError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no connected sessions") {
 		t.Errorf("Expected 'no connected sessions' in error, got: %v", err)
+	}
+}
+
+// chainedTriggerState exercises the dispatched->TriggerAction->dispatched
+// re-entry path covered by #337. It records both that the dispatched
+// action ran and that the chained call returned without error.
+type chainedTriggerState struct {
+	First  string
+	Second string
+}
+
+// chainedTriggerController spawns an OnConnect goroutine that calls
+// TriggerAction("first", ...). The First handler — invoked through the
+// dispatch queue — chains TriggerAction("second", ...). The flag on the
+// localSession built for the dispatched context should make the second
+// call emit a debug log line; the first call (from OnConnect) should not.
+type chainedTriggerController struct {
+	mu        sync.Mutex
+	firstRan  bool
+	secondRan bool
+	chainErr  error
+	done      chan struct{}
+	doneOnce  sync.Once
+	cancelCtx context.Context
+}
+
+func (c *chainedTriggerController) OnConnect(state chainedTriggerState, ctx *Context) (chainedTriggerState, error) {
+	sess := ctx.Session()
+	if sess == nil {
+		return state, nil
+	}
+	go func() {
+		select {
+		case <-time.After(50 * time.Millisecond):
+		case <-c.cancelCtx.Done():
+			return
+		}
+		_ = sess.TriggerAction("first", map[string]interface{}{"data": "from-onconnect"})
+	}()
+	return state, nil
+}
+
+func (c *chainedTriggerController) First(state chainedTriggerState, ctx *Context) (chainedTriggerState, error) {
+	state.First = ctx.GetString("data")
+	c.mu.Lock()
+	c.firstRan = true
+	c.mu.Unlock()
+	// Chained TriggerAction from inside a dispatched handler — this is the
+	// invocation that should emit the #337 observability log line.
+	if sess := ctx.Session(); sess != nil {
+		c.mu.Lock()
+		c.chainErr = sess.TriggerAction("second", map[string]interface{}{"data": "chained"})
+		c.mu.Unlock()
+	}
+	return state, nil
+}
+
+func (c *chainedTriggerController) Second(state chainedTriggerState, ctx *Context) (chainedTriggerState, error) {
+	state.Second = ctx.GetString("data")
+	c.mu.Lock()
+	c.secondRan = true
+	c.mu.Unlock()
+	c.doneOnce.Do(func() { close(c.done) })
+	return state, nil
+}
+
+// syncBuf is a thread-safe bytes.Buffer wrapper for capturing slog output
+// from a goroutine the test does not control. bytes.Buffer is not safe
+// for concurrent Write/String, so the slog handler's writes race with the
+// test's assertions under `go test -race`.
+type syncBuf struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (s *syncBuf) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.Write(p)
+}
+
+func (s *syncBuf) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.String()
+}
+
+// TestLocalSession_TriggerActionFromDispatchedLogsDebug verifies the
+// #337 Option A fix: when a dispatched-action handler calls
+// ctx.Session().TriggerAction, a slog.Debug line is emitted so that
+// runaway recursive chains are detectable in logs. Calls originating
+// from OnConnect (not dispatched) must NOT log.
+//
+// Note: this test mutates the global slog.Default() via SetDefault. Do
+// not add t.Parallel() here — concurrent tests would race on the global
+// logger. Cleanup restores the previous default.
+func TestLocalSession_TriggerActionFromDispatchedLogsDebug(t *testing.T) {
+	// Capture slog output via a thread-safe wrapper — the slog handler
+	// writes from the dispatch goroutine while assertions read from the
+	// test goroutine, so a plain bytes.Buffer would race under -race.
+	// Debug level is required because slog.Debug is filtered out by the
+	// default handler level.
+	var buf syncBuf
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	auth := &fixedUserAuth{groupID: "chained-trigger-group", userID: "chained-user"}
+
+	tmpl, err := New("test", WithAuthenticator(auth))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>{{.First}}|{{.Second}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	ctrl := &chainedTriggerController{
+		done:      make(chan struct{}),
+		cancelCtx: cancelCtx,
+	}
+	handler := tmpl.Handle(ctrl, AsState(&chainedTriggerState{}))
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+
+	ws, _ := connectWSRaw(t, wsURL)
+	defer func() {
+		if err := ws.Close(); err != nil {
+			t.Logf("ws close: %v", err)
+		}
+	}()
+
+	// Drain server-push frames in the background. We don't care about
+	// their content; we only need the WebSocket reader to keep up with
+	// the dispatcher so EnqueueDispatch isn't backpressured. The reader
+	// exits on socket close (deferred above) or read timeout.
+	go func() {
+		for {
+			if err := ws.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+				return
+			}
+			if _, _, err := ws.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}()
+
+	select {
+	case <-ctrl.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("chained TriggerAction did not run within timeout")
+	}
+
+	ctrl.mu.Lock()
+	firstRan := ctrl.firstRan
+	secondRan := ctrl.secondRan
+	chainErr := ctrl.chainErr
+	ctrl.mu.Unlock()
+
+	if !firstRan {
+		t.Fatal("first action handler did not run")
+	}
+	if !secondRan {
+		t.Fatal("second (chained) action handler did not run")
+	}
+	if chainErr != nil {
+		t.Fatalf("chained TriggerAction returned error: %v", chainErr)
+	}
+
+	// Assert: the chained TriggerAction inside First emitted the debug log.
+	logged := buf.String()
+	if !strings.Contains(logged, "Session.TriggerAction called from within a dispatched action") {
+		t.Errorf("expected #337 Option A debug log, not found. Captured:\n%s", logged)
+	}
+	// Confirm the action name in the log is "second" (the chained call).
+	// The OnConnect-originated "first" call must NOT log, so a "action=first"
+	// debug line should be absent.
+	if !strings.Contains(logged, "action=second") {
+		t.Errorf("expected log to reference action=second, got:\n%s", logged)
+	}
+	if strings.Contains(logged, "action=first") &&
+		strings.Contains(logged, "Session.TriggerAction called from within a dispatched action") {
+		// Both could appear if the message text matched independently; check
+		// the more specific case: same line containing both.
+		for _, line := range strings.Split(logged, "\n") {
+			if strings.Contains(line, "Session.TriggerAction called from within a dispatched action") &&
+				strings.Contains(line, "action=first") {
+				t.Errorf("OnConnect-originated TriggerAction(first) must NOT log; got line: %s", line)
+			}
+		}
+	}
+}
+
+// TestLocalSession_FromDispatchedFlag is a structural fallback: it
+// verifies the constructor variant sets the fromDispatched flag,
+// independent of slog capture. If the integration test above is brittle,
+// this still validates the wiring change.
+func TestLocalSession_FromDispatchedFlag(t *testing.T) {
+	auth := &fixedUserAuth{groupID: "g", userID: "u"}
+	tmpl, err := New("t", WithAuthenticator(auth))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div></div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+	handler := tmpl.Handle(
+		&triggerActionTestController{done: make(chan struct{}), cancelCtx: context.Background()},
+		AsState(&triggerActionTestState{}),
+	)
+	h, ok := handler.(*liveHandler)
+	if !ok {
+		t.Fatalf("Handle() returned unexpected concrete type %T", handler)
+	}
+
+	plain := newLocalSession(h, "g")
+	if plain.fromDispatched {
+		t.Error("newLocalSession should produce fromDispatched=false")
+	}
+
+	dispatched := newLocalSessionFromDispatched(h, "g")
+	if !dispatched.fromDispatched {
+		t.Error("newLocalSessionFromDispatched should produce fromDispatched=true")
 	}
 }

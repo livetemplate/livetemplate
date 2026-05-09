@@ -20,8 +20,9 @@ import (
 // and authenticated flows both work, because every connection has a
 // groupID assigned at mount time regardless of auth state.
 type localSession struct {
-	handler *liveHandler
-	groupID string
+	handler        *liveHandler
+	groupID        string
+	fromDispatched bool // set by newLocalSessionFromDispatched; enables #337 observability log
 }
 
 // newLocalSession constructs a localSession scoped to a specific session
@@ -29,6 +30,10 @@ type localSession struct {
 // to store in a controller across goroutines.
 func newLocalSession(handler *liveHandler, groupID string) *localSession {
 	return &localSession{handler: handler, groupID: groupID}
+}
+
+func newLocalSessionFromDispatched(handler *liveHandler, groupID string) *localSession {
+	return &localSession{handler: handler, groupID: groupID, fromDispatched: true}
 }
 
 // TriggerAction dispatches a server-initiated action to every connection
@@ -102,6 +107,15 @@ func (s *localSession) TriggerAction(action string, data map[string]interface{})
 	}
 	if s.groupID == "" {
 		return fmt.Errorf("livetemplate: session has no groupID")
+	}
+
+	if s.fromDispatched {
+		// #337: log before EnqueueDispatch so recursion shows up even if the WS drops mid-loop.
+		slog.Debug("Session.TriggerAction called from within a dispatched action",
+			slog.String("component", "local_session"),
+			slog.String("group_id", s.groupID),
+			slog.String("action", action),
+		)
 	}
 
 	connections := s.handler.registry.GetByGroup(s.groupID)
