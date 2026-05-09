@@ -1,6 +1,7 @@
 package livetemplate
 
 import (
+	"context"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
@@ -263,4 +264,84 @@ func treeContainsString(node map[string]interface{}, want string) bool {
 		}
 	}
 	return false
+}
+
+// =============================================================================
+// WebSocket Lifecycle Context Cancellation (issue #303)
+// =============================================================================
+//
+// Mount runs on every WebSocket connect/reconnect (PR #301). The lifecycleCtx
+// passed to Mount must inherit cancellation from the upgraded HTTP request so
+// that DB work or other context-aware operations cancel when the client
+// disconnects, rather than orphaning until they complete on their own.
+
+type wsCtxCancelState struct {
+	Count int
+}
+
+type wsCtxCancelController struct {
+	captured chan context.Context
+}
+
+func (c *wsCtxCancelController) Mount(state wsCtxCancelState, ctx *Context) (wsCtxCancelState, error) {
+	// Non-blocking send — if multiple Mounts run (reconnect), keep the first.
+	select {
+	case c.captured <- ctx.Context:
+	default:
+	}
+	return state, nil
+}
+
+func TestWebSocketLifecycleCtx_CancelsOnDisconnect(t *testing.T) {
+	ctrl := &wsCtxCancelController{captured: make(chan context.Context, 1)}
+
+	tmpl, err := New("test")
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>{{.Count}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	handler := tmpl.Handle(ctrl, AsState(&wsCtxCancelState{}))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+
+	// connectWSRaw blocks until the initial render frame arrives, which
+	// means Mount has run and the server is in its event loop.
+	ws, _ := connectWSRaw(t, wsURL)
+
+	var mountCtx context.Context
+	select {
+	case mountCtx = <-ctrl.captured:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Mount was not called within 2s of WebSocket connect")
+	}
+
+	if mountCtx == nil {
+		t.Fatal("Mount captured a nil context")
+	}
+	if err := mountCtx.Err(); err != nil {
+		t.Fatalf("ctx already canceled before disconnect: %v", err)
+	}
+
+	// Close the WebSocket. r.Context() should be canceled when the HTTP
+	// handler returns, which propagates to the captured Mount ctx.
+	if err := ws.Close(); err != nil {
+		t.Fatalf("WebSocket close failed: %v", err)
+	}
+
+	select {
+	case <-mountCtx.Done():
+		// Success — lifecycle ctx canceled with the request.
+	case <-time.After(2 * time.Second):
+		t.Fatal("Mount ctx was not canceled within 2s after WebSocket close — lifecycleCtx is detached from r.Context() (issue #303)")
+	}
+
+	if err := mountCtx.Err(); err == nil {
+		t.Errorf("expected mountCtx.Err() to be non-nil after Done(), got nil")
+	}
 }
