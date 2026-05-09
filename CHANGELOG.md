@@ -5,6 +5,18 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Breaking changes
+
+- **`TreeNode` public API changed in [#220](https://github.com/livefir/livetemplate/pull/220)** (commit `3fe784ca`, shipped in `v0.8.0` series). The `Dynamics` field type and the helper signatures changed when the internal map was replaced with a slice for ~20% speedup. Since `TreeNode` is re-exported from the top-level `livetemplate` package via `types.go`, external callers that constructed or introspected `TreeNode` directly need to update:
+  - `Dynamics` field: `map[string]interface{}` → `[]interface{}`
+  - `SetDynamic(position string, value interface{})` → `SetDynamic(index int, value interface{})`
+  - `GetDynamic(position string)` → `GetDynamic(index int)`
+  - New `AutoKey string` field replaces the previous `"_k"` map key.
+
+  Most application code does not touch `TreeNode` directly — the breaking surface is limited to library extensions or test fixtures that constructed `TreeNode` literals. The wire format (numeric string keys: `"0"`, `"1"`, ...) is unchanged; only the in-memory Go API moved.
+
 ## [v0.8.23] - 2026-05-02
 
 ### Changes
@@ -801,7 +813,7 @@ Note: Only one pre-existing test failure (TestTemplateGenerateTreeWithFuncMap)
 - **lvt:** add lvt gen auth command - Complete (Phases 1-6) ([#15](https://github.com/livefir/livetemplate/issues/15))
 
 
-[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.21...HEAD
+[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.23...HEAD
 [v0.8.21]: https://github.com/livefir/livetemplate/compare/v0.8.20...v0.8.21
 [v0.8.20]: https://github.com/livefir/livetemplate/compare/v0.8.19...v0.8.20
 [v0.8.19]: https://github.com/livefir/livetemplate/compare/v0.8.18...v0.8.19

@@ -97,6 +97,8 @@ During form submission, the framework automatically manages loading indicators:
 | `lvt-*` attributes | N/A | Works | Works |
 | Server push (broadcast) | N/A | N/A | Works |
 
+> **Security note:** When using no-JS POST mode, implement CSRF protection (e.g., [`gorilla/csrf`](https://github.com/gorilla/csrf) middleware). The JS transport modes benefit from same-origin WebSocket/fetch, but plain HTML form POST does not.
+
 ## Tier 2: `lvt-*` Attributes
 
 For behaviors that standard HTML cannot express — timing control, reactive DOM, keyboard shortcuts, scroll management — use `lvt-*` attributes. The attribute prefixes are:
