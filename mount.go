@@ -547,9 +547,9 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		groupID:  groupID,
 	}
 
-	// Create context for lifecycle methods with query params from initial connection
+	// Use r.Context() (not context.Background()) so Mount/OnConnect cancel on disconnect (#303).
 	wsQueryData := send.QueryParamsToData(r)
-	lifecycleCtx := NewContext(context.Background(), "", wsQueryData)
+	lifecycleCtx := NewContext(ctx, "", wsQueryData)
 	lifecycleCtx = lifecycleCtx.WithUserID(userID)
 	lifecycleCtx = lifecycleCtx.WithFlashSetter(connSt)
 	lifecycleCtx = lifecycleCtx.WithSession(newLocalSession(h, groupID))
