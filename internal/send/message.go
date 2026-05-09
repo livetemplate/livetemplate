@@ -12,9 +12,22 @@ import (
 const wsTextMessage = 1 // RFC 6455 text message type (mirrors WSTextMessage in root package)
 
 // ActionMessage represents an action message from the client (internal protocol).
+// Wire-format note: HTTP form paths use the form key "lvt-submitter"; JSON
+// (HTTP and WS) paths use the top-level key "submitter". Different conventions
+// for different envelopes — form fields take the lvt- prefix, JSON keys do not.
 type ActionMessage struct {
-	Action string                 `json:"action"` // Action name, may include store prefix (e.g., "counter.increment")
-	Data   map[string]interface{} `json:"data"`   // All values from forms, inputs, data attributes, etc.
+	Action    string                 `json:"action"`              // Action name, may include store prefix (e.g., "counter.increment")
+	Submitter string                 `json:"submitter,omitempty"` // Optional explicit submitter name (e.g. SubmitEvent.submitter.name); used as Action when Action is empty.
+	Data      map[string]interface{} `json:"data"`                // All values from forms, inputs, data attributes, etc.
+}
+
+// resolveSubmitterFallback fills msg.Action from msg.Submitter when Action
+// is empty, so an explicit `submitter` field on the wire is treated as the
+// action of last resort. Idempotent; safe to call from any parser.
+func resolveSubmitterFallback(msg *ActionMessage) {
+	if msg.Action == "" && msg.Submitter != "" {
+		msg.Action = msg.Submitter
+	}
 }
 
 // ParseActionFromHTTP parses an action message from HTTP POST request body (internal protocol).
@@ -41,6 +54,8 @@ func ParseActionFromHTTP(r *http.Request) (ActionMessage, error) {
 	if err := jsonutil.API.NewDecoder(r.Body).Decode(&msg); err != nil {
 		return ActionMessage{}, fmt.Errorf("failed to parse action: %w", err)
 	}
+
+	resolveSubmitterFallback(&msg)
 
 	// Ensure data map is initialized
 	if msg.Data == nil {
@@ -82,6 +97,17 @@ func detectSubmitButtonName(values map[string][]string, actionFields map[string]
 //
 // When a JSON "data" blob is present, it takes precedence. Otherwise,
 // individual form fields are read, matching parseURLEncodedForm behavior.
+//
+// Action resolution order (first match wins):
+//  1. "lvt-action" form field (legacy explicit routing for progressive enhancement)
+//  2. "lvt-submitter" form field (explicit client-emitted SubmitEvent.submitter.name)
+//  3. Button name routing: a form field with an empty string value is treated as a
+//     submit button whose name is the action (standard HTML: <button name="increment">)
+//  4. Empty string (server defaults to "submit" via applyDefaultAction)
+//
+// Both lvt-action and lvt-submitter are read BEFORE the JSON "data" branch so
+// they take precedence over the heuristic regardless of whether a JSON "data"
+// envelope is present.
 func parseMultipartForm(r *http.Request) (ActionMessage, error) {
 	var msg ActionMessage
 
@@ -94,6 +120,13 @@ func parseMultipartForm(r *http.Request) (ActionMessage, error) {
 
 	// Get action from lvt-action field (explicit routing for progressive enhancement)
 	msg.Action = r.FormValue("lvt-action")
+	// Capture explicit submitter (client-emitted SubmitEvent.submitter.name);
+	// resolveSubmitterFallback (called immediately after) promotes this to msg.Action only when
+	// msg.Action is empty, so lvt-action always wins. Read here (before the
+	// jsonDataParsed branch) so submitter routing applies whether or not a
+	// JSON "data" envelope is present.
+	msg.Submitter = r.FormValue("lvt-submitter")
+	resolveSubmitterFallback(&msg)
 
 	// Try to get data from JSON-encoded form field (client library format).
 	// When present, JSON data takes precedence over individual form fields.
@@ -110,7 +143,7 @@ func parseMultipartForm(r *http.Request) (ActionMessage, error) {
 	// This handles browser-native multipart submissions where text fields are
 	// sent as separate form fields alongside file uploads.
 	if !jsonDataParsed {
-		actionFields := map[string]bool{"lvt-action": true, "data": true}
+		actionFields := map[string]bool{"lvt-action": true, "lvt-submitter": true, "data": true}
 
 		if msg.Action == "" && r.MultipartForm != nil {
 			if name := detectSubmitButtonName(r.MultipartForm.Value, actionFields); name != "" {
@@ -146,9 +179,10 @@ func parseMultipartForm(r *http.Request) (ActionMessage, error) {
 //
 // Action resolution order (first match wins):
 //  1. "lvt-action" form field (legacy explicit routing for progressive enhancement)
-//  2. Button name routing: a form field with an empty string value is treated as a
+//  2. "lvt-submitter" form field (explicit client-emitted SubmitEvent.submitter.name)
+//  3. Button name routing: a form field with an empty string value is treated as a
 //     submit button whose name is the action (standard HTML: <button name="increment">)
-//  3. Empty string (server defaults to "submit" via applyDefaultAction)
+//  4. Empty string (server defaults to "submit" via applyDefaultAction)
 //
 // Note: "action" is NOT reserved — it flows through as normal form data.
 // For explicit routing, use lvt-form:action attribute (client-side) or
@@ -162,9 +196,14 @@ func parseURLEncodedForm(r *http.Request) (ActionMessage, error) {
 
 	// Get action from lvt-action field (explicit routing for progressive enhancement)
 	msg.Action = r.FormValue("lvt-action")
+	// Capture explicit submitter (client-emitted SubmitEvent.submitter.name);
+	// resolveSubmitterFallback (called immediately after) promotes this to msg.Action only when
+	// msg.Action is empty, so lvt-action always wins.
+	msg.Submitter = r.FormValue("lvt-submitter")
+	resolveSubmitterFallback(&msg)
 
 	// Action routing fields to exclude from data
-	actionFields := map[string]bool{"lvt-action": true}
+	actionFields := map[string]bool{"lvt-action": true, "lvt-submitter": true}
 
 	if msg.Action == "" {
 		if name := detectSubmitButtonName(r.Form, actionFields); name != "" {
@@ -199,6 +238,8 @@ func ParseActionFromWebSocket(data []byte) (ActionMessage, error) {
 	if err := jsonutil.API.Unmarshal(data, &msg); err != nil {
 		return ActionMessage{}, fmt.Errorf("failed to parse action: %w", err)
 	}
+
+	resolveSubmitterFallback(&msg)
 
 	// Ensure data map is initialized
 	if msg.Data == nil {
