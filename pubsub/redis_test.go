@@ -1359,3 +1359,334 @@ func TestSubscribeTo_SucceedsDuringReconnectWindow(t *testing.T) {
 		t.Fatal("reconnect did not complete")
 	}
 }
+
+// TestRedisBroadcaster_SubscribeRefcount_Increments verifies that repeated
+// SubscribeTo calls for the same channel bump a per-channel refcount rather
+// than silently deduplicating. Without refcounting, the first connection to
+// disconnect would tear down the shared subscription for everyone (#214).
+func TestRedisBroadcaster_SubscribeRefcount_Increments(t *testing.T) {
+	client := getTestRedisClient(t)
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
+
+	broadcaster := NewRedisBroadcaster(client)
+	defer func() {
+		if err := broadcaster.Close(); err != nil {
+			t.Errorf("Failed to close broadcaster: %v", err)
+		}
+	}()
+
+	go func() {
+		if err := broadcaster.Subscribe(func(msg *BroadcastMessage) error { return nil }); err != nil {
+			t.Errorf("Subscribe failed: %v", err)
+		}
+	}()
+	time.Sleep(100 * time.Millisecond)
+
+	for i := 0; i < 3; i++ {
+		if err := broadcaster.SubscribeToGroup("g1"); err != nil {
+			t.Fatalf("SubscribeToGroup attempt %d failed: %v", i+1, err)
+		}
+	}
+
+	broadcaster.mu.RLock()
+	count := broadcaster.subscribedChannels[channelGroup+"g1"]
+	broadcaster.mu.RUnlock()
+	if count != 3 {
+		t.Errorf("Expected refcount=3 after 3 SubscribeToGroup calls, got %d", count)
+	}
+}
+
+// TestRedisBroadcaster_SubscribeRefcount_DecrementsKeepsEntry verifies that
+// the channel stays in subscribedChannels (and the underlying Redis SUBSCRIBE
+// stays live) until the refcount drops to zero.
+func TestRedisBroadcaster_SubscribeRefcount_DecrementsKeepsEntry(t *testing.T) {
+	client := getTestRedisClient(t)
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
+
+	broadcaster := NewRedisBroadcaster(client)
+	defer func() {
+		if err := broadcaster.Close(); err != nil {
+			t.Errorf("Failed to close broadcaster: %v", err)
+		}
+	}()
+
+	go func() {
+		if err := broadcaster.Subscribe(func(msg *BroadcastMessage) error { return nil }); err != nil {
+			t.Errorf("Subscribe failed: %v", err)
+		}
+	}()
+	time.Sleep(100 * time.Millisecond)
+
+	if err := broadcaster.SubscribeToGroup("g1"); err != nil {
+		t.Fatalf("first SubscribeToGroup failed: %v", err)
+	}
+	if err := broadcaster.SubscribeToGroup("g1"); err != nil {
+		t.Fatalf("second SubscribeToGroup failed: %v", err)
+	}
+
+	if err := broadcaster.UnsubscribeFromGroup("g1"); err != nil {
+		t.Fatalf("UnsubscribeFromGroup failed: %v", err)
+	}
+
+	broadcaster.mu.RLock()
+	count, present := broadcaster.subscribedChannels[channelGroup+"g1"]
+	broadcaster.mu.RUnlock()
+	if !present {
+		t.Fatal("channel should still be tracked after partial unsubscribe (refcount > 0)")
+	}
+	if count != 1 {
+		t.Errorf("Expected refcount=1 after 2 subscribes + 1 unsubscribe, got %d", count)
+	}
+}
+
+// TestRedisBroadcaster_SubscribeRefcount_ZeroRemovesEntry verifies the 1→0
+// transition: the entry is removed from subscribedChannels and a Redis
+// UNSUBSCRIBE is issued so the broadcaster no longer pays for traffic on
+// that channel.
+func TestRedisBroadcaster_SubscribeRefcount_ZeroRemovesEntry(t *testing.T) {
+	client := getTestRedisClient(t)
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
+
+	broadcaster := NewRedisBroadcaster(client)
+	defer func() {
+		if err := broadcaster.Close(); err != nil {
+			t.Errorf("Failed to close broadcaster: %v", err)
+		}
+	}()
+
+	go func() {
+		if err := broadcaster.Subscribe(func(msg *BroadcastMessage) error { return nil }); err != nil {
+			t.Errorf("Subscribe failed: %v", err)
+		}
+	}()
+	time.Sleep(100 * time.Millisecond)
+
+	if err := broadcaster.SubscribeToGroup("g-removable"); err != nil {
+		t.Fatalf("SubscribeToGroup failed: %v", err)
+	}
+	if err := broadcaster.SubscribeToGroup("g-removable"); err != nil {
+		t.Fatalf("second SubscribeToGroup failed: %v", err)
+	}
+
+	if err := broadcaster.UnsubscribeFromGroup("g-removable"); err != nil {
+		t.Fatalf("first UnsubscribeFromGroup failed: %v", err)
+	}
+	if err := broadcaster.UnsubscribeFromGroup("g-removable"); err != nil {
+		t.Fatalf("second UnsubscribeFromGroup failed: %v", err)
+	}
+
+	broadcaster.mu.RLock()
+	_, present := broadcaster.subscribedChannels[channelGroup+"g-removable"]
+	broadcaster.mu.RUnlock()
+	if present {
+		t.Fatal("channel should be removed from subscribedChannels after refcount reaches 0")
+	}
+
+	// A subsequent SubscribeToGroup on the same channel must succeed and
+	// re-establish a refcount of 1 (i.e. trigger a fresh SUBSCRIBE rather
+	// than piggybacking on a stale entry).
+	if err := broadcaster.SubscribeToGroup("g-removable"); err != nil {
+		t.Fatalf("re-SubscribeToGroup after teardown failed: %v", err)
+	}
+	broadcaster.mu.RLock()
+	count := broadcaster.subscribedChannels[channelGroup+"g-removable"]
+	broadcaster.mu.RUnlock()
+	if count != 1 {
+		t.Errorf("Expected fresh refcount=1 after re-subscribe, got %d", count)
+	}
+}
+
+// TestRedisBroadcaster_UnsubscribeOnNeverSubscribed verifies that calling
+// Unsubscribe* on a channel that was never subscribed is a benign no-op.
+// Disconnect-time cleanup in the WebSocket handler relies on this so that
+// partial-failure setup paths (Subscribe returned error) don't underflow the
+// refcount when the deferred unsubscribe still fires.
+func TestRedisBroadcaster_UnsubscribeOnNeverSubscribed(t *testing.T) {
+	client := getTestRedisClient(t)
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
+
+	broadcaster := NewRedisBroadcaster(client)
+	defer func() {
+		if err := broadcaster.Close(); err != nil {
+			t.Errorf("Failed to close broadcaster: %v", err)
+		}
+	}()
+
+	if err := broadcaster.UnsubscribeFromGroup("never-subscribed"); err != nil {
+		t.Errorf("UnsubscribeFromGroup on unknown channel should be a no-op, got: %v", err)
+	}
+	if err := broadcaster.UnsubscribeFromUser("never-subscribed-user"); err != nil {
+		t.Errorf("UnsubscribeFromUser on unknown channel should be a no-op, got: %v", err)
+	}
+	if err := broadcaster.UnsubscribeFromServerAction("never-subscribed-user"); err != nil {
+		t.Errorf("UnsubscribeFromServerAction on unknown channel should be a no-op, got: %v", err)
+	}
+	if err := broadcaster.UnsubscribeFromGroupAction("never-subscribed"); err != nil {
+		t.Errorf("UnsubscribeFromGroupAction on unknown channel should be a no-op, got: %v", err)
+	}
+}
+
+// TestRedisBroadcaster_UnsubscribeAllScopes verifies that Unsubscribe*
+// methods work for all four channel scopes (group, user, server action,
+// group action), tearing each down independently.
+func TestRedisBroadcaster_UnsubscribeAllScopes(t *testing.T) {
+	client := getTestRedisClient(t)
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
+
+	broadcaster := NewRedisBroadcaster(client)
+	defer func() {
+		if err := broadcaster.Close(); err != nil {
+			t.Errorf("Failed to close broadcaster: %v", err)
+		}
+	}()
+
+	go func() {
+		if err := broadcaster.Subscribe(func(msg *BroadcastMessage) error { return nil }); err != nil {
+			t.Errorf("Subscribe failed: %v", err)
+		}
+	}()
+	time.Sleep(100 * time.Millisecond)
+
+	if err := broadcaster.SubscribeToGroup("g-all"); err != nil {
+		t.Fatalf("SubscribeToGroup failed: %v", err)
+	}
+	if err := broadcaster.SubscribeToUser("u-all"); err != nil {
+		t.Fatalf("SubscribeToUser failed: %v", err)
+	}
+	if err := broadcaster.SubscribeToServerAction("u-all"); err != nil {
+		t.Fatalf("SubscribeToServerAction failed: %v", err)
+	}
+	if err := broadcaster.SubscribeToGroupAction("g-all"); err != nil {
+		t.Fatalf("SubscribeToGroupAction failed: %v", err)
+	}
+
+	broadcaster.mu.RLock()
+	if len(broadcaster.subscribedChannels) != 4 {
+		broadcaster.mu.RUnlock()
+		t.Fatalf("Expected 4 tracked channels, got %d", len(broadcaster.subscribedChannels))
+	}
+	broadcaster.mu.RUnlock()
+
+	if err := broadcaster.UnsubscribeFromGroup("g-all"); err != nil {
+		t.Fatalf("UnsubscribeFromGroup failed: %v", err)
+	}
+	if err := broadcaster.UnsubscribeFromUser("u-all"); err != nil {
+		t.Fatalf("UnsubscribeFromUser failed: %v", err)
+	}
+	if err := broadcaster.UnsubscribeFromServerAction("u-all"); err != nil {
+		t.Fatalf("UnsubscribeFromServerAction failed: %v", err)
+	}
+	if err := broadcaster.UnsubscribeFromGroupAction("g-all"); err != nil {
+		t.Fatalf("UnsubscribeFromGroupAction failed: %v", err)
+	}
+
+	broadcaster.mu.RLock()
+	remaining := len(broadcaster.subscribedChannels)
+	broadcaster.mu.RUnlock()
+	if remaining != 0 {
+		t.Errorf("Expected 0 tracked channels after unsubscribing all, got %d", remaining)
+	}
+}
+
+// TestRedisBroadcaster_RefcountSurvivesUnsubscribeUntilZero is the integration
+// scenario for #214: two "connections" share a group channel; one disconnects
+// (1 unsubscribe), and the channel must remain live for the other; only the
+// final disconnect tears it down.
+func TestRedisBroadcaster_RefcountSurvivesUnsubscribeUntilZero(t *testing.T) {
+	client := getTestRedisClient(t)
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
+
+	publisher := NewRedisBroadcaster(client)
+	defer func() {
+		if err := publisher.Close(); err != nil {
+			t.Errorf("Failed to close publisher: %v", err)
+		}
+	}()
+
+	subscriber := NewRedisBroadcaster(client)
+	defer func() {
+		if err := subscriber.Close(); err != nil {
+			t.Errorf("Failed to close subscriber: %v", err)
+		}
+	}()
+
+	var receivedCount int
+	var receivedMu sync.Mutex
+	go func() {
+		if err := subscriber.Subscribe(func(msg *BroadcastMessage) error {
+			if msg == nil {
+				return errTestHandlerNilMsg
+			}
+			receivedMu.Lock()
+			receivedCount++
+			receivedMu.Unlock()
+			return nil
+		}); err != nil {
+			t.Errorf("Subscribe failed: %v", err)
+		}
+	}()
+	time.Sleep(100 * time.Millisecond)
+
+	// Two "connections" both subscribe to the same group channel.
+	if err := subscriber.SubscribeToGroup("shared"); err != nil {
+		t.Fatalf("first SubscribeToGroup failed: %v", err)
+	}
+	if err := subscriber.SubscribeToGroup("shared"); err != nil {
+		t.Fatalf("second SubscribeToGroup failed: %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+
+	// First "connection" disconnects.
+	if err := subscriber.UnsubscribeFromGroup("shared"); err != nil {
+		t.Fatalf("first UnsubscribeFromGroup failed: %v", err)
+	}
+
+	// Channel must still be live: a publish should still reach the subscriber.
+	if err := publisher.PublishToGroup("shared", []byte(`{"k":"v"}`)); err != nil {
+		t.Fatalf("PublishToGroup failed: %v", err)
+	}
+	time.Sleep(300 * time.Millisecond)
+
+	receivedMu.Lock()
+	gotAfterPartial := receivedCount
+	receivedMu.Unlock()
+	if gotAfterPartial < 1 {
+		t.Errorf("Subscriber should still receive after partial unsubscribe (refcount > 0); receivedCount=%d", gotAfterPartial)
+	}
+
+	// Second disconnect: refcount → 0, channel torn down.
+	if err := subscriber.UnsubscribeFromGroup("shared"); err != nil {
+		t.Fatalf("second UnsubscribeFromGroup failed: %v", err)
+	}
+
+	subscriber.mu.RLock()
+	_, present := subscriber.subscribedChannels[channelGroup+"shared"]
+	subscriber.mu.RUnlock()
+	if present {
+		t.Fatal("channel must be removed from subscribedChannels after final unsubscribe")
+	}
+}
