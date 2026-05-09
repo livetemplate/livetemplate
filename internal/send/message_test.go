@@ -1055,6 +1055,34 @@ func TestParseActionFromHTTP_Multipart_ExplicitSubmitter(t *testing.T) {
 			t.Error("lvt-submitter must not appear in msg.Data")
 		}
 	})
+
+	// Proposal Out of Scope #6: routing-layer fields live at the envelope level;
+	// a "submitter" key inside the JSON data blob is user data, not routing.
+	t.Run("form lvt-submitter wins over submitter inside JSON data blob", func(t *testing.T) {
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+		multipartField(t, writer, "lvt-submitter", "save")
+		multipartField(t, writer, "data", `{"title":"hello","submitter":"other"}`)
+		closeMultipart(t, writer)
+
+		req := httptest.NewRequest("POST", "/", &body)
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+
+		msg, err := ParseActionFromHTTP(req)
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		if msg.Action != "save" {
+			t.Errorf("Action = %q, want %q (form-level lvt-submitter must win over JSON data submitter)", msg.Action, "save")
+		}
+		if msg.Submitter != "save" {
+			t.Errorf("Submitter = %q, want %q (envelope-level)", msg.Submitter, "save")
+		}
+		if msg.Data["submitter"] != "other" {
+			t.Errorf("Data[submitter] = %v, want %q (user data inside JSON blob, not routing)", msg.Data["submitter"], "other")
+		}
+	})
 }
 
 // TestParseActionFromWebSocket_Submitter exercises the WS path's submitter
