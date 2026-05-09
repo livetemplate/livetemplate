@@ -1525,9 +1525,8 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 	// allowed — each hop runs through a connection event loop, so the
 	// only unbounded failure mode is a handler that recursively
 	// re-triggers itself, which is a caller bug rather than framework
-	// amplification. The "from dispatched" constructor variant flags the
-	// session so chained TriggerAction calls log a debug line, making
-	// such recursion visible in logs (#337).
+	// amplification. The dispatched-flagged session emits an
+	// observability log on chained TriggerAction (#337).
 	ctx = ctx.WithSession(newLocalSessionFromDispatched(h, connSt.groupID))
 	if schema := h.config.Template.formSchema; schema != nil {
 		ctx = ctx.WithFormSchema(schema)
@@ -1874,9 +1873,8 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 		// caller intent and each hop still runs through the per-connection
 		// event loop (no unbounded recursion on a single goroutine), but
 		// handlers that recursively trigger themselves will loop until the
-		// session disconnects. The "from dispatched" constructor variant
-		// flags the session so chained TriggerAction calls log a debug
-		// line, making such recursion visible in logs (#337).
+		// session disconnects. The dispatched-flagged session emits an
+		// observability log on chained TriggerAction (#337).
 		actionCtx := NewContext(ctx, msg.Action, msg.Data)
 		actionCtx = actionCtx.WithUserID(msg.UserID)
 		actionCtx = actionCtx.WithFlashSetter(state)

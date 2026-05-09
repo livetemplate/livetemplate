@@ -20,14 +20,9 @@ import (
 // and authenticated flows both work, because every connection has a
 // groupID assigned at mount time regardless of auth state.
 type localSession struct {
-	handler *liveHandler
-	groupID string
-	// fromDispatched is true when this localSession was constructed inside
-	// a dispatched-action handler (i.e. the action context originated from
-	// EnqueueDispatch, not from an HTTP request or initial WS connect).
-	// When set, TriggerAction emits a slog.Debug line on each invocation so
-	// that infinite chained-dispatch loops are visible in logs (#337).
-	fromDispatched bool
+	handler        *liveHandler
+	groupID        string
+	fromDispatched bool // set by newLocalSessionFromDispatched; enables #337 observability log
 }
 
 // newLocalSession constructs a localSession scoped to a specific session
@@ -37,7 +32,6 @@ func newLocalSession(handler *liveHandler, groupID string) *localSession {
 	return &localSession{handler: handler, groupID: groupID}
 }
 
-// newLocalSessionFromDispatched constructs a localSession with fromDispatched=true.
 func newLocalSessionFromDispatched(handler *liveHandler, groupID string) *localSession {
 	return &localSession{handler: handler, groupID: groupID, fromDispatched: true}
 }
@@ -115,11 +109,8 @@ func (s *localSession) TriggerAction(action string, data map[string]interface{})
 		return fmt.Errorf("livetemplate: session has no groupID")
 	}
 
-	// Observability log for chained TriggerAction calls (#337 Option A).
-	// Emitted before EnqueueDispatch so that an unbounded recursion (a
-	// handler that re-triggers its own action) shows up in logs even if
-	// the WebSocket disconnects before the loop terminates.
 	if s.fromDispatched {
+		// #337: log before EnqueueDispatch so recursion shows up even if the WS drops mid-loop.
 		slog.Debug("Session.TriggerAction called from within a dispatched action",
 			slog.String("component", "local_session"),
 			slog.String("group_id", s.groupID),
