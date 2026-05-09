@@ -1570,6 +1570,7 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 			slog.Warn("Pub/sub subscriber failed - cross-instance dispatch disabled",
 				slog.Any("error", err))
 		} else {
+			slog.Info("Pub/sub subscriber started")
 			if err := mountCfg.PubSubBroadcaster.SubscribeServerActions(handler.handleServerActionMessage); err != nil {
 				slog.Error("Failed to subscribe to server actions",
 					slog.Any("error", err))
