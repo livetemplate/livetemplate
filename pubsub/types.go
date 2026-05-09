@@ -97,16 +97,35 @@ type GroupActionBroadcaster interface {
 // Implementations that support per-scope channels (for transport-level
 // data isolation) should implement this interface. The handler layer
 // type-asserts and calls these methods during WebSocket connection setup.
+//
+// Subscribe* methods are reference-counted: each call increments the
+// channel's refcount. Implementations only issue the underlying transport
+// SUBSCRIBE on the 0→1 transition.
+//
+// Unsubscribe* methods decrement the corresponding channel's refcount. When
+// the refcount drops to 0, the implementation issues the underlying transport
+// UNSUBSCRIBE and forgets the channel. Callers must pair every successful
+// Subscribe* call with exactly one Unsubscribe* call (typically via deferred
+// cleanup on connection disconnect). Calling Unsubscribe* on a channel that
+// was never subscribed is a no-op.
 type DynamicSubscriber interface {
 	SubscribeToGroup(groupID string) error
 	SubscribeToUser(userID string) error
 	SubscribeToServerAction(userID string) error
+	UnsubscribeFromGroup(groupID string) error
+	UnsubscribeFromUser(userID string) error
+	UnsubscribeFromServerAction(userID string) error
 }
 
 // GroupActionSubscriber allows subscribing to group action channels at runtime.
 // Checked via type assertion during WebSocket connection setup.
+//
+// SubscribeToGroupAction / UnsubscribeFromGroupAction are reference-counted
+// per the same contract as DynamicSubscriber: callers must pair every
+// successful subscribe with exactly one unsubscribe.
 type GroupActionSubscriber interface {
 	SubscribeToGroupAction(groupID string) error
+	UnsubscribeFromGroupAction(groupID string) error
 }
 
 // MessageHandler is called when a broadcast message is received.

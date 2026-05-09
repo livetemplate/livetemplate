@@ -50,9 +50,9 @@ type RedisBroadcaster struct {
 	wg                  sync.WaitGroup
 	mu                  sync.RWMutex
 	closed              bool
-	reconnecting        bool                // True while reconnect() is in its sleep/SUBSCRIBE window (pubsub is nil)
-	reconnectDelay      time.Duration       // Delay before reconnecting after subscription failure (default: 1s)
-	subscribedChannels  map[string]struct{} // Tracks dynamic channel subscriptions for reconnect replay
+	reconnecting        bool           // True while reconnect() is in its sleep/SUBSCRIBE window (pubsub is nil)
+	reconnectDelay      time.Duration  // Delay before reconnecting after subscription failure (default: 1s)
+	subscribedChannels  map[string]int // Reference counts for dynamic channel subscriptions (used for reconnect replay and 0→1 / 1→0 SUBSCRIBE/UNSUBSCRIBE gating)
 }
 
 // RedisBroadcasterOption configures RedisBroadcaster.
@@ -87,7 +87,7 @@ func NewRedisBroadcaster(client redis.UniversalClient, opts ...RedisBroadcasterO
 		ctx:                ctx,
 		cancel:             cancel,
 		reconnectDelay:     1 * time.Second, // Default: 1 second
-		subscribedChannels: make(map[string]struct{}),
+		subscribedChannels: make(map[string]int),
 	}
 
 	// Apply options
@@ -449,21 +449,27 @@ func (b *RedisBroadcaster) subscribeTo(channel, label string) error {
 }
 
 // trySubscribe performs one subscribe attempt using a check-lock-check pattern:
-//  1. Read-lock to fast-path closed/already-subscribed/pubsub-nil checks and
-//     to snapshot b.pubsub.
+//  1. Read-lock to fast-path closed/pubsub-nil checks; if the channel already
+//     has a non-zero refcount, increment it under the write lock and skip the
+//     network call.
 //  2. Release the lock and perform the Redis SUBSCRIBE outside any lock.
 //  3. Re-acquire the write lock and verify state is still valid (not closed,
-//     pubsub not swapped by a concurrent reconnect, not already recorded by a
-//     racing call) before recording the channel.
+//     pubsub not swapped by a concurrent reconnect) before bumping the refcount.
+//
+// Reference counting: every successful trySubscribe increments the channel's
+// refcount, regardless of whether a Redis SUBSCRIBE was actually issued.
+// The Redis SUBSCRIBE only fires on the 0→1 transition; subsequent callers
+// piggyback on the existing subscription. Symmetrically, UnsubscribeDynamic
+// decrements the refcount and only issues UNSUBSCRIBE on the 1→0 transition.
 //
 // A duplicate Redis SUBSCRIBE issued by a racing call is harmless — the
 // command is idempotent on the Redis side. A pubsub-pointer swap during
 // the network call is treated as a transient failure; the retry loop will
 // re-snapshot and try again against the new pubsub.
 func (b *RedisBroadcaster) trySubscribe(channel, label string) error {
-	b.mu.RLock()
+	b.mu.Lock()
 	if b.closed {
-		b.mu.RUnlock()
+		b.mu.Unlock()
 		return fmt.Errorf("broadcaster is closed")
 	}
 	if b.pubsub == nil {
@@ -473,18 +479,22 @@ func (b *RedisBroadcaster) trySubscribe(channel, label string) error {
 		//   * reconnecting = false → permanent (Subscribe never called); the
 		//     normal 3-attempt budget should fail fast.
 		reconnecting := b.reconnecting
-		b.mu.RUnlock()
+		b.mu.Unlock()
 		if reconnecting {
 			return fmt.Errorf("%s: %w", label, errPubsubNotReady)
 		}
 		return fmt.Errorf("not subscribed")
 	}
-	if _, exists := b.subscribedChannels[channel]; exists {
-		b.mu.RUnlock()
+	// Already subscribed (refcount > 0): bump the count, skip the network call.
+	// The Redis subscription is shared; the next caller's UnsubscribeDynamic
+	// only tears it down when the count returns to zero.
+	if b.subscribedChannels[channel] > 0 {
+		b.subscribedChannels[channel]++
+		b.mu.Unlock()
 		return nil
 	}
 	pubsub := b.pubsub
-	b.mu.RUnlock()
+	b.mu.Unlock()
 
 	if subscribeHook != nil {
 		subscribeHook()
@@ -503,14 +513,103 @@ func (b *RedisBroadcaster) trySubscribe(channel, label string) error {
 		b.mu.Unlock()
 		return fmt.Errorf("pubsub connection changed during subscribe to %s channel", label)
 	}
-	if _, exists := b.subscribedChannels[channel]; exists {
-		b.mu.Unlock()
-		return nil
-	}
-	b.subscribedChannels[channel] = struct{}{}
+	// A racing trySubscribe may have completed its SUBSCRIBE between our
+	// release-lock and re-acquire-lock; either way the count belongs to us.
+	b.subscribedChannels[channel]++
+	count := b.subscribedChannels[channel]
 	b.mu.Unlock()
 
 	slog.Info("Subscribed to "+label+" channel",
+		slog.String("component", "redis_broadcaster"),
+		slog.String("channel", channel),
+		slog.Int("refcount", count))
+	return nil
+}
+
+// UnsubscribeFromGroup decrements the refcount for a group channel.
+// When the refcount reaches zero, issues a Redis UNSUBSCRIBE and removes
+// the channel from the tracking map. Pairs with SubscribeToGroup.
+func (b *RedisBroadcaster) UnsubscribeFromGroup(groupID string) error {
+	if groupID == "" {
+		return fmt.Errorf("groupID cannot be empty")
+	}
+	return b.unsubscribeFrom(channelGroup+groupID, "group")
+}
+
+// UnsubscribeFromUser decrements the refcount for a user channel.
+// Pairs with SubscribeToUser.
+func (b *RedisBroadcaster) UnsubscribeFromUser(userID string) error {
+	if userID == "" {
+		return fmt.Errorf("userID cannot be empty")
+	}
+	return b.unsubscribeFrom(channelUser+userID, "user")
+}
+
+// UnsubscribeFromServerAction decrements the refcount for a server action channel.
+// Pairs with SubscribeToServerAction.
+func (b *RedisBroadcaster) UnsubscribeFromServerAction(userID string) error {
+	if userID == "" {
+		return fmt.Errorf("userID cannot be empty")
+	}
+	return b.unsubscribeFrom(channelServerAction+userID, "server action")
+}
+
+// UnsubscribeFromGroupAction decrements the refcount for a group action channel.
+// Pairs with SubscribeToGroupAction.
+func (b *RedisBroadcaster) UnsubscribeFromGroupAction(groupID string) error {
+	if groupID == "" {
+		return fmt.Errorf("groupID cannot be empty")
+	}
+	return b.unsubscribeFrom(channelGroupAction+groupID, "group action")
+}
+
+// unsubscribeFrom decrements the refcount for a channel. On the 1→0
+// transition, it issues a Redis UNSUBSCRIBE (outside any lock) and removes
+// the entry from subscribedChannels.
+//
+// Calls on channels with no refcount are a no-op — the channel was never
+// subscribed (or has already been torn down). This makes deferred cleanup
+// in the WebSocket handler robust against partial-failure setup paths.
+func (b *RedisBroadcaster) unsubscribeFrom(channel, label string) error {
+	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return nil
+	}
+	count := b.subscribedChannels[channel]
+	if count <= 0 {
+		// Either never subscribed, or already cleared. Idempotent no-op so
+		// disconnect-time cleanup is robust against earlier setup failures.
+		b.mu.Unlock()
+		return nil
+	}
+	if count > 1 {
+		b.subscribedChannels[channel] = count - 1
+		b.mu.Unlock()
+		return nil
+	}
+	// count == 1: clear the entry under the lock so concurrent SubscribeTo
+	// observes a zero count and re-issues SUBSCRIBE rather than piggybacking.
+	delete(b.subscribedChannels, channel)
+	pubsub := b.pubsub
+	b.mu.Unlock()
+
+	if pubsub == nil {
+		// pubsub may be nil while reconnect() is mid-flight. The map entry is
+		// already gone, so reconnect()'s replay won't include this channel.
+		// Nothing to send to Redis — the broadcaster will simply not re-SUBSCRIBE
+		// on reconnect, which is the desired terminal state.
+		slog.Debug("Refcount reached 0 while pubsub unavailable; skipping Redis UNSUBSCRIBE",
+			slog.String("component", "redis_broadcaster"),
+			slog.String("channel", channel))
+		return nil
+	}
+
+	if err := pubsub.Unsubscribe(b.ctx, channel); err != nil {
+		return fmt.Errorf("failed to unsubscribe from %s channel: %w", label, err)
+	}
+
+	slog.Info("Unsubscribed from "+label+" channel",
 		slog.String("component", "redis_broadcaster"),
 		slog.String("channel", channel))
 	return nil

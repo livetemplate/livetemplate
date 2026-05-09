@@ -509,19 +509,36 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Subscribe to scoped pub/sub channels for cross-instance broadcasting.
 	// Subscribers retry internally; errors here mean retries were exhausted.
+	//
+	// Each successful Subscribe* increments a refcount in the broadcaster.
+	// The matching deferred Unsubscribe* below decrements on disconnect so
+	// idle channels are torn down (#214). Only successful subscribes are
+	// recorded so partial-failure setup paths don't over-release.
 	if ds, ok := h.config.PubSubBroadcaster.(pubsub.DynamicSubscriber); ok {
+		var (
+			subscribedGroup        bool
+			subscribedGroupAction  bool
+			subscribedUser         bool
+			subscribedServerAction bool
+		)
+		gas, hasGroupAction := h.config.PubSubBroadcaster.(pubsub.GroupActionSubscriber)
+
 		if err := ds.SubscribeToGroup(groupID); err != nil {
 			slog.Error("Failed to subscribe to group channel",
 				slog.String("component", "live_handler"),
 				slog.String("group_id", groupID),
 				slog.Any("error", err))
+		} else {
+			subscribedGroup = true
 		}
-		if gas, ok := h.config.PubSubBroadcaster.(pubsub.GroupActionSubscriber); ok {
+		if hasGroupAction {
 			if err := gas.SubscribeToGroupAction(groupID); err != nil {
 				slog.Error("Failed to subscribe to group action channel",
 					slog.String("component", "live_handler"),
 					slog.String("group_id", groupID),
 					slog.Any("error", err))
+			} else {
+				subscribedGroupAction = true
 			}
 		}
 		if userID != "" {
@@ -530,14 +547,53 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 					slog.String("component", "live_handler"),
 					slog.String("user_id", userID),
 					slog.Any("error", err))
+			} else {
+				subscribedUser = true
 			}
 			if err := ds.SubscribeToServerAction(userID); err != nil {
 				slog.Error("Failed to subscribe to server action channel",
 					slog.String("component", "live_handler"),
 					slog.String("user_id", userID),
 					slog.Any("error", err))
+			} else {
+				subscribedServerAction = true
 			}
 		}
+
+		defer func() {
+			if subscribedGroup {
+				if err := ds.UnsubscribeFromGroup(groupID); err != nil {
+					slog.Warn("Failed to unsubscribe from group channel",
+						slog.String("component", "live_handler"),
+						slog.String("group_id", groupID),
+						slog.Any("error", err))
+				}
+			}
+			if subscribedGroupAction {
+				if err := gas.UnsubscribeFromGroupAction(groupID); err != nil {
+					slog.Warn("Failed to unsubscribe from group action channel",
+						slog.String("component", "live_handler"),
+						slog.String("group_id", groupID),
+						slog.Any("error", err))
+				}
+			}
+			if subscribedUser {
+				if err := ds.UnsubscribeFromUser(userID); err != nil {
+					slog.Warn("Failed to unsubscribe from user channel",
+						slog.String("component", "live_handler"),
+						slog.String("user_id", userID),
+						slog.Any("error", err))
+				}
+			}
+			if subscribedServerAction {
+				if err := ds.UnsubscribeFromServerAction(userID); err != nil {
+					slog.Warn("Failed to unsubscribe from server action channel",
+						slog.String("component", "live_handler"),
+						slog.String("user_id", userID),
+						slog.Any("error", err))
+				}
+			}
+		}()
 	}
 
 	// Create connection state (messages are per-connection, not shared)
