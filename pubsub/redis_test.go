@@ -17,6 +17,37 @@ import (
 // them as always-nil-result).
 var errTestHandlerNilMsg = errors.New("test handler received nil message")
 
+// waitForTimeout is the default deadline for waitFor. 2s is generous enough
+// for slow CI runners while still failing fast on a real bug; all callers
+// today share the same budget so it lives in one place.
+const waitForTimeout = 2 * time.Second
+
+// subscribeAckWindow is the brief delay after SubscribeToGroup/SubscribeToUser/
+// SubscribeToServerAction/SubscribeToGroupAction returns. Unlike top-level
+// Subscribe() (which calls pubsub.Receive() to wait for Redis to ACK the
+// SUBSCRIBE), subscribeTo() only writes the SUBSCRIBE bytes — Redis processes
+// them async on its end. A test that publishes on the new channel without
+// this gap can race the SUBSCRIBE round-trip on a separate connection and
+// silently drop the message. 50ms is well above Redis's sub-ms processing
+// time and matches the original test cadence. (Worth a follow-up to consider
+// adding Receive() to subscribeTo for symmetry with Subscribe.)
+const subscribeAckWindow = 50 * time.Millisecond
+
+// waitFor polls cond at 10ms intervals up to waitForTimeout. Returns true if
+// cond became true within the deadline, false otherwise. Used to replace
+// time.Sleep-based test synchronization where we're waiting for an
+// observable state change (e.g. reconnect completion, message arrival).
+func waitFor(cond func() bool) bool {
+	deadline := time.Now().Add(waitForTimeout)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return cond()
+}
+
 // getTestRedisClient returns a Redis client for testing using testcontainers.
 func getTestRedisClient(t *testing.T) redis.UniversalClient {
 	return testutil.GetTestRedisClient(t)
@@ -124,15 +155,11 @@ func TestRedisBroadcaster_SubscribeAndReceive(t *testing.T) {
 		return nil
 	}
 
-	// Start subscriber
-	go func() {
-		if err := broadcaster2.Subscribe(handler); err != nil {
-			t.Errorf("Subscribe failed: %v", err)
-		}
-	}()
-
-	// Give subscriber time to start
-	time.Sleep(100 * time.Millisecond)
+	// Subscribe synchronously — Subscribe() blocks until the Redis SUBSCRIBE
+	// is confirmed, so no sleep is needed afterward.
+	if err := broadcaster2.Subscribe(handler); err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
 
 	// Publish from broadcaster1
 	payload := []byte(`{"test": "data"}`)
@@ -201,15 +228,10 @@ func TestRedisBroadcaster_LocalOptimization(t *testing.T) {
 		return nil
 	}
 
-	// Start subscriber
-	go func() {
-		if err := broadcaster.Subscribe(handler); err != nil {
-			t.Errorf("Subscribe failed: %v", err)
-		}
-	}()
-
-	// Give subscriber time to start
-	time.Sleep(100 * time.Millisecond)
+	// Subscribe synchronously — Subscribe() blocks until Redis SUBSCRIBE confirms.
+	if err := broadcaster.Subscribe(handler); err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
 
 	// Publish from same instance
 	payload := []byte(`{"test": "data"}`)
@@ -217,7 +239,10 @@ func TestRedisBroadcaster_LocalOptimization(t *testing.T) {
 		t.Fatalf("PublishGlobal failed: %v", err)
 	}
 
-	// Wait a bit
+	// Negative assertion: this test verifies a message is NOT received (local
+	// optimization filters own-instance messages). A bounded sleep is the
+	// honest way to assert "nothing happened within N ms" — there is no
+	// state change to poll for.
 	time.Sleep(200 * time.Millisecond)
 
 	// Should not receive own message (local-first optimization)
@@ -262,23 +287,20 @@ func TestRedisBroadcaster_GroupBroadcast(t *testing.T) {
 		return nil
 	}
 
-	// Start subscriber
-	go func() {
-		if err := broadcaster2.Subscribe(handler); err != nil {
-			t.Errorf("Subscribe failed: %v", err)
-		}
-	}()
+	// Subscribe synchronously — Subscribe() blocks until the Redis SUBSCRIBE
+	// is confirmed, so no sleep is needed afterward.
+	if err := broadcaster2.Subscribe(handler); err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
 
-	// Give subscriber time to start
-	time.Sleep(100 * time.Millisecond)
-
-	// Subscribe to specific group
 	if err := broadcaster2.SubscribeToGroup("group-123"); err != nil {
 		t.Fatalf("SubscribeToGroup failed: %v", err)
 	}
 
-	// Give subscription time to register
-	time.Sleep(100 * time.Millisecond)
+	// Wait for Redis to ACK the SUBSCRIBE (subscribeTo doesn't Receive — see
+	// subscribeAckWindow). Without this gap, a publish on a separate connection
+	// can race the SUBSCRIBE registration and the message is silently dropped.
+	time.Sleep(subscribeAckWindow)
 
 	// Publish to group
 	payload := []byte(`{"test": "group-data"}`)
@@ -350,23 +372,18 @@ func TestRedisBroadcaster_UserBroadcast(t *testing.T) {
 		return nil
 	}
 
-	// Start subscriber
-	go func() {
-		if err := broadcaster2.Subscribe(handler); err != nil {
-			t.Errorf("Subscribe failed: %v", err)
-		}
-	}()
+	// Subscribe synchronously — Subscribe() and SubscribeToUser() both block
+	// until the Redis SUBSCRIBE round-trip completes.
+	if err := broadcaster2.Subscribe(handler); err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
 
-	// Give subscriber time to start
-	time.Sleep(100 * time.Millisecond)
-
-	// Subscribe to specific user
 	if err := broadcaster2.SubscribeToUser("user-456"); err != nil {
 		t.Fatalf("SubscribeToUser failed: %v", err)
 	}
 
-	// Give subscription time to register
-	time.Sleep(100 * time.Millisecond)
+	// Wait for Redis to ACK the SUBSCRIBE (see subscribeAckWindow).
+	time.Sleep(subscribeAckWindow)
 
 	// Publish to user
 	payload := []byte(`{"test": "user-data"}`)
@@ -443,16 +460,13 @@ func TestRedisBroadcaster_MultipleSubscribers(t *testing.T) {
 		return nil
 	}
 
-	// Start subscribers
-	go func() {
-		_ = broadcaster2.Subscribe(handler)
-	}()
-	go func() {
-		_ = broadcaster3.Subscribe(handler)
-	}()
-
-	// Give subscribers time to start
-	time.Sleep(100 * time.Millisecond)
+	// Subscribe both synchronously — Subscribe() blocks until Redis confirms.
+	if err := broadcaster2.Subscribe(handler); err != nil {
+		t.Fatalf("broadcaster2 Subscribe failed: %v", err)
+	}
+	if err := broadcaster3.Subscribe(handler); err != nil {
+		t.Fatalf("broadcaster3 Subscribe failed: %v", err)
+	}
 
 	// Publish from broadcaster1
 	payload := []byte(`{"test": "multi"}`)
@@ -485,14 +499,12 @@ func TestRedisBroadcaster_Close(t *testing.T) {
 
 	broadcaster := NewRedisBroadcaster(client)
 
-	// Subscribe first
-	go func() {
-		_ = broadcaster.Subscribe(func(msg *BroadcastMessage) error {
-			return nil
-		})
-	}()
-
-	time.Sleep(100 * time.Millisecond)
+	// Subscribe synchronously before closing.
+	if err := broadcaster.Subscribe(func(msg *BroadcastMessage) error {
+		return nil
+	}); err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
 
 	// Close broadcaster
 	if err := broadcaster.Close(); err != nil {
@@ -583,20 +595,16 @@ func TestRedisBroadcaster_ReconnectPreservesDynamicSubscriptions(t *testing.T) {
 		t.Fatalf("SubscribeServerActions failed: %v", err)
 	}
 
-	go func() {
-		if err := subscriber.Subscribe(func(msg *BroadcastMessage) error {
-			mu.Lock()
-			broadcastMsgs = append(broadcastMsgs, msg)
-			mu.Unlock()
-			return nil
-		}); err != nil {
-			t.Errorf("Subscribe failed: %v", err)
-		}
-	}()
+	if err := subscriber.Subscribe(func(msg *BroadcastMessage) error {
+		mu.Lock()
+		broadcastMsgs = append(broadcastMsgs, msg)
+		mu.Unlock()
+		return nil
+	}); err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
 
-	time.Sleep(100 * time.Millisecond)
-
-	// Subscribe to dynamic channels before reconnect
+	// Subscribe to dynamic channels before reconnect (all synchronous).
 	if err := subscriber.SubscribeToGroup("g1"); err != nil {
 		t.Fatalf("SubscribeToGroup failed: %v", err)
 	}
@@ -607,17 +615,26 @@ func TestRedisBroadcaster_ReconnectPreservesDynamicSubscriptions(t *testing.T) {
 		t.Fatalf("SubscribeToServerAction failed: %v", err)
 	}
 
-	time.Sleep(100 * time.Millisecond)
-
-	// Force a reconnect by closing the internal pubsub
+	// Force a reconnect by closing the internal pubsub. Capture the pre-close
+	// pubsub pointer so we can poll for it being swapped — checking only
+	// "pubsub != nil" would race with the test (b.pubsub still references the
+	// dead connection until reconnect() reassigns it).
 	subscriber.mu.Lock()
+	oldPubsub := subscriber.pubsub
 	if subscriber.pubsub != nil {
 		_ = subscriber.pubsub.Close()
 	}
 	subscriber.mu.Unlock()
 
-	// Wait for reconnect to complete
-	time.Sleep(200 * time.Millisecond)
+	// Poll for reconnect completion: b.pubsub has been swapped to a new
+	// connection AND the reconnecting flag has cleared.
+	if !waitFor(func() bool {
+		subscriber.mu.RLock()
+		defer subscriber.mu.RUnlock()
+		return subscriber.pubsub != nil && subscriber.pubsub != oldPubsub && !subscriber.reconnecting
+	}) {
+		t.Fatal("reconnect did not complete within 2s")
+	}
 
 	// Publish to all channel types after reconnect
 	if err := publisher.PublishGlobal([]byte(`{"test": "global"}`)); err != nil {
@@ -633,8 +650,17 @@ func TestRedisBroadcaster_ReconnectPreservesDynamicSubscriptions(t *testing.T) {
 		t.Fatalf("PublishServerAction failed: %v", err)
 	}
 
-	// Wait for messages
-	time.Sleep(500 * time.Millisecond)
+	// Poll for all expected messages to arrive.
+	if !waitFor(func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(broadcastMsgs) >= 3 && len(serverActionMsgs) >= 1
+	}) {
+		mu.Lock()
+		gotB, gotS := len(broadcastMsgs), len(serverActionMsgs)
+		mu.Unlock()
+		t.Fatalf("timeout waiting for messages after reconnect: broadcasts=%d (want 3), serverActions=%d (want 1)", gotB, gotS)
+	}
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -680,15 +706,11 @@ func TestRedisBroadcaster_SubscribeDedup(t *testing.T) {
 		}
 	}()
 
-	go func() {
-		if err := broadcaster.Subscribe(func(msg *BroadcastMessage) error {
-			return nil
-		}); err != nil {
-			t.Errorf("Subscribe failed: %v", err)
-		}
-	}()
-
-	time.Sleep(100 * time.Millisecond)
+	if err := broadcaster.Subscribe(func(msg *BroadcastMessage) error {
+		return nil
+	}); err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
 
 	// First subscription should succeed
 	if err := broadcaster.SubscribeToGroup("g1"); err != nil {
@@ -760,24 +782,20 @@ func TestRedisBroadcaster_CrossInstanceGroupBroadcast(t *testing.T) {
 	received.Add(1)
 
 	var receivedMsg *BroadcastMessage
-	go func() {
-		if err := instanceB.Subscribe(func(msg *BroadcastMessage) error {
-			receivedMsg = msg
-			received.Done()
-			return nil
-		}); err != nil {
-			t.Errorf("Subscribe failed: %v", err)
-		}
-	}()
+	if err := instanceB.Subscribe(func(msg *BroadcastMessage) error {
+		receivedMsg = msg
+		received.Done()
+		return nil
+	}); err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
 
-	time.Sleep(100 * time.Millisecond)
-
-	// Instance B subscribes to group channel dynamically
 	if err := instanceB.SubscribeToGroup("tenant-42"); err != nil {
 		t.Fatalf("SubscribeToGroup failed: %v", err)
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	// Wait for Redis to ACK the SUBSCRIBE (see subscribeAckWindow).
+	time.Sleep(subscribeAckWindow)
 
 	// Instance A publishes to that group
 	if err := instanceA.PublishToGroup("tenant-42", []byte(`{"update": "new-data"}`)); err != nil {
@@ -833,38 +851,49 @@ func TestRedisBroadcaster_UnsubscribedGroupNotReceived(t *testing.T) {
 	var mu sync.Mutex
 	var received []*BroadcastMessage
 
-	go func() {
-		if err := subscriber.Subscribe(func(msg *BroadcastMessage) error {
-			mu.Lock()
-			received = append(received, msg)
-			mu.Unlock()
-			return nil
-		}); err != nil {
-			t.Errorf("Subscribe failed: %v", err)
-		}
-	}()
+	if err := subscriber.Subscribe(func(msg *BroadcastMessage) error {
+		mu.Lock()
+		received = append(received, msg)
+		mu.Unlock()
+		return nil
+	}); err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
 
-	time.Sleep(100 * time.Millisecond)
-
-	// Subscribe to group-A only, NOT group-B
+	// Subscribe to group-A only, NOT group-B.
 	if err := subscriber.SubscribeToGroup("group-A"); err != nil {
 		t.Fatalf("SubscribeToGroup failed: %v", err)
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	// Wait for Redis to ACK the SUBSCRIBE (see subscribeAckWindow).
+	time.Sleep(subscribeAckWindow)
 
-	// Publish to group-B (subscriber should NOT receive this)
+	// Publish to group-B first, then group-A. Both publishes use the same
+	// Redis connection ordering, so by the time group-A's message arrives at
+	// the subscriber, group-B's would have arrived too if it were going to.
+	// Thus polling for the group-A arrival lets us deterministically assert
+	// group-B was filtered out.
 	if err := publisher.PublishToGroup("group-B", []byte(`{"test": "should-not-arrive"}`)); err != nil {
 		t.Fatalf("PublishToGroup failed: %v", err)
 	}
-
-	// Publish to group-A (subscriber should receive this)
 	if err := publisher.PublishToGroup("group-A", []byte(`{"test": "should-arrive"}`)); err != nil {
 		t.Fatalf("PublishToGroup failed: %v", err)
 	}
 
-	// Wait for messages to propagate
-	time.Sleep(500 * time.Millisecond)
+	// Poll for the group-A message to land — its arrival is the synchronization
+	// point that guarantees group-B's would have arrived too if not filtered.
+	if !waitFor(func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, m := range received {
+			if m.GroupID == "group-A" {
+				return true
+			}
+		}
+		return false
+	}) {
+		t.Fatal("group-A message did not arrive within 2s")
+	}
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -1041,15 +1070,11 @@ func TestSubscribeTo_DoesNotBlockConcurrentOperations(t *testing.T) {
 		}
 	}()
 
-	go func() {
-		if err := broadcaster.Subscribe(func(msg *BroadcastMessage) error {
-			return nil
-		}); err != nil {
-			t.Errorf("Subscribe failed: %v", err)
-		}
-	}()
-
-	time.Sleep(100 * time.Millisecond)
+	if err := broadcaster.Subscribe(func(msg *BroadcastMessage) error {
+		return nil
+	}); err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
 
 	// Inject a hook that holds inside trySubscribe (after lock release, before
 	// the Redis network call) until we explicitly release it.
@@ -1144,15 +1169,11 @@ func TestReconnect_DoesNotBlockConcurrentPublish(t *testing.T) {
 		}
 	}()
 
-	go func() {
-		if err := broadcaster.Subscribe(func(msg *BroadcastMessage) error {
-			return nil
-		}); err != nil {
-			t.Errorf("Subscribe failed: %v", err)
-		}
-	}()
-
-	time.Sleep(100 * time.Millisecond)
+	if err := broadcaster.Subscribe(func(msg *BroadcastMessage) error {
+		return nil
+	}); err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
 
 	// Hook fires after reconnect() has released its initial lock and is about
 	// to enter the sleep window. Use it to deterministically time the publish
@@ -1220,11 +1241,9 @@ func TestReconnect_InterruptibleByContextCancel(t *testing.T) {
 
 	broadcaster := NewRedisBroadcaster(client, WithReconnectDelay(5*time.Second))
 
-	go func() {
-		_ = broadcaster.Subscribe(func(msg *BroadcastMessage) error { return nil })
-	}()
-
-	time.Sleep(100 * time.Millisecond)
+	if err := broadcaster.Subscribe(func(msg *BroadcastMessage) error { return nil }); err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
 
 	hookEntered := make(chan struct{})
 	prevHook := reconnectHook
@@ -1295,15 +1314,11 @@ func TestSubscribeTo_SucceedsDuringReconnectWindow(t *testing.T) {
 		}
 	}()
 
-	go func() {
-		if err := broadcaster.Subscribe(func(msg *BroadcastMessage) error {
-			return nil
-		}); err != nil {
-			t.Errorf("Subscribe failed: %v", err)
-		}
-	}()
-
-	time.Sleep(100 * time.Millisecond)
+	if err := broadcaster.Subscribe(func(msg *BroadcastMessage) error {
+		return nil
+	}); err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
 
 	hookEntered := make(chan struct{})
 	prevHook := reconnectHook
@@ -1379,12 +1394,9 @@ func TestRedisBroadcaster_SubscribeRefcount_Increments(t *testing.T) {
 		}
 	}()
 
-	go func() {
-		if err := broadcaster.Subscribe(func(msg *BroadcastMessage) error { return nil }); err != nil {
-			t.Errorf("Subscribe failed: %v", err)
-		}
-	}()
-	time.Sleep(100 * time.Millisecond)
+	if err := broadcaster.Subscribe(func(msg *BroadcastMessage) error { return nil }); err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
 
 	for i := 0; i < 3; i++ {
 		if err := broadcaster.SubscribeToGroup("g1"); err != nil {
@@ -1418,12 +1430,9 @@ func TestRedisBroadcaster_SubscribeRefcount_DecrementsKeepsEntry(t *testing.T) {
 		}
 	}()
 
-	go func() {
-		if err := broadcaster.Subscribe(func(msg *BroadcastMessage) error { return nil }); err != nil {
-			t.Errorf("Subscribe failed: %v", err)
-		}
-	}()
-	time.Sleep(100 * time.Millisecond)
+	if err := broadcaster.Subscribe(func(msg *BroadcastMessage) error { return nil }); err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
 
 	if err := broadcaster.SubscribeToGroup("g1"); err != nil {
 		t.Fatalf("first SubscribeToGroup failed: %v", err)
@@ -1466,12 +1475,9 @@ func TestRedisBroadcaster_SubscribeRefcount_ZeroRemovesEntry(t *testing.T) {
 		}
 	}()
 
-	go func() {
-		if err := broadcaster.Subscribe(func(msg *BroadcastMessage) error { return nil }); err != nil {
-			t.Errorf("Subscribe failed: %v", err)
-		}
-	}()
-	time.Sleep(100 * time.Millisecond)
+	if err := broadcaster.Subscribe(func(msg *BroadcastMessage) error { return nil }); err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
 
 	if err := broadcaster.SubscribeToGroup("g-removable"); err != nil {
 		t.Fatalf("SubscribeToGroup failed: %v", err)
@@ -1560,12 +1566,9 @@ func TestRedisBroadcaster_UnsubscribeAllScopes(t *testing.T) {
 		}
 	}()
 
-	go func() {
-		if err := broadcaster.Subscribe(func(msg *BroadcastMessage) error { return nil }); err != nil {
-			t.Errorf("Subscribe failed: %v", err)
-		}
-	}()
-	time.Sleep(100 * time.Millisecond)
+	if err := broadcaster.Subscribe(func(msg *BroadcastMessage) error { return nil }); err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
 
 	if err := broadcaster.SubscribeToGroup("g-all"); err != nil {
 		t.Fatalf("SubscribeToGroup failed: %v", err)
@@ -1636,29 +1639,30 @@ func TestRedisBroadcaster_RefcountSurvivesUnsubscribeUntilZero(t *testing.T) {
 
 	var receivedCount int
 	var receivedMu sync.Mutex
-	go func() {
-		if err := subscriber.Subscribe(func(msg *BroadcastMessage) error {
-			if msg == nil {
-				return errTestHandlerNilMsg
-			}
-			receivedMu.Lock()
-			receivedCount++
-			receivedMu.Unlock()
-			return nil
-		}); err != nil {
-			t.Errorf("Subscribe failed: %v", err)
+	if err := subscriber.Subscribe(func(msg *BroadcastMessage) error {
+		if msg == nil {
+			return errTestHandlerNilMsg
 		}
-	}()
-	time.Sleep(100 * time.Millisecond)
+		receivedMu.Lock()
+		receivedCount++
+		receivedMu.Unlock()
+		return nil
+	}); err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
 
-	// Two "connections" both subscribe to the same group channel.
+	// Two "connections" both subscribe to the same group channel. Only the
+	// first 0→1 transition issues a real Redis SUBSCRIBE; the second is a
+	// refcount bump that doesn't touch the network.
 	if err := subscriber.SubscribeToGroup("shared"); err != nil {
 		t.Fatalf("first SubscribeToGroup failed: %v", err)
 	}
 	if err := subscriber.SubscribeToGroup("shared"); err != nil {
 		t.Fatalf("second SubscribeToGroup failed: %v", err)
 	}
-	time.Sleep(100 * time.Millisecond)
+
+	// Wait for Redis to ACK the first SUBSCRIBE (see subscribeAckWindow).
+	time.Sleep(subscribeAckWindow)
 
 	// First "connection" disconnects.
 	if err := subscriber.UnsubscribeFromGroup("shared"); err != nil {
@@ -1669,13 +1673,18 @@ func TestRedisBroadcaster_RefcountSurvivesUnsubscribeUntilZero(t *testing.T) {
 	if err := publisher.PublishToGroup("shared", []byte(`{"k":"v"}`)); err != nil {
 		t.Fatalf("PublishToGroup failed: %v", err)
 	}
-	time.Sleep(300 * time.Millisecond)
 
-	receivedMu.Lock()
-	gotAfterPartial := receivedCount
-	receivedMu.Unlock()
-	if gotAfterPartial < 1 {
-		t.Errorf("Subscriber should still receive after partial unsubscribe (refcount > 0); receivedCount=%d", gotAfterPartial)
+	// Poll for the broadcast to arrive — refcount > 0 means the channel is
+	// still live, so the publish must reach us.
+	if !waitFor(func() bool {
+		receivedMu.Lock()
+		defer receivedMu.Unlock()
+		return receivedCount >= 1
+	}) {
+		receivedMu.Lock()
+		gotAfterPartial := receivedCount
+		receivedMu.Unlock()
+		t.Fatalf("Subscriber should still receive after partial unsubscribe (refcount > 0); receivedCount=%d", gotAfterPartial)
 	}
 
 	// Second disconnect: refcount → 0, channel torn down.
