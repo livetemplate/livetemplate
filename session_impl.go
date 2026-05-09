@@ -37,10 +37,7 @@ func newLocalSession(handler *liveHandler, groupID string) *localSession {
 	return &localSession{handler: handler, groupID: groupID}
 }
 
-// newLocalSessionFromDispatched constructs a localSession that knows it
-// was created inside a dispatched-action handler. TriggerAction calls on
-// the returned value emit an observability log line so that recursive or
-// runaway chained dispatches are detectable (#337 Option A).
+// newLocalSessionFromDispatched constructs a localSession with fromDispatched=true.
 func newLocalSessionFromDispatched(handler *liveHandler, groupID string) *localSession {
 	return &localSession{handler: handler, groupID: groupID, fromDispatched: true}
 }

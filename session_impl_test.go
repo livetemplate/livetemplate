@@ -269,11 +269,6 @@ func (c *chainedTriggerController) Second(state chainedTriggerState, ctx *Contex
 	return state, nil
 }
 
-// TestLocalSession_TriggerActionFromDispatchedLogsDebug verifies the
-// #337 Option A fix: when a dispatched-action handler calls
-// ctx.Session().TriggerAction, a slog.Debug line is emitted so that
-// runaway recursive chains are detectable in logs. Calls originating
-// from OnConnect (not dispatched) must NOT log.
 // syncBuf is a thread-safe bytes.Buffer wrapper for capturing slog output
 // from a goroutine the test does not control. bytes.Buffer is not safe
 // for concurrent Write/String, so the slog handler's writes race with the
@@ -295,13 +290,21 @@ func (s *syncBuf) String() string {
 	return s.buf.String()
 }
 
+// TestLocalSession_TriggerActionFromDispatchedLogsDebug verifies the
+// #337 Option A fix: when a dispatched-action handler calls
+// ctx.Session().TriggerAction, a slog.Debug line is emitted so that
+// runaway recursive chains are detectable in logs. Calls originating
+// from OnConnect (not dispatched) must NOT log.
+//
+// Note: this test mutates the global slog.Default() via SetDefault. Do
+// not add t.Parallel() here — concurrent tests would race on the global
+// logger. Cleanup restores the previous default.
 func TestLocalSession_TriggerActionFromDispatchedLogsDebug(t *testing.T) {
 	// Capture slog output via a thread-safe wrapper — the slog handler
 	// writes from the dispatch goroutine while assertions read from the
 	// test goroutine, so a plain bytes.Buffer would race under -race.
-	// Replace the default logger for the test, then restore it via
-	// t.Cleanup. Debug level is required because slog.Debug is filtered
-	// out by the default handler level.
+	// Debug level is required because slog.Debug is filtered out by the
+	// default handler level.
 	var buf syncBuf
 	prev := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
