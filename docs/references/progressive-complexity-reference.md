@@ -97,7 +97,7 @@ During form submission, the framework automatically manages loading indicators:
 | `lvt-*` attributes | N/A | Works | Works |
 | Server push (broadcast) | N/A | N/A | Works |
 
-> **Security note:** When using no-JS POST mode, implement CSRF protection (e.g., [`gorilla/csrf`](https://github.com/gorilla/csrf) middleware). The JS transport modes benefit from same-origin WebSocket/fetch, but plain HTML form POST does not.
+> **Security note:** When using no-JS POST mode, implement CSRF protection (e.g., [`gorilla/csrf`](https://github.com/gorilla/csrf) or equivalent CSRF middleware). The JS transport modes send the `Origin` header that the server validates on WebSocket upgrade and fetch; plain HTML form POST does not carry the same protection.
 
 ## Tier 2: `lvt-*` Attributes
 

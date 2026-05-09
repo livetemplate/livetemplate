@@ -369,7 +369,7 @@ When JavaScript is unavailable, forms submit as standard HTML POST requests. The
 
 This is why all Tier 1 examples use `<form method="POST">` — they work without JavaScript by design.
 
-> **Security note:** When using no-JS POST mode, implement CSRF protection (e.g., [`gorilla/csrf`](https://github.com/gorilla/csrf) middleware). The JS transport modes benefit from same-origin WebSocket/fetch, but plain HTML form POST does not.
+> **Security note:** When using no-JS POST mode, implement CSRF protection (e.g., [`gorilla/csrf`](https://github.com/gorilla/csrf) or equivalent CSRF middleware). The JS transport modes send the `Origin` header that the server validates on WebSocket upgrade and fetch; plain HTML form POST does not carry the same protection.
 
 ### JavaScript + HTTP (fetch)
 
