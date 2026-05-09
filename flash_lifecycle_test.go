@@ -16,7 +16,7 @@ import (
 func newFlashState() *connState {
 	return &connState{
 		messages:    make(map[string]string),
-		flashExpiry: make(map[string]time.Time),
+		flashExpiry: make(map[flashKey]time.Time),
 	}
 }
 
@@ -36,7 +36,7 @@ func TestExpiredFlashAbsentFromGetMessagesSnapshot(t *testing.T) {
 		t.Fatal("flash not set")
 	}
 	// Backdate the deadline to simulate expiry having elapsed since SetFlash.
-	cs.flashExpiry["success"] = time.Now().Add(-1 * time.Second)
+	cs.flashExpiry[flashKey("success")] = time.Now().Add(-1 * time.Second)
 
 	// getMessages must NOT include the expired entry — it prunes before
 	// snapshotting so the next render walks a clean slate.
@@ -97,7 +97,7 @@ func TestFlashExpiryPrunesAfterDeadline(t *testing.T) {
 	// Backdate the expiry to force it to be past-due. Direct map write is safe
 	// here: these are sequential single-goroutine tests; setFlash initialized
 	// the map above so the nil-map panic path is excluded.
-	cs.flashExpiry["info"] = time.Now().Add(-1 * time.Second)
+	cs.flashExpiry[flashKey("info")] = time.Now().Add(-1 * time.Second)
 
 	cs.pruneExpiredFlash()
 
@@ -114,7 +114,7 @@ func TestFlashExpiryDoesNotAffectNonExpiredMessages(t *testing.T) {
 	cs.setFlash("info", "Transient...", time.Minute) // expires in 1 minute (not yet)
 
 	// Manually backdate only the "info" key to be past-due (sequential test, safe).
-	cs.flashExpiry["info"] = time.Now().Add(-1 * time.Second)
+	cs.flashExpiry[flashKey("info")] = time.Now().Add(-1 * time.Second)
 
 	cs.pruneExpiredFlash()
 
@@ -166,7 +166,7 @@ func TestFlashExpiryOverwrittenByNoExpiry(t *testing.T) {
 	cs.setFlash("key", "first", time.Hour)
 	// Backdate the expiry to force it to appear past-due. Direct map write is
 	// safe here: sequential single-goroutine test, map initialised above.
-	cs.flashExpiry["key"] = time.Now().Add(-1 * time.Second)
+	cs.flashExpiry[flashKey("key")] = time.Now().Add(-1 * time.Second)
 	// Overwrite with no expiry — prior deadline must be deleted from flashExpiry.
 	cs.setFlash("key", "updated", 0)
 	cs.pruneExpiredFlash()
