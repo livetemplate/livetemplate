@@ -1566,21 +1566,21 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 	// If the backing store (e.g. Redis) is unreachable, this blocks until
 	// the client's configured dial timeout fires.
 	if mountCfg.PubSubBroadcaster != nil {
-		slog.Info("Starting pub/sub subscriber")
 		if err := mountCfg.PubSubBroadcaster.Subscribe(handler.handlePubSubMessage); err != nil {
-			slog.Error("Pub/sub subscriber error",
+			slog.Warn("Pub/sub subscriber failed - cross-instance dispatch disabled",
 				slog.Any("error", err))
-		}
-
-		if err := mountCfg.PubSubBroadcaster.SubscribeServerActions(handler.handleServerActionMessage); err != nil {
-			slog.Error("Failed to subscribe to server actions",
-				slog.Any("error", err))
-		}
-
-		if gab, ok := mountCfg.PubSubBroadcaster.(pubsub.GroupActionBroadcaster); ok {
-			if err := gab.SubscribeGroupActions(handler.handleGroupActionMessage); err != nil {
-				slog.Error("Failed to subscribe to group actions",
+		} else {
+			slog.Info("Pub/sub subscriber started")
+			if err := mountCfg.PubSubBroadcaster.SubscribeServerActions(handler.handleServerActionMessage); err != nil {
+				slog.Error("Failed to subscribe to server actions",
 					slog.Any("error", err))
+			}
+
+			if gab, ok := mountCfg.PubSubBroadcaster.(pubsub.GroupActionBroadcaster); ok {
+				if err := gab.SubscribeGroupActions(handler.handleGroupActionMessage); err != nil {
+					slog.Error("Failed to subscribe to group actions",
+						slog.Any("error", err))
+				}
 			}
 		}
 	}

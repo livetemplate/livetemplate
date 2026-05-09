@@ -2819,3 +2819,86 @@ func TestEphemeral_SyncStillWorks(t *testing.T) {
 		}
 	}
 }
+
+type fakeBroadcaster struct {
+	subscribeErr      error
+	subscribeCalls    int
+	serverActionCalls int
+	groupActionCalls  int
+}
+
+func (f *fakeBroadcaster) PublishGlobal(_ []byte) error            { return nil }
+func (f *fakeBroadcaster) PublishToGroup(_ string, _ []byte) error { return nil }
+func (f *fakeBroadcaster) PublishToUser(_ string, _ []byte) error  { return nil }
+func (f *fakeBroadcaster) PublishServerAction(_ string, _ string, _ map[string]interface{}) error {
+	return nil
+}
+func (f *fakeBroadcaster) PublishGroupAction(_ string, _ string, _ map[string]interface{}) error {
+	return nil
+}
+func (f *fakeBroadcaster) Close() error { return nil }
+
+func (f *fakeBroadcaster) Subscribe(_ pubsub.MessageHandler) error {
+	f.subscribeCalls++
+	return f.subscribeErr
+}
+
+func (f *fakeBroadcaster) SubscribeServerActions(_ pubsub.ServerActionHandler) error {
+	f.serverActionCalls++
+	return nil
+}
+
+func (f *fakeBroadcaster) SubscribeGroupActions(_ pubsub.GroupActionHandler) error {
+	f.groupActionCalls++
+	return nil
+}
+
+func TestHandle_PubSubSubscribeFailureSkipsRegistrations(t *testing.T) {
+	fb := &fakeBroadcaster{subscribeErr: errors.New("redis unreachable")}
+
+	tmpl, err := New("test", WithPubSubBroadcaster(fb))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>{{.Count}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	_ = tmpl.Handle(&testHandleController{}, AsState(&testHandleState{}))
+
+	if fb.subscribeCalls != 1 {
+		t.Errorf("Subscribe should be called once, got %d", fb.subscribeCalls)
+	}
+	if fb.serverActionCalls != 0 {
+		t.Errorf("SubscribeServerActions must NOT be called when Subscribe fails, got %d", fb.serverActionCalls)
+	}
+	if fb.groupActionCalls != 0 {
+		t.Errorf("SubscribeGroupActions must NOT be called when Subscribe fails, got %d", fb.groupActionCalls)
+	}
+}
+
+func TestHandle_PubSubSubscribeSuccessRegistersAll(t *testing.T) {
+	fb := &fakeBroadcaster{}
+
+	tmpl, err := New("test", WithPubSubBroadcaster(fb))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>{{.Count}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	_ = tmpl.Handle(&testHandleController{}, AsState(&testHandleState{}))
+
+	if fb.subscribeCalls != 1 {
+		t.Errorf("Subscribe should be called once, got %d", fb.subscribeCalls)
+	}
+	if fb.serverActionCalls != 1 {
+		t.Errorf("SubscribeServerActions should be called once, got %d", fb.serverActionCalls)
+	}
+	if fb.groupActionCalls != 1 {
+		t.Errorf("SubscribeGroupActions should be called once, got %d", fb.groupActionCalls)
+	}
+}
