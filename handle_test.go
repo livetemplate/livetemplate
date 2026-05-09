@@ -2820,8 +2820,6 @@ func TestEphemeral_SyncStillWorks(t *testing.T) {
 	}
 }
 
-// fakeBroadcaster is a minimal pubsub.Broadcaster + GroupActionBroadcaster used
-// to verify that handler registrations are gated on Subscribe() success (#357).
 type fakeBroadcaster struct {
 	subscribeErr      error
 	subscribeCalls    int
@@ -2855,11 +2853,6 @@ func (f *fakeBroadcaster) SubscribeGroupActions(_ pubsub.GroupActionHandler) err
 	return nil
 }
 
-// TestHandle_PubSubSubscribeFailureSkipsRegistrations verifies that when
-// PubSubBroadcaster.Subscribe() returns an error (e.g. Redis unreachable),
-// SubscribeServerActions and SubscribeGroupActions are NOT called. Otherwise
-// per-WS trySubscribe calls would log "not subscribed" errors on every connection.
-// See https://github.com/livetemplate/livetemplate/issues/357.
 func TestHandle_PubSubSubscribeFailureSkipsRegistrations(t *testing.T) {
 	fb := &fakeBroadcaster{subscribeErr: errors.New("redis unreachable")}
 
@@ -2885,8 +2878,6 @@ func TestHandle_PubSubSubscribeFailureSkipsRegistrations(t *testing.T) {
 	}
 }
 
-// TestHandle_PubSubSubscribeSuccessRegistersAll verifies that when Subscribe
-// succeeds, both SubscribeServerActions and SubscribeGroupActions are called.
 func TestHandle_PubSubSubscribeSuccessRegistersAll(t *testing.T) {
 	fb := &fakeBroadcaster{}
 

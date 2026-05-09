@@ -1566,7 +1566,6 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 	// If the backing store (e.g. Redis) is unreachable, this blocks until
 	// the client's configured dial timeout fires.
 	if mountCfg.PubSubBroadcaster != nil {
-		slog.Info("Starting pub/sub subscriber")
 		if err := mountCfg.PubSubBroadcaster.Subscribe(handler.handlePubSubMessage); err != nil {
 			slog.Warn("Pub/sub subscriber failed - cross-instance dispatch disabled",
 				slog.Any("error", err))
