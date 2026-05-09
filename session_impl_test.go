@@ -225,6 +225,7 @@ type chainedTriggerController struct {
 	secondRan bool
 	chainErr  error
 	done      chan struct{}
+	doneOnce  sync.Once
 	cancelCtx context.Context
 }
 
@@ -263,11 +264,8 @@ func (c *chainedTriggerController) Second(state chainedTriggerState, ctx *Contex
 	state.Second = ctx.GetString("data")
 	c.mu.Lock()
 	c.secondRan = true
-	if c.done != nil {
-		close(c.done)
-		c.done = nil
-	}
 	c.mu.Unlock()
+	c.doneOnce.Do(func() { close(c.done) })
 	return state, nil
 }
 
@@ -276,11 +274,35 @@ func (c *chainedTriggerController) Second(state chainedTriggerState, ctx *Contex
 // ctx.Session().TriggerAction, a slog.Debug line is emitted so that
 // runaway recursive chains are detectable in logs. Calls originating
 // from OnConnect (not dispatched) must NOT log.
+// syncBuf is a thread-safe bytes.Buffer wrapper for capturing slog output
+// from a goroutine the test does not control. bytes.Buffer is not safe
+// for concurrent Write/String, so the slog handler's writes race with the
+// test's assertions under `go test -race`.
+type syncBuf struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (s *syncBuf) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.Write(p)
+}
+
+func (s *syncBuf) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.String()
+}
+
 func TestLocalSession_TriggerActionFromDispatchedLogsDebug(t *testing.T) {
-	// Capture slog output. Replace the default logger for the test, then
-	// restore it via t.Cleanup. Debug level is required because slog.Debug
-	// is filtered out by the default handler level.
-	var buf bytes.Buffer
+	// Capture slog output via a thread-safe wrapper — the slog handler
+	// writes from the dispatch goroutine while assertions read from the
+	// test goroutine, so a plain bytes.Buffer would race under -race.
+	// Replace the default logger for the test, then restore it via
+	// t.Cleanup. Debug level is required because slog.Debug is filtered
+	// out by the default handler level.
+	var buf syncBuf
 	prev := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	t.Cleanup(func() { slog.SetDefault(prev) })
