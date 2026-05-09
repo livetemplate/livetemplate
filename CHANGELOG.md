@@ -9,13 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking changes
 
-- **Retroactive breaking-change notice for v0.8.5: `TreeNode` public API changed in [#220](https://github.com/livefir/livetemplate/pull/220)** (commit `3fe784ca`, shipped in `v0.8.5`). The `Dynamics` field type and the helper signatures changed when the internal map was replaced with a slice for ~20% speedup. Since `TreeNode` is re-exported from the top-level `livetemplate` package via `types.go`, external callers that constructed or introspected `TreeNode` directly need to update:
+- **Retroactive breaking-change notice for v0.8.5: `TreeNode` internal API changed in [#220](https://github.com/livefir/livetemplate/pull/220)** (commit `3fe784ca`, shipped in `v0.8.5`). The `Dynamics` field type and the helper signatures changed when the internal map was replaced with a slice for ~20% speedup:
   - `Dynamics` field: `map[string]interface{}` → `[]interface{}`
   - `SetDynamic(position string, value interface{})` → `SetDynamic(index int, value interface{})`
   - `GetDynamic(position string)` → `GetDynamic(index int)`
-  - New `AutoKey string` field replaces the previous `"_k"` map key.
+  - New `AutoKey string` Go field replaces the previous `"_k"` map key. The `"_k"` *wire-format* key is unchanged — only the in-memory Go field name moved.
 
-  Most application code does not touch `TreeNode` directly — the breaking surface is limited to library extensions or test fixtures that constructed `TreeNode` literals. The wire format (numeric string keys: `"0"`, `"1"`, ...) is unchanged; only the in-memory Go API moved.
+  `TreeNode` lives in `internal/build` and is not part of the public `livetemplate` API surface; the breaking surface is therefore limited to **library forks and downstream modules that vendor or replace `internal/build`**, plus internal test fixtures. Application code that consumes `livetemplate` through its exported API is unaffected. The on-the-wire tree format (numeric string keys: `"0"`, `"1"`, ...) is unchanged; only the in-memory Go API moved.
 
 ## [v0.8.23] - 2026-05-02
 
