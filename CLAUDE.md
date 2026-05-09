@@ -37,8 +37,9 @@ See `docs/design/ARCHITECTURE.md` for design decisions and `docs/design/CODE_STR
 ```go
 type TreeNode struct {
     Statics     []string                // Static HTML parts (key: "s")
-    Dynamics    map[string]interface{}   // Dynamic content (keys: "0", "1", etc.)
-    Fingerprint string                   // Structure hash (key: "f")
+    Dynamics    []interface{}           // Dynamic content indexed by position (keys: "0", "1", etc.)
+    AutoKey     string                  // Range item key, replaces previous "_k" map key
+    Fingerprint string                  // Structure hash (key: "f")
     Range       *RangeData              // Range operation data (key: "d")
     Metadata    *TreeMetadata           // Additional metadata (key: "m")
 }

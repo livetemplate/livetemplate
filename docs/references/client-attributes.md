@@ -96,10 +96,12 @@ Data can be passed via hidden inputs, button `value`, or `data-*` attributes:
 The client resolves the action name in this order (first match wins):
 
 1. `lvt-form:action="X"` on the form → action is `X` (explicit routing, highest precedence)
-2. `lvt-submit="X"` on the form → action is `X` (backward compatible)
+2. `lvt-submit="X"` on the form → action is `X` (**legacy** — see note below)
 3. Clicked button's `name` attribute → action is the button name
 4. `form name="X"` → action is `X`
 5. None of the above → defaults to `"submit"` → routes to `Submit()`
+
+> **Legacy attribute:** `lvt-submit` is kept for backward compatibility but should be avoided in new code. Prefer button `name` (e.g., `<button name="save">`) or form `name` (e.g., `<form name="search">`) — these work natively without JavaScript. See [Progressive Complexity Reference — Action Resolution Order](progressive-complexity-reference.md#action-resolution-order-tier-1) for the Tier 1 (standard HTML) routing rules.
 
 > **Note:** The form field name `action` is **not** reserved. A form field `<input name="action" value="approve">` flows through to `ActionData` as normal data. Use `lvt-form:action` on the `<form>` element for routing.
 
