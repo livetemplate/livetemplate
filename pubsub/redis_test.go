@@ -28,9 +28,11 @@ const waitForTimeout = 2 * time.Second
 // SUBSCRIBE), subscribeTo() only writes the SUBSCRIBE bytes — Redis processes
 // them async on its end. A test that publishes on the new channel without
 // this gap can race the SUBSCRIBE round-trip on a separate connection and
-// silently drop the message. 50ms is well above Redis's sub-ms processing
-// time and matches the original test cadence. (Worth a follow-up to consider
-// adding Receive() to subscribeTo for symmetry with Subscribe.)
+// silently drop the message. 50ms is plenty above Redis's sub-ms processing
+// time (the original tests used 100ms; this trims that excess while keeping
+// a comfortable margin). Worth a follow-up to consider adding Receive() to
+// subscribeTo for symmetry with Subscribe — that would let the helper drop
+// to zero.
 const subscribeAckWindow = 50 * time.Millisecond
 
 // waitFor replaces time.Sleep-based synchronization when an observable state
@@ -370,12 +372,13 @@ func TestRedisBroadcaster_UserBroadcast(t *testing.T) {
 		return nil
 	}
 
-	// Subscribe synchronously — Subscribe() and SubscribeToUser() both block
-	// until the Redis SUBSCRIBE round-trip completes.
+	// Subscribe() blocks until Redis ACKs the global SUBSCRIBE.
 	if err := broadcaster2.Subscribe(handler); err != nil {
 		t.Fatalf("Subscribe failed: %v", err)
 	}
 
+	// SubscribeToUser writes SUBSCRIBE bytes synchronously; the ACK is gated
+	// by the subscribeAckWindow sleep below.
 	if err := broadcaster2.SubscribeToUser("user-456"); err != nil {
 		t.Fatalf("SubscribeToUser failed: %v", err)
 	}
@@ -631,7 +634,7 @@ func TestRedisBroadcaster_ReconnectPreservesDynamicSubscriptions(t *testing.T) {
 		defer subscriber.mu.RUnlock()
 		return subscriber.pubsub != nil && subscriber.pubsub != oldPubsub && !subscriber.reconnecting
 	}) {
-		t.Fatal("reconnect did not complete within 2s")
+		t.Fatalf("reconnect did not complete within %v", waitForTimeout)
 	}
 
 	// Publish to all channel types after reconnect
@@ -890,7 +893,7 @@ func TestRedisBroadcaster_UnsubscribedGroupNotReceived(t *testing.T) {
 		}
 		return false
 	}) {
-		t.Fatal("group-A message did not arrive within 2s")
+		t.Fatalf("group-A message did not arrive within %v", waitForTimeout)
 	}
 
 	mu.Lock()
