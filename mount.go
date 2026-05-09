@@ -173,15 +173,7 @@ type wsReadMessage struct {
 	err  error
 }
 
-// flashKey is a bare flash key (no "_flash:" prefix), used as the map-key
-// type for connState.flashExpiry. It is a distinct type from the prefixed
-// string keys stored in connState.messages so that the deliberate key-space
-// asymmetry between the two maps cannot be silently violated by a future
-// contributor who reaches for lvtcontext.FlashPrefix by analogy.
-//
-// Conversions are explicit (flashKey(rawBareKey)) — the cast is the moment
-// a reader sees "we are deliberately keeping the bare key here, not the
-// prefixed one."
+// flashKey is a bare flash key (no "_flash:" prefix) — distinct from prefixed keys in connState.messages.
 type flashKey string
 
 type connState struct {
