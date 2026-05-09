@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking changes
 
-- **`TreeNode` public API changed in [#220](https://github.com/livefir/livetemplate/pull/220)** (commit `3fe784ca`, shipped in `v0.8.0` series). The `Dynamics` field type and the helper signatures changed when the internal map was replaced with a slice for ~20% speedup. Since `TreeNode` is re-exported from the top-level `livetemplate` package via `types.go`, external callers that constructed or introspected `TreeNode` directly need to update:
+- **Retroactive breaking-change notice for v0.8.5: `TreeNode` public API changed in [#220](https://github.com/livefir/livetemplate/pull/220)** (commit `3fe784ca`, shipped in `v0.8.5`). The `Dynamics` field type and the helper signatures changed when the internal map was replaced with a slice for ~20% speedup. Since `TreeNode` is re-exported from the top-level `livetemplate` package via `types.go`, external callers that constructed or introspected `TreeNode` directly need to update:
   - `Dynamics` field: `map[string]interface{}` → `[]interface{}`
   - `SetDynamic(position string, value interface{})` → `SetDynamic(index int, value interface{})`
   - `GetDynamic(position string)` → `GetDynamic(index int)`
@@ -814,6 +814,8 @@ Note: Only one pre-existing test failure (TestTemplateGenerateTreeWithFuncMap)
 
 
 [Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.23...HEAD
+[v0.8.23]: https://github.com/livefir/livetemplate/compare/v0.8.22...v0.8.23
+[v0.8.22]: https://github.com/livefir/livetemplate/compare/v0.8.21...v0.8.22
 [v0.8.21]: https://github.com/livefir/livetemplate/compare/v0.8.20...v0.8.21
 [v0.8.20]: https://github.com/livefir/livetemplate/compare/v0.8.19...v0.8.20
 [v0.8.19]: https://github.com/livefir/livetemplate/compare/v0.8.18...v0.8.19
