@@ -1056,6 +1056,33 @@ func TestParseActionFromHTTP_Multipart_ExplicitSubmitter(t *testing.T) {
 		}
 	})
 
+	// Empty lvt-submitter must not bypass the heuristic. Documents the contract:
+	// resolveSubmitterFallback's predicate is `Submitter != ""`, not just `Submitter`,
+	// so an empty string never short-circuits the heuristic tiebreaker.
+	t.Run("empty lvt-submitter is no-op; heuristic still tiebreaks", func(t *testing.T) {
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+		multipartField(t, writer, "lvt-submitter", "")
+		multipartField(t, writer, "save", "") // empty-value button
+		multipartField(t, writer, "title", "hello")
+		closeMultipart(t, writer)
+
+		req := httptest.NewRequest("POST", "/", &body)
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+
+		msg, err := ParseActionFromHTTP(req)
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		if msg.Action != "save" {
+			t.Errorf("Action = %q, want %q (heuristic should resolve when lvt-submitter is empty)", msg.Action, "save")
+		}
+		if msg.Submitter != "" {
+			t.Errorf("Submitter = %q, want empty", msg.Submitter)
+		}
+	})
+
 	// Proposal Out of Scope #6: routing-layer fields live at the envelope level;
 	// a "submitter" key inside the JSON data blob is user data, not routing.
 	t.Run("form lvt-submitter wins over submitter inside JSON data blob", func(t *testing.T) {

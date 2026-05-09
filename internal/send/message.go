@@ -12,6 +12,9 @@ import (
 const wsTextMessage = 1 // RFC 6455 text message type (mirrors WSTextMessage in root package)
 
 // ActionMessage represents an action message from the client (internal protocol).
+// Wire-format note: HTTP form paths use the form key "lvt-submitter"; JSON
+// (HTTP and WS) paths use the top-level key "submitter". Different conventions
+// for different envelopes — form fields take the lvt- prefix, JSON keys do not.
 type ActionMessage struct {
 	Action    string                 `json:"action"`              // Action name, may include store prefix (e.g., "counter.increment")
 	Submitter string                 `json:"submitter,omitempty"` // Optional explicit submitter name (e.g. SubmitEvent.submitter.name); used as Action when Action is empty.
@@ -118,7 +121,7 @@ func parseMultipartForm(r *http.Request) (ActionMessage, error) {
 	// Get action from lvt-action field (explicit routing for progressive enhancement)
 	msg.Action = r.FormValue("lvt-action")
 	// Capture explicit submitter (client-emitted SubmitEvent.submitter.name);
-	// resolveSubmitterFallback below promotes this to msg.Action only when
+	// resolveSubmitterFallback (called immediately after) promotes this to msg.Action only when
 	// msg.Action is empty, so lvt-action always wins. Read here (before the
 	// jsonDataParsed branch) so submitter routing applies whether or not a
 	// JSON "data" envelope is present.
@@ -194,7 +197,7 @@ func parseURLEncodedForm(r *http.Request) (ActionMessage, error) {
 	// Get action from lvt-action field (explicit routing for progressive enhancement)
 	msg.Action = r.FormValue("lvt-action")
 	// Capture explicit submitter (client-emitted SubmitEvent.submitter.name);
-	// resolveSubmitterFallback below promotes this to msg.Action only when
+	// resolveSubmitterFallback (called immediately after) promotes this to msg.Action only when
 	// msg.Action is empty, so lvt-action always wins.
 	msg.Submitter = r.FormValue("lvt-submitter")
 	resolveSubmitterFallback(&msg)
