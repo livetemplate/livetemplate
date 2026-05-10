@@ -117,7 +117,7 @@ Before `lvt-hook` lands in "Now", these need answers:
 
 2. **What's the migration story for existing inline-hook users?** Examples that ship today (`lvt-mounted="this.scrollIntoView(...)"`) will continue to work under B and C; under A they break. Users who have written inline hooks need migration guidance regardless of which option.
 
-3. **Does `lvt-hook` need to land before or alongside the v0.9.0 breaking-change cut?** v0.9.0 already plans to remove the `lvt-no-intercept` shim and (per the explicit-submitter proposal) the form-submit heuristic. Adding the inline-hooks deprecation under option A is a third breaking change in the same cut.
+3. **Does `lvt-hook` need to land before or alongside the v0.9.0 breaking-change cut?** v0.9.0 already plans to remove the `lvt-no-intercept` shim. Adding the inline-hooks deprecation under option A is a second breaking change in the same cut.
 
 4. **What's the relationship to `lvt-fx:`?** Both inline attributes and `lvt-hook` overlap with the existing `lvt-fx:` directive surface (`lvt-fx:scroll`, `lvt-fx:highlight`, `lvt-fx:animate`). The fx directives are CSS-driven, not JS-callback-driven, but the boundaries between "fx" and "hook" should be drawn explicitly so users know which surface to reach for.
 
@@ -127,10 +127,10 @@ Before `lvt-hook` lands in "Now", these need answers:
 
 **Defer elevation; pick an option first.** Concretely:
 
-- Add a "Lifecycle hooks: which mechanism?" entry to a future ADR (similar to the explicit-submitter proposal's no-JS support ADR pattern).
+- Add a "Lifecycle hooks: which mechanism?" entry to a future ADR.
 - Until that decision is made, don't implement `lvt-hook`. The existing inline attributes cover most one-off use cases; the registry adds value primarily for reusable named behaviors, which is a smaller user need than the proposal might suggest.
 - If the answer is **B** (both ship): the existing proposal can be implemented mostly as written, but it should add a "Relationship to inline lifecycle attributes" section documenting when to use which.
-- If the answer is **A** (replace inline): add a deprecation timeline section to the existing proposal coupled to v0.9.0 breaking-change removal, alongside `lvt-no-intercept` and the form-submit heuristic.
+- If the answer is **A** (replace inline): add a deprecation timeline section to the existing proposal coupled to v0.9.0 breaking-change removal, alongside `lvt-no-intercept`.
 - If the answer is **C** (sugar): the existing proposal needs to be amended to describe how the inline syntax compiles to a registry registration, and the implementation has to support unnamed/one-shot hooks.
 
 **Why not just elevate now?** Without a stance on options A/B/C, an implementation PR will encode a decision implicitly. Better to make the decision explicitly than discover it from the diff during code review.
@@ -149,4 +149,4 @@ When `lvt-hook` lands (whichever option):
 - Inline lifecycle hook implementation: `livetemplate-client.ts` (client repo), search anchor `executeLifecycleHook`.
 - Existing `lvt-hook` proposal: `docs/proposals/lifecycle-hooks-proposal.md`.
 - ROADMAP entry: `ROADMAP.md`, search anchor `Lifecycle Hooks`.
-- v0.9.0 breaking-change cut tracking: see explicit-submitter proposal Phase 4 and client `dom/link-interceptor.ts` shim removal.
+- v0.9.0 breaking-change cut tracking: client `dom/link-interceptor.ts` shim removal.
