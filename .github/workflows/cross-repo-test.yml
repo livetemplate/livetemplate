@@ -177,6 +177,87 @@ jobs:
         CGO_ENABLED: 1
         LVT_LOCAL_CLIENT: ${{ github.workspace }}/livetemplate/client/dist/livetemplate-client.browser.js
 
+  # The patterns app (formerly examples/patterns) was folded into the
+  # docs repo at content/recipes/patterns/_app/ with its tests
+  # relocated to docs/e2e/patterns/. This job preserves the
+  # "patterns runs against core changes" coverage that test-examples
+  # provided before the deletion.
+  test-docs:
+    name: Test Docs Patterns against Core Changes
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout core library (this PR/branch)
+      uses: actions/checkout@v4
+      with:
+        path: livetemplate
+
+    - name: Checkout LVT (for testing package)
+      uses: actions/checkout@v4
+      with:
+        repository: livetemplate/lvt
+        path: lvt
+
+    - name: Checkout docs
+      uses: actions/checkout@v4
+      with:
+        repository: livetemplate/docs
+        path: docs
+
+    - name: Checkout client library
+      uses: actions/checkout@v4
+      with:
+        repository: livetemplate/client
+        path: livetemplate/client
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.26'
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: livetemplate/client/package-lock.json
+
+    - name: Build client library
+      working-directory: livetemplate/client
+      run: |
+        echo "Installing client dependencies..."
+        npm ci
+        echo "Building client library..."
+        npm run build
+        echo "OK: Client library built successfully"
+        ls -la dist/
+
+    - name: Add replace directives to docs (parent module)
+      working-directory: docs
+      run: |
+        echo "Adding replace directives to docs..."
+        go mod edit -replace=github.com/livetemplate/livetemplate=../livetemplate
+        go mod edit -replace=github.com/livetemplate/lvt=../lvt
+        go mod tidy
+        echo "OK: Replace directives added"
+
+    - name: Add replace directives to docs/e2e (separate module)
+      working-directory: docs/e2e
+      run: |
+        echo "Adding replace directives to docs/e2e..."
+        go mod edit -replace=github.com/livetemplate/livetemplate=../../livetemplate
+        go mod edit -replace=github.com/livetemplate/lvt=../../lvt
+        go mod edit -replace=github.com/livetemplate/docs=../
+        go mod tidy
+        echo "OK: Replace directives added"
+
+    - name: Run patterns e2e against core
+      working-directory: docs/e2e/patterns
+      run: go test -v -count=1 -timeout=15m -skip "Submit_With_No_Changes" ./...
+      env:
+        CGO_ENABLED: 1
+        LVT_LOCAL_CLIENT: ${{ github.workspace }}/livetemplate/client/dist/livetemplate-client.browser.js
+
   test-tinkerdown:
     name: Test Tinkerdown against Core Changes
     runs-on: ubuntu-latest
