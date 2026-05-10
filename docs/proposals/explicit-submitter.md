@@ -1,7 +1,7 @@
 # Explicit submitter on the wire
 
 **Status:** Accepted (Phase 1 shipped in [#396](https://github.com/livetemplate/livetemplate/pull/396); Phase 2 client work is the active follow-up)
-**Stance:** LiveTemplate is alpha with no external users; this proposal collapses the original four-phase migration into a two-phase rollout. The empty-value heuristic stays as a permanent no-JS fallback (see "No-JS forms" below).
+**Rationale:** LiveTemplate is alpha with no external users; this proposal collapses the original four-phase migration into a two-phase rollout. The empty-value heuristic stays as a permanent no-JS fallback (see "No-JS forms" below).
 **Tracking issue:** [livetemplate/livetemplate#237](https://github.com/livetemplate/livetemplate/issues/237) (P1)
 **Related:** [#326](https://github.com/livetemplate/livetemplate/pull/326), [#327](https://github.com/livetemplate/livetemplate/pull/327), [#396](https://github.com/livetemplate/livetemplate/pull/396)
 
@@ -79,13 +79,13 @@ if (submitter instanceof HTMLButtonElement && submitter.name) {
 
 For Tier 2 (WS-driven) form submits, the client extracts the action from `submitter.name` directly and serializes it as the action of the WS message. The empty-value heuristic doesn't run for this path because the client controls the wire format.
 
-For Tier 1 (progressive enhancement, native HTTP POST), the browser owns the wire format. The client can't intercept, so the empty-value heuristic on the server is the only signal — and that's where the failure modes above live until Phase 2 ships the `lvt-form:emit-submitter` directive.
+For Tier 1 (progressive enhancement, native HTTP POST), the browser owns the wire format. In pure no-JS mode the client can't change the wire format at all, so the empty-value heuristic on the server is the only signal — and that's where the failure modes above live permanently. With the `lvt-form:emit-submitter` directive (Phase 2), JS-enabled apps that submit forms natively (rather than via fetch) get the explicit-submitter contract via a `submit`-event listener that mutates the form before serialization.
 
 ## Proposed Wire Format
 
 ### HTTP path
 
-When the client submits a form via fetch (and via the server's HTTP fallback for no-JS users that have opted into the `lvt-form:emit-submitter` directive), include a reserved hidden field:
+When the client submits a form via fetch — or when JS-enabled apps with native HTML form submissions opt into the `lvt-form:emit-submitter` directive — include a reserved hidden field:
 
 ```
 title=My+Post&draft=&lvt-submitter=draft
@@ -105,7 +105,7 @@ For "lite-JS" submits (browser has JS but the form submits natively rather than 
 
 The `lvt-form:emit-submitter` attribute wires a **`submit` event listener** (not a click handler) that reads `(e as SubmitEvent).submitter?.name` and writes it into a hidden `<input name="lvt-submitter">` before the browser serializes the form. The `submit` event is the right hook because it also fires for keyboard-triggered submits (Enter in a text field selects the form's default submit button as `submitter`, populating the field correctly), whereas a click handler would miss those entirely. **This still requires JS to run** — it doesn't help truly no-JS users.
 
-For genuinely no-JS forms, the only way to emit `lvt-submitter` without any script is per-button inline `onclick`. **CSP caveat:** apps that ship a strict `Content-Security-Policy` header without `'unsafe-inline'` silently drop `onclick` handlers, so this snippet has zero effect under a strict CSP — those apps fall back to the heuristic permanently.
+For apps that don't load the LiveTemplate client bundle (no `<script>` tags fetching it), the only way to emit `lvt-submitter` is per-button inline `onclick` — which is HTML-attribute scripting rather than `<script>`-tag scripting. **CSP caveat:** apps that ship a strict `Content-Security-Policy` header without `'unsafe-inline'` cause the browser to silently ignore `onclick` handlers, so this snippet has zero effect under a strict CSP — those apps fall back to the heuristic permanently.
 
 ```html
 <form action="/post" method="POST">
@@ -210,7 +210,7 @@ Active follow-up. Cross-repo in `livetemplate/client`.
 The empty-value heuristic stays as the permanent fallback for apps that cannot run JS at form-submit time:
 
 - Pure no-JS forms (no `<script>` tags loaded at all).
-- Strict-CSP apps without `'unsafe-inline'`, which silently drop `onclick` handlers and so cannot use the inline-`onclick` no-JS workaround.
+- Strict-CSP apps without `'unsafe-inline'`, where the browser silently ignores `onclick` handlers, so the inline-`onclick` workaround above has no effect.
 - Apps that render forms server-side and submit them natively before the lvt client's `submit` listener has been installed (rare but possible).
 
 These apps inherit all four failure modes from "Where the heuristic breaks down" (ambiguous empty fields, user-supplied empty input collisions, `<button name="action">` shadowing, no way to express "no button name"). The cost of keeping the heuristic is one extra branch in the URL-encoded and multipart parsers; the benefit is keeping genuinely-no-JS apps as a first-class audience. Apps that have any JS at all can opt into `lvt-form:emit-submitter` to escape these limitations on natively-submitted forms.
