@@ -5,6 +5,42 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.9.0] - 2026-05-12
+
+### Changes
+
+- refactor: remove reserved Sync action (#406) (8fc9467b)
+- ci: add test-docs-progressive-enhancement cross-repo job (#403) (f62a44f7)
+- ci: add test-docs-todos cross-repo job for todos recipe coverage (#402) (13d5fe66)
+- docs(proposals): collapse explicit-submitter to two-phase rollout (#237) (4a22c178)
+- ci: add test-docs cross-repo job for patterns e2e coverage (#400) (a65cc9de)
+- test(pubsub): migrate time.Sleep to require.Eventually polling (#216) (#398) (9abe2feb)
+- refactor(session): typed flashKey to prevent key-space confusion (#347) (#397) (4df7ca6e)
+- feat(send): explicit submitter field on the wire (#237 Phase 1) (#396) (d060ead5)
+- feat(session): observability log on chained TriggerAction (#337 Option A) (#393) (4ccc3af6)
+- feat(capabilities): advertise validate, upload, progressive_enhancement (#252) (#395) (5bbcff52)
+- fix(pubsub): refcount channel subscriptions, unsubscribe on disconnect (#214) (#394) (24b22513)
+- fix(pubsub): gate handler registrations on Subscribe() success (#357) (#391) (0c999a10)
+- docs: P2 cluster — TreeNode breaking change, lvt-submit deprecation, CSRF note (#390) (904a3bbb)
+- fix(mount): use r.Context() for WS lifecycleCtx (#303) (#392) (384e043e)
+- fix(mount): auto-wire FormSchema into Context (#236) (#388) (4126d285)
+- docs(flash): update lifecycle to persist-until-cleared (#343) (#387) (15a9ba5c)
+- fix(pubsub): release mutex before Redis network calls (#215) (#389) (e7ce1c9c)
+- docs(proposals): livetemplate.css semantic-tag coverage scope (#317) (#384) (b1d2d7fc)
+- docs(proposals): lvt-hook scope and elevation assessment (#294, #43) (#383) (03529aa1)
+- docs(proposals): explicit submitter on the wire (#237) (#382) (4f6b01ba)
+- docs(README): cross-link to https://livetemplate.fly.dev docs site (#381) (b3f7e86f)
+- refactor: remove deprecated generateTreeInternalWithErrors wrapper (#373) (#380) (1d96cd9f)
+- test: concurrent invalidate+read fingerprint stress + bench helper pool (#206, #374) (#379) (ad82432e)
+- test: BroadcastAction inside Mount on __navigate__ path (#346) (#378) (6dbee442)
+- chore: Phase 1A cleanup — extract button-name helper, migrate goldens (#327, #323) (#377) (86a33c67)
+- ci: dispatch livetemplate/docs sync on release tag (#376) (b0274219)
+- chore: enable unparam in pre-commit gate (Phase 2+3 of #367) (#375) (5635ad1e)
+- refactor: clean 32 unparam findings (Phase 1 of #367) (#372) (344f7630)
+- docs: rewrite README + add standard-HTML guide and navigate reference (#268, #349) (#371) (9465400d)
+
+
+
 ## [Unreleased]
 
 ### Breaking changes
