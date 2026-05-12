@@ -204,6 +204,19 @@ jobs:
         repository: livetemplate/docs
         path: docs
 
+    - name: Use matching docs branch if available
+      working-directory: docs
+      env:
+        DOCS_REF: ${{ github.head_ref || github.ref_name }}
+      run: |
+        if git ls-remote --exit-code --heads origin "$DOCS_REF" >/dev/null 2>&1; then
+          echo "Using livetemplate/docs branch: $DOCS_REF"
+          git fetch origin "$DOCS_REF" --depth=1
+          git checkout FETCH_HEAD
+        else
+          echo "No matching livetemplate/docs branch for $DOCS_REF; using default branch"
+        fi
+
     - name: Checkout client library
       uses: actions/checkout@v4
       with:
@@ -283,6 +296,19 @@ jobs:
         repository: livetemplate/docs
         path: docs
 
+    - name: Use matching docs branch if available
+      working-directory: docs
+      env:
+        DOCS_REF: ${{ github.head_ref || github.ref_name }}
+      run: |
+        if git ls-remote --exit-code --heads origin "$DOCS_REF" >/dev/null 2>&1; then
+          echo "Using livetemplate/docs branch: $DOCS_REF"
+          git fetch origin "$DOCS_REF" --depth=1
+          git checkout FETCH_HEAD
+        else
+          echo "No matching livetemplate/docs branch for $DOCS_REF; using default branch"
+        fi
+
     - name: Checkout client library
       uses: actions/checkout@v4
       with:
@@ -358,6 +384,19 @@ jobs:
       with:
         repository: livetemplate/docs
         path: docs
+
+    - name: Use matching docs branch if available
+      working-directory: docs
+      env:
+        DOCS_REF: ${{ github.head_ref || github.ref_name }}
+      run: |
+        if git ls-remote --exit-code --heads origin "$DOCS_REF" >/dev/null 2>&1; then
+          echo "Using livetemplate/docs branch: $DOCS_REF"
+          git fetch origin "$DOCS_REF" --depth=1
+          git checkout FETCH_HEAD
+        else
+          echo "No matching livetemplate/docs branch for $DOCS_REF; using default branch"
+        fi
 
     - name: Checkout client library
       uses: actions/checkout@v4
