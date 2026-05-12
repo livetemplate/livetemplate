@@ -12,6 +12,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/livetemplate/livetemplate/internal/session"
+	"github.com/livetemplate/livetemplate/internal/upload"
+	"github.com/livetemplate/livetemplate/internal/uploadtypes"
 )
 
 // TestUploadConfig_Defaults verifies default behavior of UploadConfig zero values.
@@ -566,6 +570,84 @@ func TestHandleUploadAction_NilTempFileManager(t *testing.T) {
 	}
 	if err != nil {
 		t.Errorf("non-upload action: expected no error, got %v", err)
+	}
+}
+
+type uploadCompleteNoBroadcastState struct {
+	AvatarPath string
+}
+
+type uploadCompleteNoBroadcastController struct{}
+
+func (c *uploadCompleteNoBroadcastController) UploadAvatarComplete(state uploadCompleteNoBroadcastState, ctx *Context) (uploadCompleteNoBroadcastState, error) {
+	uploads := ctx.GetCompletedUploads("avatar")
+	if len(uploads) > 0 {
+		state.AvatarPath = uploads[0].TempPath
+	}
+	return state, nil
+}
+
+func TestHandleUploadComplete_DoesNotImplicitlyBroadcastToPeers(t *testing.T) {
+	tmpl, err := New("test", WithUpload("avatar", UploadConfig{}))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse(`<div>{{.AvatarPath}}</div>`)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	registry := session.NewConnectionRegistry()
+	peer := &session.Connection{GroupID: "upload-group", UserID: "alice"}
+	registry.Register(peer, 1)
+	defer registry.Unregister(peer)
+
+	handler := &liveHandler{
+		config: mountConfig{
+			Template:   tmpl,
+			Controller: &uploadCompleteNoBroadcastController{},
+		},
+		registry: registry,
+	}
+
+	uploadRegistry := upload.NewRegistry()
+	if err := uploadRegistry.CreateUpload("avatar", UploadConfig{}); err != nil {
+		t.Fatalf("CreateUpload failed: %v", err)
+	}
+	uploadObj, ok := uploadRegistry.GetUpload("avatar").(*upload.Upload)
+	if !ok {
+		t.Fatal("expected *upload.Upload")
+	}
+	if err := uploadObj.AddEntry(&uploadtypes.UploadEntry{
+		ID:         "entry-1",
+		ClientName: "avatar.txt",
+		ClientType: "text/plain",
+		ClientSize: 1,
+		TempPath:   "/tmp/avatar.txt",
+	}); err != nil {
+		t.Fatalf("AddEntry failed: %v", err)
+	}
+
+	current := &session.Connection{
+		GroupID:  "upload-group",
+		UserID:   "alice",
+		Template: tmpl,
+	}
+	state := &connState{
+		state:    uploadCompleteNoBroadcastState{},
+		messages: make(map[string]string),
+		groupID:  "upload-group",
+	}
+	raw := []byte(`{"action":"upload_complete","upload_name":"avatar","entry_ids":["entry-1"]}`)
+
+	if err := handler.handleUploadComplete(context.Background(), raw, state, uploadRegistry, current); err != nil {
+		t.Fatalf("handleUploadComplete failed: %v", err)
+	}
+
+	select {
+	case req := <-peer.DispatchChan:
+		t.Fatalf("upload completion should not implicitly dispatch to peer, got action %q", req.Action)
+	default:
 	}
 }
 

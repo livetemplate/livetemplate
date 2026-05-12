@@ -17,11 +17,6 @@ import "reflect"
 //   Called every time a WebSocket connects (including reconnects).
 //   Use for subscriptions or refresh logic.
 //
-// - Sync(state, ctx) -> (state, error)
-//   Called on peer connections after any successful action in the same session group.
-//   Use for reloading state from database to keep connections in sync.
-//   The framework auto-dispatches this when the controller implements it.
-//
 // - OnDisconnect()
 //   Called when WebSocket closes. Use for cleanup (unsubscribe, stop goroutines).
 //

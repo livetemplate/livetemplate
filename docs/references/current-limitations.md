@@ -56,7 +56,7 @@ See [Session Reference — State Safety](session.md#state-safety) for the full e
 
 | Limitation | Detail | Workaround |
 |-----------|--------|-----------|
-| Tabs don't auto-sync by default | Each connection owns its state independently | Implement `Sync()` on the controller for automatic cross-tab sync, or use `ctx.BroadcastAction()` for custom sync |
+| Tabs don't update each other by default | Each connection owns its state independently | Use `ctx.BroadcastAction()` to explicitly refresh peer connections |
 | Concurrent HTTP requests serialized | Per-group mutex in HTTP mode processes one action at a time | By design — prevents data races on shared state |
 
 See [Session Reference](session.md) for session stores and connection management.

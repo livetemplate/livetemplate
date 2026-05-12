@@ -1619,43 +1619,41 @@ func (c *Controller) Save(state FlashState, ctx *livetemplate.Context) (FlashSta
 
 ### Category 7: Real-Time & Multi-User
 
-#### 26. Multi-User Sync
+#### 26. Multi-User Refresh
 
 **Source:** Phoenix LiveView (PubSub broadcast + handle_info)
 
-**LiveTemplate (Tier 1):** The `Sync()` handler is auto-dispatched to peer connections in the same session group. Multiple tabs or users see the same state changes in real-time.
+**LiveTemplate (Tier 1):** The mutating action explicitly broadcasts a peer refresh action to connections in the same session group. Multiple tabs or users see the same state changes in real time.
 
 **Also implemented in:** `chat/`, `shared-notepad/`
 
 ```go
-type SyncController struct {
+type RefreshController struct {
     mu      sync.Mutex
     counter int
 }
 
-type SyncState struct {
+type RefreshState struct {
     Title   string
     Counter int
 }
 
-// Sync is a reserved method name (mount.go:158, syncMethodName = "Sync").
-// The framework auto-dispatches it to peer connections in the same session
-// group after any action completes, without requiring an explicit
-// BroadcastAction call. The state parameter is the peer's LOCAL state.
-// The handler reads the shared counter from the controller (singleton)
-// so all peers see the same value.
-func (c *SyncController) Sync(state SyncState, ctx *livetemplate.Context) (SyncState, error) {
+// RefreshCounter is explicitly broadcast to peers after Increment. The state
+// parameter is the peer's LOCAL state. The handler reads the shared counter
+// from the controller (singleton) so all peers see the same value.
+func (c *RefreshController) RefreshCounter(state RefreshState, ctx *livetemplate.Context) (RefreshState, error) {
     c.mu.Lock()
     state.Counter = c.counter
     c.mu.Unlock()
     return state, nil
 }
 
-func (c *SyncController) Increment(state SyncState, ctx *livetemplate.Context) (SyncState, error) {
+func (c *RefreshController) Increment(state RefreshState, ctx *livetemplate.Context) (RefreshState, error) {
     c.mu.Lock()
     c.counter++
     state.Counter = c.counter
     c.mu.Unlock()
+    ctx.BroadcastAction("RefreshCounter", nil)
     return state, nil
 }
 ```
@@ -1663,15 +1661,15 @@ func (c *SyncController) Increment(state SyncState, ctx *livetemplate.Context) (
 ```html
 {{define "content"}}
 <article>
-    <h3>Multi-User Sync</h3>
-    <p><small>Open this page in two tabs. Changes sync automatically.</small></p>
+    <h3>Multi-User Refresh</h3>
+    <p><small>Open this page in two tabs. Changes refresh peers explicitly.</small></p>
     <p>Counter: {{.Counter}}</p>
     <button name="increment">Increment</button>
 </article>
 {{end}}
 ```
 
-**Key features:** `Sync()` handler, session group auto-sync, multi-tab real-time updates
+**Key features:** `BroadcastAction`, session group peer refresh, multi-tab real-time updates
 
 ---
 
@@ -2377,7 +2375,7 @@ without --cpus + throttle-disable flags: t=27ms click, t=4022 t=5022 t=6022 ... 
 
 Fix: drop `--cpus 0.5`, add `--shm-size 256m` and `--disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows --disable-features=IntensiveWakeUpThrottling`. Released as [livetemplate/lvt#314](https://github.com/livetemplate/lvt/pull/314) → **lvt v0.1.4**. After bumping `examples/go.mod`, the Session 5 PR #79's flaky "Test All Examples" CI is also fixed (it was failing for the same root cause). When designing future `TriggerAction`-driven patterns, no test workaround is needed at v0.1.4+; before the bump, the only viable workaround was `chromedp.Sleep` + `Evaluate` (which the AI review explicitly rejects).
 
-**`Sync()` auto-dispatch fires after EVERY action, not just broadcast fan-out.** Verified at `livetemplate/mount.go:1466-1468`: `processBroadcastsAndSync` runs after every action's render and unconditionally dispatches `Sync` to peer connections when `HasSync && !syncExplicitlyBroadcast`, regardless of whether the action queued any broadcasts. Pattern #26 (Multi-User Sync) relies on this: `Increment` never calls `BroadcastAction`, but peers still get `Sync` and re-pull the shared counter from the controller. This is the simplest correct way to express "any peer state changed" without an explicit broadcast.
+**Cross-connection updates are explicit.** Pattern #26 (Multi-User Refresh) calls `BroadcastAction("RefreshCounter", nil)` from `Increment`, and peers re-pull the shared counter from the controller. Nothing crosses connections unless the action asks for it.
 
 **`lvt:"persist"` semantics: storage is keyed by SESSION GROUP, not connection.** Two tabs in the same browser share the group cookie → share persisted state. Pattern #28 (Presence) intentionally does NOT persist `Username`/`Joined` so two tabs joined as different users can coexist; Pattern #27 (Broadcasting) similarly leaves `Username` un-persisted. Pattern #29 (Reconnection Recovery) DOES persist `Counter`/`Notes` because that's the canonical demo. The decision is documented in `state_realtime.go` per-field comments — useful pedagogical contrast for readers learning the framework.
 
@@ -2476,7 +2474,7 @@ Fix: drop `--cpus 0.5`, add `--shm-size 256m` and `--disable-background-timer-th
 
 **Scope:** Patterns #26–31
 
-- [x] Implement Multi-User Sync (#26) — reserved `Sync()` method auto-dispatches after every action's render to peers in same session group (`mount.go:1466-1468`); `Mount()` seeds late-joiners from shared controller state; `Increment` does not call `BroadcastAction`.
+- [x] Implement Multi-User Refresh (#26) — `Increment` explicitly broadcasts `RefreshCounter` to peers in the same session group; `Mount()` seeds late-joiners from shared controller state.
 - [x] Implement Broadcasting (#27) — `ctx.BroadcastAction("NewMessage", nil)` after lock release (deadlock prevention with connection registry mutex); `Mount()` snapshots `c.messages` for new connections; `Username` intentionally not `lvt:"persist"` so two tabs in one browser stay independent.
 - [x] Implement Presence Tracking (#28) — Join/Leave + `BroadcastAction("PresenceChanged")`; `Mount()` seeds `OnlineCount` for late-joining tabs; documented limitations: close-tab leak (no `OnDisconnect` state/ctx) + same-username collision (map keys on username).
 - [x] Implement Reconnection Recovery (#29) — `Counter` and `Notes` tagged `lvt:"persist"`; full page reload restores via session-group cookie. Template explainer covers `lvt:"persist"` (server-side, survives reconnect) vs `lvt-form:preserve` (client-side, survives in-DOM during other re-renders).
