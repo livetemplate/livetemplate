@@ -142,9 +142,6 @@ func (c *Controller) Mount(state S, ctx *livetemplate.Context) (S, error)
 // Called on each WebSocket connect (including reconnects)
 func (c *Controller) OnConnect(state S, ctx *livetemplate.Context) (S, error)
 
-// Called on peer connections after any action in the same session group
-func (c *Controller) Sync(state S, ctx *livetemplate.Context) (S, error)
-
 // Called when a WebSocket disconnects
 func (c *Controller) OnDisconnect()
 ```

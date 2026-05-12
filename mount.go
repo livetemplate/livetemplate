@@ -111,8 +111,6 @@ type LiveHandler interface {
 	MetricsHandler() http.Handler
 }
 
-const syncMethodName = "Sync"
-
 // ephemeralSweepTTL is how long idle HTTP template cache entries survive in ephemeral
 // mode before being evicted by the sweep loop. 30 minutes balances memory reclamation
 // for abandoned sessions vs keeping diff baselines alive for active users between
@@ -136,7 +134,6 @@ type mountConfig struct {
 	UploadConfigs          map[string]uploadtypes.UploadConfig // Upload field configurations
 	wsBufferSize           int                                 // WebSocket send buffer size per connection (default: 50)
 	ProgressiveEnhancement bool                                // Enable non-JS form submission support with PRG pattern (default: true)
-	HasSync                bool                                // Controller implements Sync() lifecycle method (detected once at Handle() time via reflection, not per-request)
 	Capabilities           []string                            // Controller capabilities detected at setup (e.g., ["change"])
 }
 
@@ -794,7 +791,7 @@ eventLoop:
 
 			// actionNavigate re-runs Mount with msg.Data as query params. Rebind
 			// actionCtx itself (not a discarded copy) so BroadcastAction calls
-			// inside Mount land on the context that processBroadcastsAndSync reads.
+			// inside Mount land on the context that processBroadcasts reads.
 			var newState interface{}
 			var actionErr error
 			if msg.Action == actionNavigate {
@@ -824,7 +821,7 @@ eventLoop:
 			if actionErr == nil {
 				h.persistState(r.Context(), groupID, connSt.state)
 				connection.Stores = connSt.state
-				h.processBroadcastsAndSync(groupID, connection, actionCtx.pendingBroadcasts())
+				h.processBroadcasts(groupID, connection, actionCtx.pendingBroadcasts())
 			}
 
 			// Generate tree update
@@ -1339,7 +1336,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	httpTmpl.SetUploadRegistry(uploadRegistry)
 
 	if actionErr == nil {
-		h.processBroadcastsAndSync(groupID, nil, actionCtx.pendingBroadcasts())
+		h.processBroadcasts(groupID, nil, actionCtx.pendingBroadcasts())
 	}
 
 	// Check if we should return HTML for progressive enhancement
@@ -1516,20 +1513,11 @@ func (h *liveHandler) restorePersistedState(ctx context.Context, groupID string)
 	return state, true
 }
 
-// processBroadcastsAndSync dispatches pending broadcasts and auto-dispatches Sync
-// to peer connections if the controller implements it. Skips auto-Sync if the
-// controller already explicitly broadcast a "Sync" action.
+// processBroadcasts dispatches pending broadcasts to peer connections.
 // Non-blocking: EnqueueDispatch uses a buffered channel with a default case.
-func (h *liveHandler) processBroadcastsAndSync(groupID string, excludeConn *session.Connection, broadcasts []broadcastRequest) {
-	syncExplicitlyBroadcast := false
+func (h *liveHandler) processBroadcasts(groupID string, excludeConn *session.Connection, broadcasts []broadcastRequest) {
 	for _, br := range broadcasts {
 		h.dispatchBroadcastToGroup(groupID, excludeConn, br.Action, br.Data)
-		if br.Action == syncMethodName {
-			syncExplicitlyBroadcast = true
-		}
-	}
-	if h.config.HasSync && !syncExplicitlyBroadcast {
-		h.dispatchBroadcastToGroup(groupID, excludeConn, syncMethodName, nil)
 	}
 }
 
@@ -2501,9 +2489,6 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, rawData []byte, 
 			slog.Any("error", err))
 		return nil // Don't fail the upload, just skip the update
 	}
-
-	// Dispatch Sync to peer connections for upload completion visibility
-	h.dispatchBroadcastToGroup(state.groupID, connection, syncMethodName, nil)
 
 	return nil
 }

@@ -193,7 +193,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features
 
-- simplify state management — remove WithSharedState/WithStatePersistence, add Sync() lifecycle ([#298](https://github.com/livefir/livetemplate/issues/298))
+- simplify state management and persistence defaults ([#298](https://github.com/livefir/livetemplate/issues/298))
 - make state persistence opt-in via WithStatePersistence() ([#295](https://github.com/livefir/livetemplate/issues/295))
 - per-connection state persists to session store for page refresh ([#290](https://github.com/livefir/livetemplate/issues/290))
 
@@ -222,14 +222,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 actions no longer auto-broadcast state or persist to SessionStore.
-Use WithSharedState() to restore the old behavior for backward compatibility.
 
 Key changes:
 - Remove auto-broadcast and SessionStore persist from WebSocket action loop
 - Add ctx.BroadcastAction() API for explicit cross-connection dispatch
 - Restructure WS message loop to select-based event loop (readPump + DispatchChan)
 - Add GroupActionMessage type and Redis PubSub support for cross-instance broadcast
-- Add WithSharedState() option for backward compatibility
 - Handle BroadcastAction from both WebSocket and HTTP POST paths
 
 

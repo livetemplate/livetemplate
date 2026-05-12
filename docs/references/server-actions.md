@@ -412,11 +412,12 @@ When a user has multiple tabs or devices connected:
 ```
 User clicks button in Tab 1
     └─► Tab 1's action method called
+        └─► action may call ctx.BroadcastAction("RefreshTodos", nil)
         └─► Tab 1 receives update
-        └─► Tab 2, Tab 3 receive Sync() dispatch (if controller implements Sync)
+        └─► Tab 2, Tab 3 receive the explicit peer action
 ```
 
-> When the controller implements a `Sync()` method, other tabs automatically receive a Sync dispatch after each action. Without `Sync()`, use `ctx.BroadcastAction("ActionName", nil)` for explicit cross-tab sync.
+> Cross-tab updates are explicit: call `ctx.BroadcastAction("ActionName", nil)` from the action that changed shared state.
 
 **Server Action (TriggerAction):**
 ```

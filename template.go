@@ -1509,7 +1509,6 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 		UploadConfigs:          t.config.UploadConfigs,
 		wsBufferSize:           t.config.WebSocketBufferSize,
 		ProgressiveEnhancement: t.config.ProgressiveEnhancement,
-		HasSync:                HasActionMethod(controller, state.Inner(), syncMethodName),
 	}
 
 	mountCfg.Capabilities = detectCapabilities(controller, state.Inner(), &mountCfg)

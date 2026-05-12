@@ -56,23 +56,28 @@ Fields tagged with `lvt:"persist"` follow this persistence schedule. Untagged fi
 | Server action | Persisted (once per group) | In-memory for connection lifetime |
 | Page refresh | Restored from store | Zero value, loaded by Mount() |
 
-### Sync Lifecycle Method
-
-When the controller implements a `Sync()` method, the framework automatically dispatches it to peer connections in the same session group after every action. This is the recommended way to keep multiple tabs in sync:
+### Explicit Peer Refresh
 
 ```go
-func (c *TodoController) Sync(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
+func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
+    c.DB.AddItem(ctx.UserID(), ctx.GetString("text"))
     state.Items = c.DB.GetItems(ctx.UserID())
-    return state, nil  // Peer connections reload from database
+    ctx.BroadcastAction("RefreshTodos", nil)
+    return state, nil
+}
+
+func (c *TodoController) RefreshTodos(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
+    state.Items = c.DB.GetItems(ctx.UserID())
+    return state, nil
 }
 ```
 
 **How it works:**
 - Each browser gets a unique session ID (via cookie: `livetemplate-id`)
 - All tabs in the same browser share this session ID (`groupID`)
-- After any action, `Sync` is dispatched to all other connections in the group
-- Each connection runs `Sync` with its own state, reloading from the database
-- If the controller does not implement `Sync()`, no cross-tab dispatch occurs
+- After a successful action, queued `BroadcastAction` calls dispatch to other connections in the group
+- Each peer connection runs the named action with its own state, reloading from the database
+- If the action does not call `BroadcastAction`, no cross-tab dispatch occurs
 
 ## State Safety
 
@@ -185,7 +190,7 @@ State is deserialized fresh on each `Get()`, preventing reference sharing across
 
 #### Broadcast Scoping
 
-Both `Sync()` auto-dispatch and explicit `BroadcastAction()` are scoped to the sender's `groupID`. The [ConnectionRegistry](#connection-registry) filters recipients via `GetByGroup(groupID)` — messages only reach connections in the same group. Different groups are never informed of each other's updates.
+`BroadcastAction()` is scoped to the sender's `groupID`. The [ConnectionRegistry](#connection-registry) filters recipients via `GetByGroup(groupID)` — messages only reach connections in the same group. Different groups are never informed of each other's updates.
 
 #### HTTP Request Isolation
 

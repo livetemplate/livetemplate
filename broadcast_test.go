@@ -261,7 +261,7 @@ func connectWSWithAuth(t *testing.T, wsURL, username, password string) *websocke
 	return ws
 }
 
-// --- Sync lifecycle tests ---
+// --- Explicit peer refresh tests ---
 
 type syncDBItem struct {
 	ID   string
@@ -305,15 +305,16 @@ func (c *syncController) Add(state itemsState, ctx *Context) (itemsState, error)
 	id := fmt.Sprintf("item-%d", len(state.Items)+1)
 	c.DB.addItem(ctx.UserID(), id, text)
 	state.Items = c.DB.getItems(ctx.UserID())
+	ctx.BroadcastAction("Refresh", nil)
 	return state, nil
 }
 
-func (c *syncController) Sync(state itemsState, ctx *Context) (itemsState, error) {
+func (c *syncController) Refresh(state itemsState, ctx *Context) (itemsState, error) {
 	state.Items = c.DB.getItems(ctx.UserID())
 	return state, nil
 }
 
-func TestSyncLifecycle_AutoDispatchesToPeers(t *testing.T) {
+func TestBroadcastAction_ExplicitRefreshDispatchesToPeers(t *testing.T) {
 	db := &syncDB{items: make(map[string][]syncDBItem)}
 
 	auth := NewBasicAuthenticator(func(username, password string) (bool, error) {
@@ -367,7 +368,7 @@ func TestSyncLifecycle_AutoDispatchesToPeers(t *testing.T) {
 	update2 := readWSUpdate(t, ws2, 3*time.Second)
 	meta2, _ := update2["meta"].(map[string]interface{})
 	if meta2["success"] != true {
-		t.Errorf("Tab 2 expected success=true from Sync dispatch, got %v", meta2["success"])
+		t.Errorf("Tab 2 expected success=true from Refresh dispatch, got %v", meta2["success"])
 	}
 
 	items := db.getItems("alice")
@@ -387,7 +388,7 @@ func (c *noSyncController) Add(state itemsState, ctx *Context) (itemsState, erro
 	return state, nil
 }
 
-func TestSyncLifecycle_NotDispatchedWithoutMethod(t *testing.T) {
+func TestBroadcastAction_NoAutomaticPeerDispatch(t *testing.T) {
 	// fixedGroupAuth forces all connections into the same group regardless of auth,
 	// so connectWS (unauthenticated) still shares groupID "no-sync-test".
 	auth := &fixedGroupAuth{groupID: "no-sync-test"}
@@ -437,6 +438,6 @@ func TestSyncLifecycle_NotDispatchedWithoutMethod(t *testing.T) {
 	}
 	_, _, err = ws2.ReadMessage()
 	if err == nil {
-		t.Error("Tab 2 should NOT receive update when controller has no Sync() method")
+		t.Error("Tab 2 should NOT receive update without explicit BroadcastAction")
 	}
 }

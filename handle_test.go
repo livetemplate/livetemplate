@@ -2330,7 +2330,7 @@ func TestPerConnectionState_ActionPersistsAcrossReconnect(t *testing.T) {
 	}
 }
 
-// TestPerConnectionState_NoAutoBroadcast verifies that without a Sync() method,
+// TestPerConnectionState_NoAutoBroadcast verifies that without BroadcastAction,
 // WS2 does NOT receive an automatic update when WS1 performs an action.
 func TestPerConnectionState_NoAutoBroadcast(t *testing.T) {
 	auth := &fixedGroupAuth{groupID: "no-autobroadcast-test"}
@@ -2906,9 +2906,9 @@ func TestEphemeral_DispatchedActionNotPersisted(t *testing.T) {
 	}
 }
 
-// TestEphemeral_SyncStillWorks verifies that Sync() auto-dispatches
-// to peer connections in ephemeral mode (uses in-memory registry, not SessionStore).
-func TestEphemeral_SyncStillWorks(t *testing.T) {
+// TestEphemeral_BroadcastActionStillWorks verifies that explicit BroadcastAction
+// dispatches to peer connections in ephemeral mode (uses in-memory registry, not SessionStore).
+func TestEphemeral_BroadcastActionStillWorks(t *testing.T) {
 	db := &syncDB{items: make(map[string][]syncDBItem)}
 	auth := &fixedGroupAuth{groupID: "ephemeral-sync-test"}
 
@@ -2941,7 +2941,7 @@ func TestEphemeral_SyncStillWorks(t *testing.T) {
 		}
 	}()
 
-	// WS1 adds an item — Sync should auto-dispatch to WS2
+	// WS1 adds an item and explicitly broadcasts Refresh to WS2.
 	addMsg, _ := json.Marshal(map[string]interface{}{
 		"action": "add",
 		"data":   map[string]interface{}{"text": "test item"},
@@ -2953,12 +2953,12 @@ func TestEphemeral_SyncStillWorks(t *testing.T) {
 	// WS1 gets its own action response
 	readWSUpdate(t, ws1, 3*time.Second)
 
-	// WS2 should receive the Sync dispatch (in-memory, not via SessionStore).
+	// WS2 should receive the Refresh dispatch (in-memory, not via SessionStore).
 	// Dynamic "0" is {{len .Items}} = "1" after Add.
 	update2 := readWSUpdate(t, ws2, 3*time.Second)
 	if tree, ok := update2["tree"].(map[string]interface{}); ok {
 		if v, ok := tree["0"].(string); ok && v != "1" {
-			t.Errorf("Ephemeral Sync: expected len(Items)=1 on WS2, got %q", v)
+			t.Errorf("Ephemeral BroadcastAction: expected len(Items)=1 on WS2, got %q", v)
 		}
 	}
 }

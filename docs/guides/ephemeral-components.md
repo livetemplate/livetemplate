@@ -82,13 +82,13 @@ func (c *Controller) OnConnect(state AppState, ctx *livetemplate.Context) (AppSt
     return state, nil
 }
 
-func (c *Controller) Sync(state AppState, ctx *livetemplate.Context) (AppState, error) {
+func (c *Controller) Refresh(state AppState, ctx *livetemplate.Context) (AppState, error) {
     state = initComponents(state)
     return state, nil
 }
 ```
 
-All three hooks must call `initComponents` because non-persistent fields (like `*toast.Container`) are nil after deserialization. Missing any hook causes a nil-pointer panic on that code path.
+Any action that can run after state has been deserialized or independently dispatched must call `initComponents` because non-persistent fields (like `*toast.Container`) may be nil on that code path.
 
 ### Adding Messages
 
