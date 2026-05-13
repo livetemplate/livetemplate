@@ -403,3 +403,51 @@ func TestContext_GetString_NumericValues(t *testing.T) {
 		t.Errorf("GetString(zero) = %q, want %q", got, "0")
 	}
 }
+
+// TestContext_ConnectKindHelpers exhaustively verifies the IsInitialMount /
+// IsReconnect matrix across every ConnectKind value, including the default
+// (zero-value) case where WithConnectKind was never called.
+func TestContext_ConnectKindHelpers(t *testing.T) {
+	tests := []struct {
+		name           string
+		set            bool // false => leave ConnectKind defaulted (zero-value path)
+		kind           ConnectKind
+		wantInitialMnt bool
+		wantReconnect  bool
+	}{
+		{name: "default (no WithConnectKind)", set: false, wantInitialMnt: false, wantReconnect: false},
+		{name: "ConnectKindAction", set: true, kind: ConnectKindAction, wantInitialMnt: false, wantReconnect: false},
+		{name: "ConnectKindInitialMount", set: true, kind: ConnectKindInitialMount, wantInitialMnt: true, wantReconnect: false},
+		{name: "ConnectKindNewConnect", set: true, kind: ConnectKindNewConnect, wantInitialMnt: false, wantReconnect: false},
+		{name: "ConnectKindReconnect", set: true, kind: ConnectKindReconnect, wantInitialMnt: false, wantReconnect: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := NewContext(context.Background(), "", nil)
+			if tc.set {
+				ctx = ctx.WithConnectKind(tc.kind)
+			}
+			if got := ctx.IsInitialMount(); got != tc.wantInitialMnt {
+				t.Errorf("IsInitialMount() = %v, want %v", got, tc.wantInitialMnt)
+			}
+			if got := ctx.IsReconnect(); got != tc.wantReconnect {
+				t.Errorf("IsReconnect() = %v, want %v", got, tc.wantReconnect)
+			}
+		})
+	}
+}
+
+// TestContext_WithConnectKindIsImmutable verifies WithConnectKind follows the
+// same copy-on-write pattern as WithAction/WithUserID — the receiver is
+// untouched and a new Context is returned.
+func TestContext_WithConnectKindIsImmutable(t *testing.T) {
+	parent := NewContext(context.Background(), "", nil)
+	child := parent.WithConnectKind(ConnectKindReconnect)
+
+	if parent.IsReconnect() {
+		t.Error("parent Context mutated by WithConnectKind, want it untouched")
+	}
+	if !child.IsReconnect() {
+		t.Error("child Context did not record ConnectKindReconnect")
+	}
+}

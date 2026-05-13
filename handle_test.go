@@ -3045,3 +3045,119 @@ func TestHandle_PubSubSubscribeSuccessRegistersAll(t *testing.T) {
 		t.Errorf("SubscribeGroupActions should be called once, got %d", fb.groupActionCalls)
 	}
 }
+
+// ============================================================================
+// Issue #340: IsInitialMount / IsReconnect integration tests
+// ============================================================================
+//
+// connectKindState/controller capture the connect-kind flags observed by
+// Mount/OnConnect into persisted state. The persist tag on Count makes the
+// reconnect path restore prior state (which the framework uses to flag
+// IsReconnect=true). InitialMount/Reconnect are non-persist so they reflect
+// only the most recent Mount invocation.
+type connectKindState struct {
+	Count          int  `lvt:"persist"`
+	InitialMountWS bool // set by Mount — recorded as observed
+	ReconnectWS    bool // set by OnConnect — recorded as observed
+}
+
+type connectKindController struct{}
+
+func (c *connectKindController) Mount(state connectKindState, ctx *Context) (connectKindState, error) {
+	state.InitialMountWS = ctx.IsInitialMount()
+	state.ReconnectWS = ctx.IsReconnect()
+	return state, nil
+}
+
+func (c *connectKindController) OnConnect(state connectKindState, ctx *Context) (connectKindState, error) {
+	// OnConnect overwrites — both flags reflect the OnConnect call, which on
+	// the WS path always shares the lifecycle Context with Mount.
+	state.InitialMountWS = ctx.IsInitialMount()
+	state.ReconnectWS = ctx.IsReconnect()
+	state.Count++
+	return state, nil
+}
+
+// TestIsInitialMount_OnHTTPGet verifies that the HTTP GET path sets
+// ConnectKindInitialMount on the lifecycle Context. The test reads the
+// rendered HTML, which embeds the bool fields directly.
+func TestIsInitialMount_OnHTTPGet(t *testing.T) {
+	auth := &fixedGroupAuth{groupID: "connect-kind-http"}
+
+	tmpl, err := New("test", WithAuthenticator(auth))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>im={{.InitialMountWS}} rc={{.ReconnectWS}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	handler := tmpl.Handle(&connectKindController{}, AsState(&connectKindState{}))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	resp, err := http.Get(server.URL + "/")
+	if err != nil {
+		t.Fatalf("GET failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	bodyStr := string(body)
+
+	if !strings.Contains(bodyStr, "im=true") {
+		t.Errorf("HTTP GET: expected im=true in body, got: %s", bodyStr)
+	}
+	if !strings.Contains(bodyStr, "rc=false") {
+		t.Errorf("HTTP GET: expected rc=false in body, got: %s", bodyStr)
+	}
+}
+
+// TestIsReconnect_OnWSReconnect verifies that the WS reconnect path sets
+// ConnectKindReconnect on the lifecycle Context after persisted state was
+// restored. Uses reconnectWSRaw to close and reopen the WS — the second
+// connect restores Count via the persist tag, which is the signal the
+// framework uses to flag IsReconnect.
+func TestIsReconnect_OnWSReconnect(t *testing.T) {
+	auth := &fixedGroupAuth{groupID: "connect-kind-ws"}
+
+	tmpl, err := New("test", WithAuthenticator(auth))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>im={{.InitialMountWS}} rc={{.ReconnectWS}} c={{.Count}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	handler := tmpl.Handle(&connectKindController{}, AsState(&connectKindState{}))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+
+	// First connect: persist fields are empty, so this is ConnectKindNewConnect.
+	ws1, initialMsg := connectWSRaw(t, wsURL)
+	if v := treeDynamic(t, initialMsg, "0"); v != "false" {
+		t.Errorf("WS new-connect: im want false, got %q", v)
+	}
+	if v := treeDynamic(t, initialMsg, "1"); v != "false" {
+		t.Errorf("WS new-connect: rc want false, got %q", v)
+	}
+
+	// Reconnect: state persisted, so the WS path should flag ConnectKindReconnect.
+	ws2, reconnectMsg := reconnectWSRaw(t, wsURL, ws1)
+	defer func() {
+		if err := ws2.Close(); err != nil {
+			t.Logf("ws2 close: %v", err)
+		}
+	}()
+	if v := treeDynamic(t, reconnectMsg, "0"); v != "false" {
+		t.Errorf("WS reconnect: im want false (only HTTP GET sets it), got %q", v)
+	}
+	if v := treeDynamic(t, reconnectMsg, "1"); v != "true" {
+		t.Errorf("WS reconnect: rc want true after state restored, got %q. Full msg: %s", v, string(reconnectMsg))
+	}
+}

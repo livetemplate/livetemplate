@@ -1,6 +1,10 @@
 package livetemplate
 
-import "reflect"
+import (
+	"fmt"
+	"log/slog"
+	"reflect"
+)
 
 // =============================================================================
 // Controller Lifecycle Methods
@@ -117,6 +121,63 @@ func isValidLifecycleSignature(methodType reflect.Type, stateType reflect.Type) 
 	}
 
 	return true
+}
+
+// validateLifecycleSignatures walks the controller's methods and emits an
+// slog.Warn for any method whose name matches a known lifecycle name but
+// whose signature doesn't validate. Called once at handler construction
+// (Template.Handle) so the mismatch surfaces at server boot, before users
+// notice the "method never runs" symptom in development.
+//
+// Lifecycle methods recognized:
+//   - Mount, OnConnect: func(state StateType, ctx *Context) (StateType, error)
+//   - OnDisconnect:     func()
+//
+// Methods with these names but a wrong signature are silently skipped at
+// dispatch time by callLifecycleMethod / callOnDisconnect. This warning is
+// non-fatal — controllers that happen to define a helper method with one
+// of these names continue to function exactly as before.
+func validateLifecycleSignatures(controller interface{}, state interface{}) {
+	controllerType := reflect.TypeOf(controller)
+	stateType := reflect.TypeOf(state)
+	// callLifecycleMethod sees dereferenced value types (e.g. TodoState not
+	// *TodoState) — mirror HasActionMethod's dereference so the validator
+	// agrees with the dispatch path. Without this, valid Mount(value, *Context)
+	// methods are flagged as mismatches against a pointer expected type.
+	if stateType != nil && stateType.Kind() == reflect.Pointer {
+		stateType = stateType.Elem()
+	}
+
+	for _, name := range []string{"Mount", "OnConnect"} {
+		m, ok := controllerType.MethodByName(name)
+		if !ok {
+			continue
+		}
+		if isValidLifecycleSignature(m.Type, stateType) {
+			continue
+		}
+		slog.Warn("lifecycle method has invalid signature — will be skipped at runtime",
+			slog.String("component", "live_handler"),
+			slog.String("method", name),
+			slog.String("controller", controllerType.String()),
+			slog.String("expected",
+				fmt.Sprintf("func(%s, *livetemplate.Context) (%s, error)",
+					stateType, stateType)),
+			slog.String("got", m.Type.String()))
+	}
+
+	if m, ok := controllerType.MethodByName("OnDisconnect"); ok {
+		// OnDisconnect signature mirror of callOnDisconnect's check:
+		// NumIn = 1 (receiver only), NumOut = 0.
+		if m.Type.NumIn() != 1 || m.Type.NumOut() != 0 {
+			slog.Warn("lifecycle method has invalid signature — will be skipped at runtime",
+				slog.String("component", "live_handler"),
+				slog.String("method", "OnDisconnect"),
+				slog.String("controller", controllerType.String()),
+				slog.String("expected", "func()"),
+				slog.String("got", m.Type.String()))
+		}
+	}
 }
 
 // callOnDisconnect invokes OnDisconnect() on a controller if it exists.

@@ -2225,10 +2225,10 @@ State is pure data (`AssertPureState` still passes) and gets repopulated on ever
 - `chromedp.Click` on a `<select>` doesn't open the native dropdown. **Fix:** `chromedp.SetValue(selector, value)` + dispatch a synthetic `change` event via `chromedp.Evaluate`. Extract this into a test helper (`selectValueAndDispatchChange`) and reuse.
 - `chromedp.Click` doesn't reliably trigger event-delegation handlers. **Fix:** `document.querySelector(...).click()` via `chromedp.Evaluate`.
 
-**`Mount()` reading URL query params:** `Mount` runs on POST too, so guard URL reads with `if ctx.Action() == ""`. Also **validate** query param values against an allowed set — unknown values should silently fall back to the current state field (not 404, not flash error). Bookmarks with stale values shouldn't crash. Always call the filter function OUTSIDE the guard so initial render AND POSTs both populate the table:
+**`Mount()` reading URL query params:** `Mount` runs on POST too, so guard URL reads with `if ctx.IsInitialMount()` (preferred — true only on initial HTTP GET) or the older `if ctx.Action() == ""` (also true on WS connects/reconnects and internal navigate POSTs). Also **validate** query param values against an allowed set — unknown values should silently fall back to the current state field (not 404, not flash error). Bookmarks with stale values shouldn't crash. Always call the filter function OUTSIDE the guard so initial render AND POSTs both populate the table:
 ```go
 func (c *URLFiltersController) Mount(state URLFiltersState, ctx *Context) (URLFiltersState, error) {
-    if ctx.Action() == "" {
+    if ctx.IsInitialMount() {
         if s := ctx.QueryString("status"); validStatuses[s] { state.Status = s }
         if s := ctx.QueryString("sort"); validSorts[s] { state.Sort = s }
     }

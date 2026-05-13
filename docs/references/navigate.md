@@ -42,20 +42,28 @@ If the WebSocket is not OPEN, the client falls through to fetch-based navigation
 
 Mount runs on every HTTP request, every WS connect, AND every `__navigate__`. Crucially, **inside Mount, a `__navigate__` re-run is indistinguishable from a connect-time Mount** — the dispatch loop deliberately rebinds `ctx.Action()` to `""` for navigate so handlers don't have to special-case it. (Grep `mount.go` for `WithAction("") // ctx.Action()=="" matches connect-time Mount`.)
 
-That means the standard `if ctx.Action() == "" { ... }` guard from the controller-pattern docs filters out form POSTs but does **not** filter out navigate re-mounts. If you have side effects that must fire exactly once per session (analytics page-view, audit log, expensive bootstrap), gate them on per-session state, not on `ctx.Action()`:
+That means the standard `if ctx.Action() == "" { ... }` guard from the controller-pattern docs filters out form POSTs but does **not** filter out navigate re-mounts — it still fires on each `__navigate__`. There are two ways to handle one-time side effects (analytics page-view, audit log, expensive bootstrap):
+
+**Preferred — `ctx.IsInitialMount()`:** Returns true only for the initial HTTP GET, false for WS new-connects, reconnects, *and* `__navigate__` re-mounts (which dispatch through the WS event loop as an action, not as a GET). Side effects fire exactly once per initial page load:
 
 ```go
 func (c *Controller) Mount(state State, ctx *livetemplate.Context) (State, error) {
-    if ctx.Action() == "" && !state.PageViewTracked {
+    if ctx.IsInitialMount() {
         c.analytics.TrackPageView(ctx.UserID())
-        state.PageViewTracked = true
     }
     state.Filter = ctx.GetString("filter")
     return state, nil
 }
 ```
 
-State persists across navigate re-mounts within the same session, so the `PageViewTracked` flag survives. This pattern is the recommended workaround until a first-class "is this the initial mount" signal lands; see issue [#346](https://github.com/livetemplate/livetemplate/issues/346) for the related discussion on `BroadcastAction` semantics inside navigate Mount.
+**Fallback — `ctx.Action() == ""` + persist flag:** If you still use the older idiom (which is true for GETs, WS connects, *and* navigate re-mounts), gate side effects on per-session state so they don't fire repeatedly:
+
+```go
+if ctx.Action() == "" && !state.PageViewTracked {
+    c.analytics.TrackPageView(ctx.UserID())
+    state.PageViewTracked = true
+}
+```
 
 ### Read query params from `ctx`
 

@@ -37,7 +37,7 @@ In this example, `Filter` and `Page` survive page refreshes because they are per
 
 **Mount() lifecycle:** `Mount()` is called on every HTTP request (GET and POST) and every WebSocket connect (new and reconnect). It receives the current state (with persisted fields restored, ephemeral fields at zero value) and returns refreshed state. This ensures data is always fresh from the database. Keep Mount cheap -- it runs on every request.
 
-**Mount on POST:** Since Mount runs before actions on HTTP POST, it must populate ephemeral fields (e.g., `state.Items = db.GetItems(state.Filter)`). Persisted fields like `Filter` and `Page` are already restored from the SessionStore before Mount receives the state. Guard side effects with `ctx.Action() == ""` to restrict them to page loads.
+**Mount on POST:** Since Mount runs before actions on HTTP POST, it must populate ephemeral fields (e.g., `state.Items = db.GetItems(state.Filter)`). Persisted fields like `Filter` and `Page` are already restored from the SessionStore before Mount receives the state. Guard side effects with `ctx.IsInitialMount()` (preferred — true only on HTTP GET) or the older `ctx.Action() == ""` (true on GET, internal navigate POSTs, and WS connects/reconnects).
 
 ### State Persistence Matrix
 

@@ -28,7 +28,35 @@ type UploadAccessor interface {
 type FlashSetter interface {
 	setFlash(key, message string, expiry time.Duration)
 	clearFlashKey(key string)
+	clearAllFlash()
 }
+
+// ConnectKind classifies the lifecycle path that produced this Context.
+// Use Context.IsInitialMount() and Context.IsReconnect() instead of
+// inspecting this value directly — those helpers encode the intended
+// guard patterns.
+type ConnectKind int
+
+const (
+	// ConnectKindAction is the default — a user-triggered action
+	// (form submit, button click, server-dispatched broadcast).
+	ConnectKindAction ConnectKind = iota
+
+	// ConnectKindInitialMount indicates Mount was invoked on an HTTP GET
+	// request (initial page load or page refresh, not an action POST).
+	ConnectKindInitialMount
+
+	// ConnectKindNewConnect indicates Mount/OnConnect was invoked on the
+	// first WebSocket connection for this session group (no prior
+	// persisted state was restored).
+	ConnectKindNewConnect
+
+	// ConnectKindReconnect indicates Mount/OnConnect was invoked on a
+	// WebSocket connect where persisted state was restored from
+	// SessionStore (true reconnect, or a returning user with a surviving
+	// session).
+	ConnectKindReconnect
+)
 
 // broadcastRequest represents a deferred broadcast action to be dispatched
 // to other connections in the same session group after the current action completes.
@@ -54,6 +82,7 @@ type Context struct {
 	flashSetter FlashSetter
 	formSchema  *FormSchema
 	broadcasts  []broadcastRequest
+	connectKind ConnectKind
 
 	// HTTP context (nil for WebSocket actions)
 	w          http.ResponseWriter
@@ -238,6 +267,53 @@ func (c *Context) WithAction(action string) *Context {
 	return &newCtx
 }
 
+// WithConnectKind returns a new Context with the given connect classification.
+// This is set by the framework when constructing the lifecycle Context —
+// controllers should not call it directly. Use IsInitialMount / IsReconnect
+// to read the classification.
+func (c *Context) WithConnectKind(kind ConnectKind) *Context {
+	newCtx := *c
+	newCtx.connectKind = kind
+	return &newCtx
+}
+
+// IsInitialMount reports whether this Mount call is from an initial HTTP GET
+// (page load or refresh). Returns false for HTTP POST actions, WebSocket
+// new-connects, and WebSocket reconnects. Use this to guard one-time setup
+// that should only run on a page load — for example, spawning a background
+// goroutine, kicking off lazy data fetches, or recording analytics:
+//
+//	func (c *MyController) Mount(state State, ctx *livetemplate.Context) (State, error) {
+//	    if ctx.IsInitialMount() {
+//	        state.Loading = true
+//	        state.Data = ""
+//	    }
+//	    return state, nil
+//	}
+//
+// This replaces the older `ctx.Action() == ""` idiom, which also returned
+// true for WebSocket connects/reconnects and internal POST navigations.
+func (c *Context) IsInitialMount() bool {
+	return c.connectKind == ConnectKindInitialMount
+}
+
+// IsReconnect reports whether this Mount/OnConnect call is from a WebSocket
+// connect where persisted state was restored — a true reconnect, or a
+// returning user with a surviving session. Use this when a pattern needs
+// to recover background-pushed state across network blips, for example
+// re-announcing presence or skipping a re-fetch the previous connection
+// already completed:
+//
+//	func (c *ChatController) OnConnect(state State, ctx *livetemplate.Context) (State, error) {
+//	    if ctx.IsReconnect() {
+//	        state.SystemMessages = append(state.SystemMessages, "[reconnected]")
+//	    }
+//	    return state, nil
+//	}
+func (c *Context) IsReconnect() bool {
+	return c.connectKind == ConnectKindReconnect
+}
+
 // WithData returns a new Context with the given data.
 func (c *Context) WithData(data map[string]interface{}) *Context {
 	newCtx := *c
@@ -402,6 +478,28 @@ func (c *Context) SetFlash(key, message string, opts ...FlashOption) {
 func (c *Context) ClearFlash(key string) {
 	if c.flashSetter != nil {
 		c.flashSetter.clearFlashKey(key)
+	}
+}
+
+// ClearAllFlash atomically clears every flash message on this connection.
+// Use this when navigating to a context where prior flash messages are no
+// longer relevant — for example, on logout or before redirecting to a
+// section where a stale "Saved!" notification from a different page would
+// be confusing.
+//
+// Mirrors ClearFlash but operates on all keys at once. Field-validation
+// errors (set via ctx.SetError) are unaffected.
+//
+// Example:
+//
+//	func (c *AuthController) Logout(state AuthState, ctx *livetemplate.Context) (AuthState, error) {
+//	    ctx.ClearAllFlash()
+//	    state.User = nil
+//	    return state, nil
+//	}
+func (c *Context) ClearAllFlash() {
+	if c.flashSetter != nil {
+		c.flashSetter.clearAllFlash()
 	}
 }
 
