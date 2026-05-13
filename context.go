@@ -318,8 +318,9 @@ func (c *Context) IsInitialMount() bool {
 	return c.connectKind == ConnectKindInitialMount
 }
 
-// IsReconnect reports whether this Mount/OnConnect call is from a WebSocket
-// connect where persisted state was restored. Use this when a pattern needs
+// IsReconnect reports whether previously persisted state was restored from
+// SessionStore for this Mount/OnConnect call — that is, "state was restored",
+// not "a prior WebSocket connection existed." Use this when a pattern needs
 // to recover background-pushed state across network blips, for example
 // re-announcing presence or skipping a re-fetch the previous connection
 // already completed:

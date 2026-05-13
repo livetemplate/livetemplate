@@ -188,7 +188,7 @@ func (c *TodoController) OnConnect(state TodoState, ctx *livetemplate.Context) (
 - Start background jobs
 - Subscribe to real-time data feeds
 
-**Heads-up — `ctx.IsReconnect()` on the first WS:** When a browser does the normal flow (HTTP GET → server-renders → WebSocket connects), the framework persists state at the end of the HTTP-path Mount, then *restores* that state when the WebSocket opens. The WS-path `OnConnect` therefore sees `ctx.IsReconnect() == true` even though no prior WebSocket connection ever existed. If your `OnConnect` needs to distinguish "brand-new session" from "WS resumed after a blip", pair `IsReconnect()` with [`IsNewConnect()`](#) or gate on per-session state. See the `IsReconnect` godoc for the full semantics.
+**Heads-up — `ctx.IsReconnect()` on the first WS:** When a browser does the normal flow (HTTP GET → server-renders → WebSocket connects), the framework persists state at the end of the HTTP-path Mount, then *restores* that state when the WebSocket opens. The WS-path `OnConnect` therefore sees `ctx.IsReconnect() == true` even though no prior WebSocket connection ever existed. If your `OnConnect` needs to distinguish "brand-new session" from "WS resumed after a blip", pair `IsReconnect()` with `IsNewConnect()` or gate on per-session state. See the `IsReconnect` godoc for the full semantics.
 
 ### OnDisconnect
 

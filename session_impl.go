@@ -135,7 +135,11 @@ func (s *localSession) TriggerAction(action string, data map[string]interface{})
 	gab, hasRemote := s.handler.config.PubSubBroadcaster.(pubsub.GroupActionBroadcaster)
 
 	if len(connections) == 0 && !hasRemote {
-		return fmt.Errorf("%w (group %q)", ErrSessionDisconnected, s.groupID)
+		// Preserve the literal "no connected sessions" substring from the
+		// pre-sentinel error format so existing string-matching callers (log
+		// scrapers, ad-hoc grep-based monitoring) keep working. New callers
+		// should use errors.Is(err, ErrSessionDisconnected).
+		return fmt.Errorf("%w — no connected sessions for group %q", ErrSessionDisconnected, s.groupID)
 	}
 
 	// Defensive shallow copy of the caller's data map. Dispatch happens

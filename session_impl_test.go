@@ -210,6 +210,12 @@ func TestLocalSession_TriggerActionDisconnectedReturnsError(t *testing.T) {
 	if !strings.Contains(err.Error(), "never-connected-group") {
 		t.Errorf("Expected groupID in error string, got: %v", err)
 	}
+	// Pin the pre-sentinel substring so callers doing
+	// strings.Contains(err.Error(), "no connected sessions") keep matching
+	// across the sentinel migration.
+	if !strings.Contains(err.Error(), "no connected sessions") {
+		t.Errorf("Expected legacy substring 'no connected sessions' to survive in error message, got: %v", err)
+	}
 }
 
 // chainedTriggerState exercises the dispatched->TriggerAction->dispatched
