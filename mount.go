@@ -252,6 +252,20 @@ func (c *connState) clearFlashKey(key string) {
 	delete(c.flashExpiry, flashKey(key))
 }
 
+// clearAllFlash removes every flash message on this connection while
+// preserving field-validation errors. Called by Context.ClearAllFlash.
+func (c *connState) clearAllFlash() {
+	c.messagesMu.Lock()
+	defer c.messagesMu.Unlock()
+	for k := range c.messages {
+		if strings.HasPrefix(k, lvtcontext.FlashPrefix) {
+			delete(c.messages, k)
+		}
+	}
+	// Drop the expiry map outright — matches the lazy-init pattern in setFlash.
+	c.flashExpiry = nil
+}
+
 // pruneExpiredFlash removes only flash messages whose expiry has
 // passed. Flash messages without an expiry (expiry == zero time) are
 // NOT removed — they persist until explicitly cleared via ClearFlash.
@@ -446,8 +460,10 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Otherwise, always start with a fresh clone (ephemeral).
 	ctx := r.Context()
 	var typedState interface{}
+	var isReconnect bool
 	if restored, ok := h.restorePersistedState(ctx, groupID); ok {
 		typedState = restored
+		isReconnect = true
 	} else {
 		typedState, err = h.cloneStateTyped()
 		if err != nil {
@@ -605,10 +621,15 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Use r.Context() (not context.Background()) so Mount/OnConnect cancel on disconnect (#303).
 	wsQueryData := send.QueryParamsToData(r)
+	connectKind := ConnectKindNewConnect
+	if isReconnect {
+		connectKind = ConnectKindReconnect
+	}
 	lifecycleCtx := NewContext(ctx, "", wsQueryData)
 	lifecycleCtx = lifecycleCtx.WithUserID(userID)
 	lifecycleCtx = lifecycleCtx.WithFlashSetter(connSt)
 	lifecycleCtx = lifecycleCtx.WithSession(newLocalSession(h, groupID))
+	lifecycleCtx = lifecycleCtx.WithConnectKind(connectKind)
 
 	// Call Mount on every WebSocket connect (new session AND reconnect).
 	// Mount() refreshes state from the database, ensuring actions always
@@ -1056,10 +1077,15 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Create lifecycle context with query params
 	queryData := send.QueryParamsToData(r)
+	connectKind := ConnectKindAction
+	if r.Method == http.MethodGet && !isAssetRequest {
+		connectKind = ConnectKindInitialMount
+	}
 	lifecycleCtx := NewContext(ctx, "", queryData)
 	lifecycleCtx = lifecycleCtx.WithUserID(userID)
 	lifecycleCtx = lifecycleCtx.WithFlashSetter(connSt)
 	lifecycleCtx = lifecycleCtx.WithSession(newLocalSession(h, groupID))
+	lifecycleCtx = lifecycleCtx.WithConnectKind(connectKind)
 
 	// Read flash messages from cookie (set by POST redirect)
 	if flashCookie, err := r.Cookie("lvt-flash"); err == nil && flashCookie.Value != "" {

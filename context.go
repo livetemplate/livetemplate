@@ -2,6 +2,7 @@ package livetemplate
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -28,6 +29,53 @@ type UploadAccessor interface {
 type FlashSetter interface {
 	setFlash(key, message string, expiry time.Duration)
 	clearFlashKey(key string)
+	clearAllFlash()
+}
+
+// ConnectKind classifies the lifecycle path that produced this Context.
+// Use Context.IsInitialMount(), Context.IsNewConnect(), and
+// Context.IsReconnect() instead of inspecting this value directly — those
+// helpers encode the intended guard patterns.
+type ConnectKind int
+
+const (
+	// ConnectKindAction is the default — a user-triggered action
+	// (form submit, button click, server-dispatched broadcast).
+	ConnectKindAction ConnectKind = iota
+
+	// ConnectKindInitialMount indicates Mount was invoked on an HTTP GET
+	// request (initial page load or page refresh, not an action POST).
+	ConnectKindInitialMount
+
+	// ConnectKindNewConnect indicates Mount/OnConnect was invoked on the
+	// first WebSocket connection for this session group (no prior
+	// persisted state was restored).
+	ConnectKindNewConnect
+
+	// ConnectKindReconnect indicates Mount/OnConnect was invoked on a
+	// WebSocket connect where persisted state was restored from
+	// SessionStore (true reconnect, or a returning user with a surviving
+	// session).
+	ConnectKindReconnect
+)
+
+// String returns a stable human-readable name for the ConnectKind, suitable
+// for log lines and slog attributes. Unknown values fall back to
+// "ConnectKind(<int>)" rather than panicking so future variants don't break
+// existing log scrapers.
+func (k ConnectKind) String() string {
+	switch k {
+	case ConnectKindAction:
+		return "action"
+	case ConnectKindInitialMount:
+		return "initial_mount"
+	case ConnectKindNewConnect:
+		return "new_connect"
+	case ConnectKindReconnect:
+		return "reconnect"
+	default:
+		return fmt.Sprintf("ConnectKind(%d)", int(k))
+	}
 }
 
 // broadcastRequest represents a deferred broadcast action to be dispatched
@@ -54,6 +102,7 @@ type Context struct {
 	flashSetter FlashSetter
 	formSchema  *FormSchema
 	broadcasts  []broadcastRequest
+	connectKind ConnectKind
 
 	// HTTP context (nil for WebSocket actions)
 	w          http.ResponseWriter
@@ -238,6 +287,97 @@ func (c *Context) WithAction(action string) *Context {
 	return &newCtx
 }
 
+// WithConnectKind returns a new Context with the given connect classification.
+// The framework sets this at lifecycle-Context construction time; production
+// controllers typically read the classification via IsInitialMount,
+// IsNewConnect, and IsReconnect rather than calling this builder directly.
+// Tests that need to construct a Context with a specific kind may use it.
+func (c *Context) WithConnectKind(kind ConnectKind) *Context {
+	newCtx := *c
+	newCtx.connectKind = kind
+	return &newCtx
+}
+
+// IsInitialMount reports whether this Mount call is from an initial HTTP GET
+// (page load or refresh). Returns false for HTTP POST actions, WebSocket
+// new-connects, and WebSocket reconnects. Use this to guard one-time setup
+// that should only run on a page load — for example, spawning a background
+// goroutine, kicking off lazy data fetches, or recording analytics:
+//
+//	func (c *MyController) Mount(state State, ctx *livetemplate.Context) (State, error) {
+//	    if ctx.IsInitialMount() {
+//	        state.Loading = true
+//	        state.Data = ""
+//	    }
+//	    return state, nil
+//	}
+//
+// This replaces the older `ctx.Action() == ""` idiom, which also returned
+// true for WebSocket connects/reconnects and internal POST navigations.
+func (c *Context) IsInitialMount() bool {
+	return c.connectKind == ConnectKindInitialMount
+}
+
+// IsReconnect reports whether previously persisted state was restored from
+// SessionStore for this Mount/OnConnect call — that is, "state was restored",
+// not "a prior WebSocket connection existed." Use this when a pattern needs
+// to recover background-pushed state across network blips, for example
+// re-announcing presence or skipping a re-fetch the previous connection
+// already completed:
+//
+//	func (c *ChatController) OnConnect(state State, ctx *livetemplate.Context) (State, error) {
+//	    if ctx.IsReconnect() {
+//	        state.SystemMessages = append(state.SystemMessages, "[reconnected]")
+//	    }
+//	    return state, nil
+//	}
+//
+// Semantics — IsReconnect is true whenever the framework's SessionStore
+// returned previously persisted state for this group, which includes:
+//
+//   - A true WebSocket reconnect after a network blip.
+//   - A returning user with a surviving SessionStore entry (e.g. opened a
+//     bookmark after the prior tab was closed).
+//   - The very first WebSocket connect that follows an HTTP GET in the same
+//     session: the HTTP-path Mount persists state, then the WS connect
+//     restores it. This is detectable in user controllers and may be
+//     unexpected; pair this helper with [IsNewConnect] when you need to
+//     distinguish a brand-new WS session from one that has any persisted
+//     history.
+//
+// IsReconnect does NOT track whether a prior WebSocket connection actually
+// existed — distinguishing that would require additional bookkeeping in
+// SessionStore.
+//
+// During a __navigate__ re-mount, this value reflects the underlying WS
+// connect-kind, not the navigate event — see docs/references/navigate.md
+// for the full preservation rules.
+func (c *Context) IsReconnect() bool {
+	return c.connectKind == ConnectKindReconnect
+}
+
+// IsNewConnect reports whether this Mount/OnConnect call is the first
+// WebSocket connection for this session group with no prior persisted state.
+// Mutually exclusive with IsReconnect (which fires when state was restored)
+// and IsInitialMount (which fires on the HTTP-path Mount).
+//
+// Use this to gate one-time-per-WebSocket-session setup that must NOT run
+// again on a reconnect:
+//
+//	func (c *ChatController) OnConnect(state State, ctx *livetemplate.Context) (State, error) {
+//	    if ctx.IsNewConnect() {
+//	        c.metrics.NewSessions.Inc()
+//	    }
+//	    return state, nil
+//	}
+//
+// During a __navigate__ re-mount, this value reflects the underlying WS
+// connect-kind, not the navigate event — see docs/references/navigate.md
+// for the full preservation rules.
+func (c *Context) IsNewConnect() bool {
+	return c.connectKind == ConnectKindNewConnect
+}
+
 // WithData returns a new Context with the given data.
 func (c *Context) WithData(data map[string]interface{}) *Context {
 	newCtx := *c
@@ -402,6 +542,28 @@ func (c *Context) SetFlash(key, message string, opts ...FlashOption) {
 func (c *Context) ClearFlash(key string) {
 	if c.flashSetter != nil {
 		c.flashSetter.clearFlashKey(key)
+	}
+}
+
+// ClearAllFlash atomically clears every flash message on this connection.
+// Use this when navigating to a context where prior flash messages are no
+// longer relevant — for example, on logout or before redirecting to a
+// section where a stale "Saved!" notification from a different page would
+// be confusing.
+//
+// Mirrors ClearFlash but operates on all keys at once. Field-validation
+// errors (set via ctx.SetError) are unaffected.
+//
+// Example:
+//
+//	func (c *AuthController) Logout(state AuthState, ctx *livetemplate.Context) (AuthState, error) {
+//	    ctx.ClearAllFlash()
+//	    state.User = nil
+//	    return state, nil
+//	}
+func (c *Context) ClearAllFlash() {
+	if c.flashSetter != nil {
+		c.flashSetter.clearAllFlash()
 	}
 }
 

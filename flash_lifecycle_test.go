@@ -1,6 +1,7 @@
 package livetemplate
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http/httptest"
@@ -593,4 +594,73 @@ func TestClearFlashThroughPublicAPI(t *testing.T) {
 	if got := fmt.Sprintf("%v", v); got != "" {
 		t.Errorf("ClearFlashAction: flash slot = %q, want %q (empty after clear)", got, "")
 	}
+}
+
+// TestClearAllFlashRemovesAllFlashMessages verifies that clearAllFlash drops
+// every flash entry on the connection, including those with and without an
+// expiry, while leaving non-flash entries (field errors) intact. Mirrors the
+// single-key TestClearFlashRemovesMessage but exercises the bulk-clear path
+// used by Context.ClearAllFlash (e.g. on logout).
+func TestClearAllFlashRemovesAllFlashMessages(t *testing.T) {
+	cs := newFlashState()
+
+	// Mix of flash entries: one with expiry, one without.
+	cs.setFlash("success", "Saved!", time.Hour)
+	cs.setFlash("warning", "Heads up", 0)
+	// Plus a field-validation error — must survive the clear.
+	cs.setError("email", "Invalid address")
+
+	if !flashPresent(cs, "success") || !flashPresent(cs, "warning") {
+		t.Fatal("setup: flash not present before clearAllFlash")
+	}
+
+	cs.clearAllFlash()
+
+	if flashPresent(cs, "success") {
+		t.Error("'success' flash still present after clearAllFlash")
+	}
+	if flashPresent(cs, "warning") {
+		t.Error("'warning' flash still present after clearAllFlash")
+	}
+	// Direct check on the expiry map — clearAllFlash drops it entirely.
+	if len(cs.flashExpiry) != 0 {
+		t.Errorf("flashExpiry has %d entries after clearAllFlash, want 0", len(cs.flashExpiry))
+	}
+	// Field error survives: validation state is a different namespace.
+	if got := cs.getMessages()["email"]; got != "Invalid address" {
+		t.Errorf("field error 'email' = %q after clearAllFlash, want 'Invalid address' (must survive)", got)
+	}
+}
+
+// TestClearAllFlashNoOpWhenEmpty verifies clearAllFlash is safe to call on a
+// connection with no flash messages — it must not panic when flashExpiry is
+// already nil and messages contains no flash entries.
+func TestClearAllFlashNoOpWhenEmpty(t *testing.T) {
+	cs := &connState{messages: make(map[string]string)} // flashExpiry left nil
+	cs.setError("name", "Required")
+
+	cs.clearAllFlash() // must not panic
+
+	if got := cs.getMessages()["name"]; got != "Required" {
+		t.Errorf("field error 'name' = %q after no-op clearAllFlash, want 'Required'", got)
+	}
+}
+
+// TestClearAllFlashViaContext verifies the public Context.ClearAllFlash entry
+// point flows through to the connState bulk-clear implementation.
+func TestClearAllFlashViaContext(t *testing.T) {
+	cs := newFlashState()
+	cs.setFlash("info", "Hello", 0)
+	cs.setFlash("error", "Oops", time.Hour)
+
+	ctx := NewContext(context.Background(), "", nil).WithFlashSetter(cs)
+	ctx.ClearAllFlash()
+
+	if flashPresent(cs, "info") || flashPresent(cs, "error") {
+		t.Error("Context.ClearAllFlash did not propagate to FlashSetter.clearAllFlash")
+	}
+
+	// Calling on a Context with no flashSetter must be a no-op (no panic).
+	bare := NewContext(context.Background(), "", nil)
+	bare.ClearAllFlash()
 }

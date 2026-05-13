@@ -1512,6 +1512,7 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 	}
 
 	mountCfg.Capabilities = detectCapabilities(controller, state.Inner(), &mountCfg)
+	validateLifecycleSignatures(controller, state.Inner())
 
 	limits := session.NewConnectionLimits(mountCfg.MaxConnections, mountCfg.MaxConnectionsPerGroup)
 	metrics := observe.NewMetrics(slog.Default())

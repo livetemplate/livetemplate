@@ -1,12 +1,25 @@
 package livetemplate
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 
 	"github.com/livetemplate/livetemplate/internal/session"
 	"github.com/livetemplate/livetemplate/pubsub"
 )
+
+// ErrSessionDisconnected is returned by Session.TriggerAction when the
+// session's connection group has no active connections and no PubSub
+// broadcaster is configured (single-instance mode). Background goroutines
+// using the canonical cancellation pattern should test for it via
+// errors.Is(err, ErrSessionDisconnected) and exit cleanly; other errors
+// (e.g. empty action, empty groupID) are caller bugs and warrant logging.
+//
+// In multi-instance mode (PubSubBroadcaster configured), TriggerAction
+// returns nil even with zero local connections — see the TriggerAction
+// godoc for the multi-instance disconnect contract.
+var ErrSessionDisconnected = errors.New("livetemplate: session disconnected")
 
 // localSession is the concrete implementation of the Session interface.
 // It dispatches server-initiated actions to every connection in a specific
@@ -122,7 +135,11 @@ func (s *localSession) TriggerAction(action string, data map[string]interface{})
 	gab, hasRemote := s.handler.config.PubSubBroadcaster.(pubsub.GroupActionBroadcaster)
 
 	if len(connections) == 0 && !hasRemote {
-		return fmt.Errorf("livetemplate: no connected sessions for group %q", s.groupID)
+		// Preserve the literal "no connected sessions" substring from the
+		// pre-sentinel error format so existing string-matching callers (log
+		// scrapers, ad-hoc grep-based monitoring) keep working. New callers
+		// should use errors.Is(err, ErrSessionDisconnected).
+		return fmt.Errorf("%w — no connected sessions for group %q", ErrSessionDisconnected, s.groupID)
 	}
 
 	// Defensive shallow copy of the caller's data map. Dispatch happens

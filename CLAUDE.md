@@ -13,7 +13,7 @@ LiveTemplate is a high-performance Go library for building reactive web applicat
 Controllers hold dependencies (singleton, never cloned). State holds pure data (cloned per session). Action methods: `func (c *Controller) Action(state State, ctx *Context) (State, error)`. Mount runs on every HTTP request and WebSocket connect.
 
 **Key caveats:**
-- **Mount() guard pattern:** Mount runs on POST too, so guard side effects: `if ctx.Action() == "" { trackPageView() }` — only fires on GET, not form submissions.
+- **Mount() guard pattern:** Mount runs on POST too, so guard side effects with the connect-kind helpers: `if ctx.IsInitialMount() { trackPageView() }` (initial HTTP GET only) or `if ctx.IsReconnect() { ... }` (WS reconnect with restored state). The older `if ctx.Action() == ""` idiom still works but conflates GETs with WS connects/reconnects and internal navigate POSTs.
 - **BroadcastAction ordering:** `ctx.With*()` creates shallow copies. Call `ctx.BroadcastAction()` AFTER all `With*()` calls, or broadcasts queued before the copy won't propagate.
 - **AssertPureState[T]():** Use in tests to catch dependency types accidentally in state structs.
 

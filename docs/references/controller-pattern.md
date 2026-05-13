@@ -139,6 +139,32 @@ func (c *TodoController) Mount(state TodoState, ctx *livetemplate.Context) (Todo
 - Set up computed fields
 - Initialize state based on user context
 
+**Guarding side effects per connect kind:** Mount runs on HTTP GET, HTTP POST actions, WebSocket new-connect, and WebSocket reconnect. Use `ctx.IsInitialMount()` to limit one-time setup (e.g. starting a background goroutine) to initial page loads, and `ctx.IsReconnect()` to detect a WebSocket reconnect that restored persisted state:
+
+```go
+func (c *TodoController) Mount(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
+    if ctx.IsInitialMount() {
+        // Only on initial HTTP GET — not POST actions, not WS connects.
+        state.Loading = true
+        go c.warmCacheFor(ctx.UserID())
+    }
+    return state, nil
+}
+```
+
+```go
+func (c *ChatController) OnConnect(state ChatState, ctx *livetemplate.Context) (ChatState, error) {
+    if ctx.IsReconnect() {
+        // Network blipped — re-announce presence, skip re-fetches the prior
+        // connection already completed.
+        state.SystemMessages = append(state.SystemMessages, "[reconnected]")
+    }
+    return state, nil
+}
+```
+
+The older `ctx.Action() == ""` idiom still works (it returns true for GET, internal navigate POSTs, and WS connects/reconnects), but the new helpers disambiguate the four lifecycle paths and make intent obvious to readers.
+
 ### OnConnect
 
 Called when a WebSocket connection is established:
@@ -161,6 +187,8 @@ func (c *TodoController) OnConnect(state TodoState, ctx *livetemplate.Context) (
 - Store session reference for server-initiated updates
 - Start background jobs
 - Subscribe to real-time data feeds
+
+**Heads-up — `ctx.IsReconnect()` on the first WS:** When a browser does the normal flow (HTTP GET → server-renders → WebSocket connects), the framework persists state at the end of the HTTP-path Mount, then *restores* that state when the WebSocket opens. The WS-path `OnConnect` therefore sees `ctx.IsReconnect() == true` even though no prior WebSocket connection ever existed. If your `OnConnect` needs to distinguish "brand-new session" from "WS resumed after a blip", pair `IsReconnect()` with `IsNewConnect()` or gate on per-session state. See the `IsReconnect` godoc for the full semantics.
 
 ### OnDisconnect
 

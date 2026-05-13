@@ -403,3 +403,85 @@ func TestContext_GetString_NumericValues(t *testing.T) {
 		t.Errorf("GetString(zero) = %q, want %q", got, "0")
 	}
 }
+
+// TestContext_ConnectKindHelpers exhaustively verifies the IsInitialMount /
+// IsNewConnect / IsReconnect matrix across every ConnectKind value, including
+// the default (zero-value) case where WithConnectKind was never called. The
+// helpers must be mutually exclusive — at most one can be true for any
+// given Context.
+func TestContext_ConnectKindHelpers(t *testing.T) {
+	tests := []struct {
+		name           string
+		set            bool // false => leave ConnectKind defaulted (zero-value path)
+		kind           ConnectKind
+		wantInitialMnt bool
+		wantNewConnect bool
+		wantReconnect  bool
+	}{
+		{name: "default (no WithConnectKind)", set: false, wantInitialMnt: false, wantNewConnect: false, wantReconnect: false},
+		{name: "ConnectKindAction", set: true, kind: ConnectKindAction, wantInitialMnt: false, wantNewConnect: false, wantReconnect: false},
+		{name: "ConnectKindInitialMount", set: true, kind: ConnectKindInitialMount, wantInitialMnt: true, wantNewConnect: false, wantReconnect: false},
+		{name: "ConnectKindNewConnect", set: true, kind: ConnectKindNewConnect, wantInitialMnt: false, wantNewConnect: true, wantReconnect: false},
+		{name: "ConnectKindReconnect", set: true, kind: ConnectKindReconnect, wantInitialMnt: false, wantNewConnect: false, wantReconnect: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := NewContext(context.Background(), "", nil)
+			if tc.set {
+				ctx = ctx.WithConnectKind(tc.kind)
+			}
+			if got := ctx.IsInitialMount(); got != tc.wantInitialMnt {
+				t.Errorf("IsInitialMount() = %v, want %v", got, tc.wantInitialMnt)
+			}
+			if got := ctx.IsNewConnect(); got != tc.wantNewConnect {
+				t.Errorf("IsNewConnect() = %v, want %v", got, tc.wantNewConnect)
+			}
+			if got := ctx.IsReconnect(); got != tc.wantReconnect {
+				t.Errorf("IsReconnect() = %v, want %v", got, tc.wantReconnect)
+			}
+			// Mutual exclusion: at most one helper may be true at a time.
+			trueCount := 0
+			for _, b := range []bool{tc.wantInitialMnt, tc.wantNewConnect, tc.wantReconnect} {
+				if b {
+					trueCount++
+				}
+			}
+			if trueCount > 1 {
+				t.Errorf("test case advertises %d true helpers — they must be mutually exclusive", trueCount)
+			}
+		})
+	}
+}
+
+// TestConnectKind_String verifies the Stringer produces stable, human-readable
+// names for every defined value plus a safe fallback for unknown values
+// (future variants must not panic existing log scrapers).
+func TestConnectKind_String(t *testing.T) {
+	cases := map[ConnectKind]string{
+		ConnectKindAction:       "action",
+		ConnectKindInitialMount: "initial_mount",
+		ConnectKindNewConnect:   "new_connect",
+		ConnectKindReconnect:    "reconnect",
+		ConnectKind(99):         "ConnectKind(99)", // unknown future value
+	}
+	for k, want := range cases {
+		if got := k.String(); got != want {
+			t.Errorf("ConnectKind(%d).String() = %q, want %q", int(k), got, want)
+		}
+	}
+}
+
+// TestContext_WithConnectKindIsImmutable verifies WithConnectKind follows the
+// same copy-on-write pattern as WithAction/WithUserID — the receiver is
+// untouched and a new Context is returned.
+func TestContext_WithConnectKindIsImmutable(t *testing.T) {
+	parent := NewContext(context.Background(), "", nil)
+	child := parent.WithConnectKind(ConnectKindReconnect)
+
+	if parent.IsReconnect() {
+		t.Error("parent Context mutated by WithConnectKind, want it untouched")
+	}
+	if !child.IsReconnect() {
+		t.Error("child Context did not record ConnectKindReconnect")
+	}
+}

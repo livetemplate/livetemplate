@@ -3,6 +3,7 @@ package livetemplate
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http/httptest"
@@ -201,8 +202,19 @@ func TestLocalSession_TriggerActionDisconnectedReturnsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected TriggerAction to return an error when no connections exist, got nil")
 	}
+	if !errors.Is(err, ErrSessionDisconnected) {
+		t.Errorf("Expected errors.Is(err, ErrSessionDisconnected) to be true, got: %v", err)
+	}
+	// The groupID must still surface in err.Error() so existing log scrapers
+	// (and humans reading server logs) keep working.
+	if !strings.Contains(err.Error(), "never-connected-group") {
+		t.Errorf("Expected groupID in error string, got: %v", err)
+	}
+	// Pin the pre-sentinel substring so callers doing
+	// strings.Contains(err.Error(), "no connected sessions") keep matching
+	// across the sentinel migration.
 	if !strings.Contains(err.Error(), "no connected sessions") {
-		t.Errorf("Expected 'no connected sessions' in error, got: %v", err)
+		t.Errorf("Expected legacy substring 'no connected sessions' to survive in error message, got: %v", err)
 	}
 }
 
