@@ -347,6 +347,10 @@ func (c *Context) IsInitialMount() bool {
 // IsReconnect does NOT track whether a prior WebSocket connection actually
 // existed — distinguishing that would require additional bookkeeping in
 // SessionStore.
+//
+// During a __navigate__ re-mount, this value reflects the underlying WS
+// connect-kind, not the navigate event — see docs/references/navigate.md
+// for the full preservation rules.
 func (c *Context) IsReconnect() bool {
 	return c.connectKind == ConnectKindReconnect
 }
@@ -365,6 +369,10 @@ func (c *Context) IsReconnect() bool {
 //	    }
 //	    return state, nil
 //	}
+//
+// During a __navigate__ re-mount, this value reflects the underlying WS
+// connect-kind, not the navigate event — see docs/references/navigate.md
+// for the full preservation rules.
 func (c *Context) IsNewConnect() bool {
 	return c.connectKind == ConnectKindNewConnect
 }
