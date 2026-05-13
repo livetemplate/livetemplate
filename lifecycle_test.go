@@ -346,6 +346,23 @@ func TestValidateLifecycleSignatures_PointerStateMatchesValueReceiverMethod(t *t
 	}
 }
 
+// TestValidateLifecycleSignatures_NilStateIsSilent guards against a
+// spurious "all lifecycle methods invalid" warning when state.Inner()
+// returns nil. In production this shouldn't happen, but the early return
+// makes the failure mode explicit and quiet.
+func TestValidateLifecycleSignatures_NilStateIsSilent(t *testing.T) {
+	var buf syncBuf
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	validateLifecycleSignatures(&validLifecycleController{}, nil)
+
+	if strings.Contains(buf.String(), "invalid signature") {
+		t.Errorf("nil state should not produce invalid-signature warnings; got:\n%s", buf.String())
+	}
+}
+
 func TestValidateLifecycleSignatures_NoLifecycleMethodsIsSilent(t *testing.T) {
 	var buf syncBuf
 	prev := slog.Default()

@@ -3116,6 +3116,61 @@ func TestIsInitialMount_OnHTTPGet(t *testing.T) {
 	}
 }
 
+// TestIsReconnect_OnHTTPGetThenWSConnect pins the behavior that the very
+// first WS connect following an HTTP GET reports IsReconnect()=true. This
+// is because the HTTP-path Mount persists state, which the WS then
+// restores — restorePersistedState succeeds, the WS path sets
+// ConnectKindReconnect, and IsReconnect() returns true even though no prior
+// WebSocket connection ever existed.
+//
+// The behavior is intentional per the IsReconnect godoc, but it is easy to
+// overlook. Controllers that want "second-or-later WS connect" semantics
+// should pair IsReconnect with IsNewConnect or gate on per-session state.
+// See also the navigate.md doc note about connectKind preservation across
+// __navigate__ re-mounts.
+func TestIsReconnect_OnHTTPGetThenWSConnect(t *testing.T) {
+	auth := &fixedGroupAuth{groupID: "connect-kind-http-then-ws"}
+
+	tmpl, err := New("test", WithAuthenticator(auth))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>im={{.InitialMountWS}} rc={{.ReconnectWS}} c={{.Count}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	handler := tmpl.Handle(&connectKindController{}, AsState(&connectKindState{}))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	// Step 1: HTTP GET. The HTTP-path Mount persists state, so a subsequent
+	// WS connect on the same session group will observe restored state.
+	resp, err := http.Get(server.URL + "/")
+	if err != nil {
+		t.Fatalf("HTTP GET failed: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	// Step 2: WS connect from the same group. restorePersistedState
+	// succeeds → ConnectKindReconnect → IsReconnect()=true even though
+	// this is the very first WebSocket for the group.
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+	ws, msg := connectWSRaw(t, wsURL)
+	defer func() {
+		if err := ws.Close(); err != nil {
+			t.Logf("ws close: %v", err)
+		}
+	}()
+
+	if v := treeDynamic(t, msg, "0"); v != "false" {
+		t.Errorf("first WS after HTTP GET: im want false, got %q", v)
+	}
+	if v := treeDynamic(t, msg, "1"); v != "true" {
+		t.Errorf("first WS after HTTP GET: rc want true (state was restored from HTTP-path Mount), got %q. Full msg: %s", v, string(msg))
+	}
+}
+
 // TestIsReconnect_OnWSReconnect verifies that the WS reconnect path sets
 // ConnectKindReconnect on the lifecycle Context after persisted state was
 // restored. Uses reconnectWSRaw to close and reopen the WS — the second

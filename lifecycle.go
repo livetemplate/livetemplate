@@ -140,11 +140,18 @@ func isValidLifecycleSignature(methodType reflect.Type, stateType reflect.Type) 
 func validateLifecycleSignatures(controller interface{}, state interface{}) {
 	controllerType := reflect.TypeOf(controller)
 	stateType := reflect.TypeOf(state)
+	// In production state.Inner() is the result of AsState and never nil;
+	// guard anyway so a misconfigured caller doesn't get a spurious "all
+	// lifecycle methods invalid" warning. callLifecycleMethod will surface
+	// the underlying issue at dispatch time.
+	if stateType == nil {
+		return
+	}
 	// callLifecycleMethod sees dereferenced value types (e.g. TodoState not
 	// *TodoState) — mirror HasActionMethod's dereference so the validator
 	// agrees with the dispatch path. Without this, valid Mount(value, *Context)
 	// methods are flagged as mismatches against a pointer expected type.
-	if stateType != nil && stateType.Kind() == reflect.Pointer {
+	if stateType.Kind() == reflect.Pointer {
 		stateType = stateType.Elem()
 	}
 

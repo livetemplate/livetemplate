@@ -65,6 +65,14 @@ if ctx.Action() == "" && !state.PageViewTracked {
 }
 ```
 
+**`ConnectKind` behavior during navigate re-mounts:** The dispatch loop applies `WithAction("")` to the WS connection's lifecycle Context for `__navigate__`, which shallow-copies the Context and preserves `connectKind`. So inside a navigate re-mount:
+
+- `ctx.IsInitialMount()` is always **false** (the GET fired earlier, with a different Context).
+- `ctx.IsNewConnect()` reflects the *original* WS connect-time classification — true if the underlying WS was the first connect for this group, false otherwise.
+- `ctx.IsReconnect()` likewise reflects the original WS classification — true if state was restored when the WS first connected.
+
+Only `IsInitialMount()` is guaranteed false inside a navigate re-mount; the other two helpers report the underlying WS's connect-kind, not a navigate-specific value.
+
 ### Read query params from `ctx`
 
 Inside Mount, `ctx.GetString("filter")` and friends return whatever was in `msg.Data` for a `__navigate__`, or the URL query for the initial GET. Same call site, same data shape — your Mount code does not need to branch on "am I initial vs. navigate."
