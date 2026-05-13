@@ -2,6 +2,7 @@ package livetemplate
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -32,9 +33,9 @@ type FlashSetter interface {
 }
 
 // ConnectKind classifies the lifecycle path that produced this Context.
-// Use Context.IsInitialMount() and Context.IsReconnect() instead of
-// inspecting this value directly — those helpers encode the intended
-// guard patterns.
+// Use Context.IsInitialMount(), Context.IsNewConnect(), and
+// Context.IsReconnect() instead of inspecting this value directly — those
+// helpers encode the intended guard patterns.
 type ConnectKind int
 
 const (
@@ -57,6 +58,25 @@ const (
 	// session).
 	ConnectKindReconnect
 )
+
+// String returns a stable human-readable name for the ConnectKind, suitable
+// for log lines and slog attributes. Unknown values fall back to
+// "ConnectKind(<int>)" rather than panicking so future variants don't break
+// existing log scrapers.
+func (k ConnectKind) String() string {
+	switch k {
+	case ConnectKindAction:
+		return "action"
+	case ConnectKindInitialMount:
+		return "initial_mount"
+	case ConnectKindNewConnect:
+		return "new_connect"
+	case ConnectKindReconnect:
+		return "reconnect"
+	default:
+		return fmt.Sprintf("ConnectKind(%d)", int(k))
+	}
+}
 
 // broadcastRequest represents a deferred broadcast action to be dispatched
 // to other connections in the same session group after the current action completes.
@@ -268,9 +288,10 @@ func (c *Context) WithAction(action string) *Context {
 }
 
 // WithConnectKind returns a new Context with the given connect classification.
-// This is set by the framework when constructing the lifecycle Context —
-// controllers should not call it directly. Use IsInitialMount / IsReconnect
-// to read the classification.
+// The framework sets this at lifecycle-Context construction time; production
+// controllers typically read the classification via IsInitialMount,
+// IsNewConnect, and IsReconnect rather than calling this builder directly.
+// Tests that need to construct a Context with a specific kind may use it.
 func (c *Context) WithConnectKind(kind ConnectKind) *Context {
 	newCtx := *c
 	newCtx.connectKind = kind
@@ -298,8 +319,7 @@ func (c *Context) IsInitialMount() bool {
 }
 
 // IsReconnect reports whether this Mount/OnConnect call is from a WebSocket
-// connect where persisted state was restored — a true reconnect, or a
-// returning user with a surviving session. Use this when a pattern needs
+// connect where persisted state was restored. Use this when a pattern needs
 // to recover background-pushed state across network blips, for example
 // re-announcing presence or skipping a re-fetch the previous connection
 // already completed:
@@ -310,8 +330,43 @@ func (c *Context) IsInitialMount() bool {
 //	    }
 //	    return state, nil
 //	}
+//
+// Semantics — IsReconnect is true whenever the framework's SessionStore
+// returned previously persisted state for this group, which includes:
+//
+//   - A true WebSocket reconnect after a network blip.
+//   - A returning user with a surviving SessionStore entry (e.g. opened a
+//     bookmark after the prior tab was closed).
+//   - The very first WebSocket connect that follows an HTTP GET in the same
+//     session: the HTTP-path Mount persists state, then the WS connect
+//     restores it. This is detectable in user controllers and may be
+//     unexpected; pair this helper with [IsNewConnect] when you need to
+//     distinguish a brand-new WS session from one that has any persisted
+//     history.
+//
+// IsReconnect does NOT track whether a prior WebSocket connection actually
+// existed — distinguishing that would require additional bookkeeping in
+// SessionStore.
 func (c *Context) IsReconnect() bool {
 	return c.connectKind == ConnectKindReconnect
+}
+
+// IsNewConnect reports whether this Mount/OnConnect call is the first
+// WebSocket connection for this session group with no prior persisted state.
+// Mutually exclusive with IsReconnect (which fires when state was restored)
+// and IsInitialMount (which fires on the HTTP-path Mount).
+//
+// Use this to gate one-time-per-WebSocket-session setup that must NOT run
+// again on a reconnect:
+//
+//	func (c *ChatController) OnConnect(state State, ctx *livetemplate.Context) (State, error) {
+//	    if ctx.IsNewConnect() {
+//	        c.metrics.NewSessions.Inc()
+//	    }
+//	    return state, nil
+//	}
+func (c *Context) IsNewConnect() bool {
+	return c.connectKind == ConnectKindNewConnect
 }
 
 // WithData returns a new Context with the given data.
