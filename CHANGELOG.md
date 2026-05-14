@@ -5,6 +5,15 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.9.1] - 2026-05-14
+
+### Changes
+
+- feat: lifecycle/Context/Session ergonomics helpers (closes #339 #340 #341 #345) (#408) (1e812e76)
+- ci: add test-docs-login + test-docs-shared-notepad cross-repo jobs (#407) (12509a52)
+
+
+
 ## [v0.9.0] - 2026-05-12
 
 ### Changes
