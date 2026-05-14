@@ -14,6 +14,56 @@ The intended outcome is a redesign where (a) state changes propagate automatical
 
 **Sibling-repo caveat:** the research pass for this proposal did not have `../lvt` or `../client` reachable. External usage patterns from those repos may surface additional cases — this proposal should be re-validated against `lvt` and `client` before implementation.
 
+## At a glance
+
+The shape of the change, in code. Same `Send` action, three transports:
+
+```go
+// Today — every mutation needs an explicit broadcast call + a re-render method.
+func (c *ChatController) Send(state ChatState, ctx *livetemplate.Context) (ChatState, error) {
+    state.Messages = c.loadMessages()
+    ctx.BroadcastAction("RefreshMessages", nil)  // boilerplate
+    return state, nil
+}
+func (c *ChatController) RefreshMessages(state ChatState, ctx *livetemplate.Context) (ChatState, error) {
+    state.Messages = c.loadMessages()             // duplicate of Send's body
+    return state, nil
+}
+```
+
+```go
+// Proposed (same user, multi-device) — implicit. Zero broadcast code.
+func (c *ChatController) Send(state ChatState, ctx *livetemplate.Context) (ChatState, error) {
+    state.Messages = c.loadMessages()
+    return state, nil   // framework re-renders peers automatically
+}
+```
+
+```go
+// Proposed (cross-user chat room) — explicit topic.
+func (c *ChatController) Mount(state ChatState, ctx *livetemplate.Context) (ChatState, error) {
+    state.RoomID = ctx.Param("room")
+    ctx.SubscribeTopic("room/" + state.RoomID)   // server-side, ACL-gated
+    return state, nil
+}
+func (c *ChatController) Send(state ChatState, ctx *livetemplate.Context) (ChatState, error) {
+    msg := c.persist(ctx.GetString("body"))
+    ctx.BroadcastToTopic("room/"+state.RoomID, "NewMessage", map[string]interface{}{
+        "id": msg.ID, "author": ctx.UserID(), "body": msg.Body,
+    })
+    return state, nil
+}
+```
+
+```go
+// Proposed (server push from a webhook / cron) — handler-level entry point.
+handler.BroadcastToUser("alice", "DM", map[string]interface{}{"from": "bob"})
+handler.BroadcastToTopic("auction/42", "BidUpdate", bidData)
+handler.BroadcastGlobal("Maintenance", map[string]interface{}{"at": deadline})
+```
+
+Three concerns, three code shapes. The redesign separates them so each lives in the smallest API surface that fits.
+
 ## Use cases (exhaustive enumeration)
 
 | # | Use case | Today | Pain |
@@ -34,12 +84,14 @@ Use cases A, B, F, I, J have working machinery in the codebase already — the r
 
 ## Current architecture (key references)
 
-- **`ctx.BroadcastAction`** queues `broadcastRequest{action, data}` on the Context (`context.go:603-614`). Cap: `MaxBroadcastsPerAction = 100`.
-- **`mount.go:processBroadcasts` / `dispatchBroadcastToGroup`** runs after the action returns successfully (`mount.go:1544-1582`). It calls `registry.GetByGroupExcept` for local fan-out and `pubsub.GroupActionBroadcaster.PublishGroupAction` for cross-instance fan-out.
-- **`Connection.DispatchChan`** (`internal/session/registry.go:40-72`) is the per-connection mailbox. The event loop in `mount.go:889-891` selects on it and invokes `handleDispatchedAction`, which **runs the controller method again** against the receiving connection's state (`mount.go:1587-1639`).
-- **`Authenticator.GetSessionGroup`** decides who shares state (`auth.go:23-37`). `BasicAuthenticator.GetSessionGroup` returns `userID` (`auth.go:193-198`); `AnonymousAuthenticator.GetSessionGroup` returns a cookie-bound ID (`auth.go:78-91`).
-- **`Connection.UserID`** is already populated at register time (`internal/session/registry.go:40-59`), and `ConnectionRegistry.byUser` already indexes by it (`registry.go:307-580`, method `GetByUser` at line 501). The registry currently exposes `GetByGroupExcept` (line 468) but **not** a `GetByUserExcept` — that's a small new function to add, modeled byte-for-byte after `GetByGroupExcept`. The underlying index is already there; the missing piece is the exclusion accessor.
-- **PubSub** has `PublishToUser`, `PublishServerAction`, `PublishGlobal`, `PublishGroupAction` (`pubsub/types.go:54-95`). All five channel patterns exist (`docs/references/pubsub.md:108-118`). The plumbing is there; only the public-API surface is missing.
+References use grep anchors (per CLAUDE.md guidance) so they don't drift as line numbers shift.
+
+- **`ctx.BroadcastAction`** queues `broadcastRequest{action, data}` on the Context. Grep: `^func \(c \*Context\) BroadcastAction` in `context.go`. Cap: `MaxBroadcastsPerAction = 100`.
+- **`processBroadcasts` / `dispatchBroadcastToGroup`** run after the action returns successfully. Grep: `^func \(h \*liveHandler\) processBroadcasts` and `^func \(h \*liveHandler\) dispatchBroadcastToGroup` in `mount.go`. They call `registry.GetByGroupExcept` for local fan-out and `pubsub.GroupActionBroadcaster.PublishGroupAction` for cross-instance fan-out.
+- **`Connection.DispatchChan`** is the per-connection mailbox. Grep: `DispatchChan chan \*DispatchRequest` in `internal/session/registry.go`. The event loop selects on it (grep in `mount.go`: `case req := <-connection.DispatchChan`) and invokes `handleDispatchedAction` (grep: `^func \(h \*liveHandler\) handleDispatchedAction`), which **runs the controller method again** against the receiving connection's state.
+- **`Authenticator.GetSessionGroup`** decides who shares state (`auth.go`, grep: `GetSessionGroup\(r \*http.Request`). `BasicAuthenticator` returns `userID`; `AnonymousAuthenticator` returns a cookie-bound ID.
+- **`Connection.UserID`** is already populated at register time, and `ConnectionRegistry.byUser` already indexes by it (grep in `internal/session/registry.go`: `^func \(r \*ConnectionRegistry\) GetByUser`). The registry currently exposes `GetByGroupExcept` (grep: `^func \(r \*ConnectionRegistry\) GetByGroupExcept`) but **not** a `GetByUserExcept` — that's a small new function to add, following the same pattern as `GetByGroupExcept`. The underlying index is already there; the missing piece is the exclusion accessor.
+- **PubSub** interfaces in `pubsub/types.go`: `Broadcaster` (grep: `^type Broadcaster interface`) declares `PublishGlobal` / `PublishToUser` / `PublishServerAction`; `GroupActionBroadcaster` (grep: `^type GroupActionBroadcaster interface`) declares `PublishGroupAction`; `DynamicSubscriber` (grep: `^type DynamicSubscriber interface`) declares per-scope subscribe methods. Redis implementations in `pubsub/redis.go` — grep: `^func \(b \*RedisBroadcaster\) Publish` and `^func \(b \*RedisBroadcaster\) Subscribe`. The plumbing is there; only the public-API surface is missing.
 
 ## Proposed design
 
@@ -57,12 +109,19 @@ After any successful action — HTTP POST, WebSocket action, or server-initiated
 
 **Mechanics:**
 - Add a post-action hook in `mount.go` (next to the existing `processBroadcasts` call site) that:
-  1. Resolves the fan-out target set: `registry.GetByGroupExcept(groupID, originator)` is the existing primitive — same set as today's BroadcastAction, but the rendering path is different.
-  2. For each peer connection, enqueue a lightweight **`renderRequest`** (new type, sibling of `DispatchRequest`) on `Connection.DispatchChan` — or, cleaner, add a second channel `Connection.RenderChan` to avoid collapsing the two semantics.
-  3. The connection's event loop dequeues, snapshots the latest persisted state, runs the **render phase only** (`Parse → Build → Diff → Send`, skipping the action dispatch step), and writes the diff.
-- Cross-instance: publish a new `RenderInvalidation{groupID}` message via PubSub (analogous to `GroupActionMessage` but with no action name or payload — just "your group's state changed, re-read"). Each receiving instance walks its local connections in that group and enqueues a `renderRequest` per peer.
+  1. Resolves the fan-out target set: `registry.GetByUserExcept(userID, originator)` when `ctx.UserID() != ""`, else `registry.GetByGroupExcept(groupID, originator)`.
+  2. For each peer connection, enqueue a discriminated **`DispatchRequest{Kind: KindRender}`** on the existing `Connection.DispatchChan`. **Decision:** use a discriminated request on the existing channel rather than a second `Connection.RenderChan`. Rationale: a second channel doubles the event-loop `select` cases, forces explicit priority rules between actions and renders, and complicates the coalescing logic (the coalescer needs to drop pending renders without affecting action delivery). A single mailbox with a `Kind` field keeps the event loop linear; coalescing is a per-connection `*time.Timer` field on `Connection` that's independent of channel semantics.
+  3. The connection's event loop dequeues, runs the **render phase only** (`Parse → Build → Diff → Send`, skipping the action dispatch step), and writes the diff.
+
+**State source for the render-only path.** Local peers (same instance as the originator) read from the in-memory state object the originator just persisted — the same `connSt.state` pointer the existing `dispatchBroadcastToGroup` reaches via the registry. No store round-trip. Remote peers (cross-instance) re-read from the session store after receiving the `RenderInvalidation` message. This split is intentional: local fan-out should be fast (no extra I/O); the store round-trip is the cost of being on a different process. The cross-instance write-ordering constraint below ensures the remote read sees the post-mutation state.
+
+- Cross-instance: publish a new `RenderInvalidation{groupID}` message via PubSub (analogous to `GroupActionMessage` but with no action name or payload — just "your group's state changed, re-read"). Each receiving instance walks its local connections in that group and enqueues a render-kind dispatch per peer.
 
 **Why not just call `BroadcastAction` internally?** Because BroadcastAction re-runs the controller method on the peer with the *original* action's data. That's wrong for an implicit re-sync — the peer's controller would re-execute the mutation (idempotency-dependent, error-prone, double-counted side effects). The new render-only path skips the controller entirely; peers only re-read state and re-render their existing template.
+
+**Implicit sync is suppressed inside dispatched actions.** When `handleDispatchedAction` runs a controller method on a peer (e.g., a topic broadcast or `BroadcastAction`), any state mutation that method produces does **not** trigger another round of implicit peer sync. This is the analog of the existing broadcast-storm guard (grep `mount.go`: `BroadcastAction calls inside a dispatched action are ignored`). Without it, a single topic broadcast that mutates state on every receiver would cascade: each receiver's mutation re-fans-out a render diff to all *their* peers, multiplying the original fan-out by N for an N-connection user. The suppression is a flag the post-action hook checks, set on the dispatched action's Context by `handleDispatchedAction`.
+
+**`SubscribeTopic` on HTTP GET is a no-op.** Mount runs on every HTTP request and on WebSocket connect (per CLAUDE.md's Mount guard guidance). `ctx.SubscribeTopic(name)` records the desired topic on the Context but only attaches a subscription to a `Connection` when one exists — i.e., during WebSocket connect/reconnect. On HTTP GET, the call returns `nil` without subscribing. This means the same `Mount` body works for both transports without requiring `if ctx.IsInitialMount()` guards around topic subscription. The ACL check still runs on HTTP GET (so an unauthorized subscribe is rejected eagerly, before the WS upgrade), but the subscription itself materializes only when a Connection is present.
 
 **Opt-out:** `ctx.SkipPeerSync()` on the Context. Sets a flag the post-action hook checks. For controllers where many actions are per-connection, also `livetemplate.WithImplicitSyncDisabled()` on the template handler.
 
@@ -108,9 +167,9 @@ handler.BroadcastToUser("alice", "DM", data)
 handler.BroadcastGlobal("Maintenance", data)
 ```
 
-These wrap the existing pubsub `Publish*` methods plus local-instance fan-out (same pattern as `dispatchBroadcastToGroup`).
+These wrap the existing pubsub `Publish*` methods plus local-instance fan-out (same pattern as `dispatchBroadcastToGroup`). Specifically, `handler.BroadcastToUser` is a thin public wrapper around the existing `pubsub.Broadcaster.PublishServerAction(userID, action, data)` (already in `pubsub/types.go`) plus a local-instance loop over `registry.GetByUser(userID)`. No new PubSub protocol is needed for use case F — just the handler-level entry point so webhook/cron code doesn't have to hold a Session.
 
-**Interaction with topic broadcasts (deduplication semantics).** A peer connection that is both in the originator's user/group fan-out set *and* subscribed to a topic the originator broadcasts to in the same action could receive two messages from one action: one render diff (from implicit sync) and one action dispatch (from the topic broadcast). The proposal's stance: this is **not** an error condition and the framework does not dedupe. They serve different purposes — the implicit sync re-renders the peer's current view against the new state; the topic broadcast invokes a controller method (which itself may produce a render diff after the peer's state mutates). If a developer wants strictly one update, they can `ctx.SkipPeerSync()` before `BroadcastToTopic`. Document this trade-off; do not over-engineer dedup logic that would require pairing renders to topic identities.
+**Interaction with topic broadcasts (deduplication semantics).** A peer connection that is both in the originator's user/group fan-out set *and* subscribed to a topic the originator broadcasts to in the same action receives two messages from one action: one render diff (from implicit sync), then one action dispatch (from the topic broadcast). **User-visible behavior:** two consecutive WebSocket frames in rapid succession — the first re-renders the peer's view against the new state, the second invokes the topic action's controller method which may mutate state and produce a third render diff. For most UI this is a fast double-update and indistinguishable from a single update; for focus-sensitive or animation-heavy UI it can be disruptive. The proposal's stance: this is **not** an error condition and the framework does not dedupe — the two paths serve different purposes (state diff vs. payload-carrying controller call). Developers who want strictly one update call `ctx.SkipPeerSync()` before `BroadcastToTopic`. Dedup logic pairing renders to topic identities would be expensive and not worth the complexity for v1.
 
 ### 3. Topic ACL (auth gating)
 
@@ -134,6 +193,8 @@ template := livetemplate.New("app",
 `ctx.SubscribeTopic(name)` calls the ACL; on `(false, _)` it returns `ErrTopicForbidden` and the subscription is rejected. Default (no ACL configured) is `allow all` — same posture as today's group broadcasts.
 
 **ACL is evaluated at subscribe time, not on every broadcast.** This is an explicit design decision, consistent with how WebSocket session-lifetime authorization already works (an authenticated session that has its permissions revoked continues to receive WS messages until the connection drops or the controller calls `ctx.UnsubscribeTopic`). For per-message authorization, the developer should perform the check inside the receiver controller method instead. The trade-off: cheap fan-out (one ACL call per Mount) versus revocation latency (bounded by connection lifetime). Applications needing immediate revocation must explicitly drop the connection or call `UnsubscribeTopic` from a server-side action when permissions change.
+
+**The `*http.Request` passed to the ACL is the WebSocket upgrade request, not a per-action request.** It's the request captured when the Connection was established. Request-scoped values set by HTTP middleware (e.g., a JWT parsed into `r.Context()`) are available; session state that has mutated since the upgrade — for example, a permission change in a database — is **not** reflected unless the ACL hook re-queries the source of truth on each call. For stateless checks (JWT in cookie, Bearer in header, role embedded in claims) this is fine. For database-backed permission models, the ACL hook is responsible for the lookup.
 
 `BroadcastToTopic` does **not** ACL-check the sender, because:
 - Sending and receiving are independent operations.
@@ -181,21 +242,25 @@ Keep `ctx.BroadcastAction` in the API; document it as **"dispatch this action to
 ## Critical files to modify (for the implementation that would follow)
 
 - `context.go` — add `SkipPeerSync`, `SubscribeTopic`, `UnsubscribeTopic`, `BroadcastToTopic`; reuse the existing `broadcasts []broadcastRequest` slice pattern for a new `topicBroadcasts` queue.
-- `mount.go:1544-1582` — split `dispatchBroadcastToGroup` into three siblings: `dispatchBroadcastToGroup` (existing), `dispatchPeerSyncToUser` (new, render-only), `dispatchToTopic` (new).
-- `mount.go:889-891` — extend the connection event-loop select to also drain a new `RenderChan` (or accept a discriminated request on the existing `DispatchChan`).
-- `internal/session/registry.go` — (a) add `GetByUserExcept(userID, excludeConn)` modeled after `GetByGroupExcept` at line 468; (b) add `byTopic map[string][]*Connection`; (c) add `SubscribeConnectionToTopic(conn, topic)` / `UnsubscribeConnectionFromTopic(conn, topic)` / `GetByTopicExcept(topic, excludeConn)`; (d) wire `byTopic` cleanup into the existing `Connection.Close()` / `Unregister` path so topic subscriptions don't outlive their connection. Reuse existing `byUser` index for `BroadcastToUser`.
+- `mount.go` — at `dispatchBroadcastToGroup`, split into three siblings: `dispatchBroadcastToGroup` (existing), `dispatchPeerSyncToUser` (new, render-only, uses `GetByUserExcept` or `GetByGroupExcept` per the fan-out scope rule), `dispatchToTopic` (new). At the connection event-loop `select` (grep: `case req := <-connection.DispatchChan`), extend the handler to switch on `req.Kind` — see "discriminated dispatch" decision in §1.
+- `internal/session/registry.go` —
+  - (a) Add `GetByUserExcept(userID, excludeConn)` following the same pattern as `GetByGroupExcept`. **Godoc invariant: `userID == ""` is a programmer error and MUST be guarded by the caller via `ctx.UserID() != ""` — calling with empty userID would match every anonymous connection across every group and leak state between unrelated browsers.** Implement as: panic in dev (`if userID == "" { panic("GetByUserExcept: empty userID; use GetByGroupExcept for anonymous") }`) or return an empty slice with a `slog.Error` log in production — pick one and be consistent.
+  - (b) Add `byTopic map[string][]*Connection`.
+  - (c) Add `SubscribeConnectionToTopic(conn, topic)` / `UnsubscribeConnectionFromTopic(conn, topic)` / `GetByTopicExcept(topic, excludeConn)`.
+  - (d) Wire `byTopic` cleanup into the existing `Connection.Close()` / `Unregister` path so topic subscriptions don't outlive their connection.
+  - Reuse existing `byUser` index for `BroadcastToUser`.
 - `pubsub/types.go`, `pubsub/redis.go` — add `RenderInvalidationMessage` type + `PublishRenderInvalidation` method + `SubscribeRenderInvalidations` handler. Add topic-channel pattern `livetemplate:topic:{name}`.
 - `auth.go` — no change.
 - `docs/references/pubsub.md`, `docs/references/controller-pattern.md`, `docs/design/ARCHITECTURE.md` — document the three-concern model (state scope, sync scope, topic fan-out).
 
 ## Existing utilities to reuse
 
-- `ConnectionRegistry.GetByUser` (`internal/session/registry.go:501`) and `GetByGroupExcept` (line 468) — the building blocks for use case A's fan-out. `GetByUserExcept` is new but trivially derivable from these two.
-- `Connection.EnqueueDispatch` (`internal/session/registry.go:79-102`) — the non-blocking, drop-on-overflow mailbox primitive. New `EnqueueRender` follows the same shape.
-- `pubsub.RedisBroadcaster.PublishGroupAction` / `SubscribeGroupActions` (`pubsub/redis.go:305-323`) — template for the new `PublishRenderInvalidation` and topic equivalents.
-- `pubsub.DynamicSubscriber.SubscribeToGroup` (`pubsub/types.go:54-95`) — pattern for dynamic topic subscription on connect.
-- `mount.go:processBroadcasts` post-action hook site — the right place to add the implicit render-fan-out call.
-- The existing "broadcasts inside a dispatched action are dropped" guard in `mount.go` — grep anchor: `BroadcastAction calls inside a dispatched action are ignored`. Replicate verbatim for render-fan-out and topic broadcasts, with the same recursion-storm rationale.
+- `ConnectionRegistry.GetByUser` and `GetByGroupExcept` (grep `internal/session/registry.go`: `^func \(r \*ConnectionRegistry\) GetByUser` / `^func \(r \*ConnectionRegistry\) GetByGroupExcept`) — the building blocks for use case A's fan-out. `GetByUserExcept` is new but trivially derivable from these two; see Critical Files for the `userID == ""` invariant.
+- `Connection.EnqueueDispatch` (grep `internal/session/registry.go`: `^func \(c \*Connection\) EnqueueDispatch`) — the non-blocking, drop-on-overflow mailbox primitive. The render path reuses this with a discriminated `DispatchRequest{Kind: KindRender}` rather than adding a parallel `EnqueueRender`.
+- `pubsub.RedisBroadcaster.PublishGroupAction` / `SubscribeGroupActions` (grep `pubsub/redis.go`: `^func \(b \*RedisBroadcaster\) (Publish|Subscribe)GroupAction`) — template for the new `PublishRenderInvalidation` and topic equivalents.
+- `pubsub.DynamicSubscriber.SubscribeToGroup` (grep `pubsub/types.go`: `^type DynamicSubscriber interface`) — pattern for dynamic topic subscription on connect.
+- `processBroadcasts` post-action hook site (grep `mount.go`: `^func \(h \*liveHandler\) processBroadcasts`) — the right place to add the implicit render-fan-out call.
+- The existing "broadcasts inside a dispatched action are dropped" guard in `mount.go` — grep: `BroadcastAction calls inside a dispatched action are ignored`. Replicate verbatim for render-fan-out and topic broadcasts, with the same recursion-storm rationale (see also "implicit sync suppressed inside dispatched actions" in §1).
 
 ## Verification plan (when the implementation lands)
 
@@ -208,15 +273,33 @@ End-to-end tests (mirroring `broadcast_test.go` structure):
 6. **Out-of-band `handler.BroadcastToUser`.** Goroutine without a Context calls `handler.BroadcastToUser("alice", "DM", data)`. Alice's connection's controller `DM` method runs and a diff is sent. Confirms use case F without holding a Session.
 7. **Cross-instance.** Two `liveHandler` instances behind a shared `RedisBroadcaster`. Tab on instance A mutates; tab on instance B receives the render diff. Then a `BroadcastToTopic` from instance A reaches a subscriber on instance B. Confirms PubSub plumbing for both the new paths.
 8. **Sender exclusion preserved.** Tab 1 mutates; Tab 1 must not receive a *second* render diff after its own action response. Confirms I.
-9. **Recursion guard.** Action handler invoked via topic dispatch calls `ctx.BroadcastToTopic` again — verify it's logged-and-dropped, matching `mount.go:1626-1631` behavior for `BroadcastAction`.
+9. **Recursion guard.** Action handler invoked via topic dispatch calls `ctx.BroadcastToTopic` again — verify it's logged-and-dropped, matching the existing behavior for `BroadcastAction` (grep `mount.go`: `BroadcastAction calls inside a dispatched action are ignored`).
+10. **Suppress implicit sync inside dispatched actions.** A topic broadcast handler that mutates state on a peer must **not** trigger another implicit-sync round to the peer's peers. Set up three connections in the same group, subscribe two to a topic, broadcast from outside, verify each subscribed connection receives exactly one update (the topic dispatch), not two (one from the topic, one from the cascaded implicit sync).
+11. **Invert `TestBroadcastAction_NoAutomaticPeerDispatch`.** The existing test (grep `broadcast_test.go`: `TestBroadcastAction_NoAutomaticPeerDispatch`) explicitly asserts that peers do *not* receive updates without an explicit `BroadcastAction` call. Under the new default this is a regression test for *the old behavior* and must either be deleted or repurposed under `WithImplicitSyncDisabled()` to assert that the opt-out actually suppresses fan-out.
+12. **`SubscribeTopic` on HTTP GET.** Issue a plain HTTP GET to a Mount that calls `SubscribeTopic`. Assert: no error, the response renders normally, and no `byTopic` entry is created (because there's no Connection). Then upgrade to WS for the same group and assert the subscription materializes on the WS connection.
 
 Run `go test -v -race ./...` and the existing broadcast suite (`go test -run TestWSAction_BroadcastAction -v`) to confirm no regressions in the legacy `BroadcastAction` path.
 
 ## Design constraints (must be satisfied by v1)
 
-- **Render fan-out coalescing.** A user with 10 tabs typing in a high-frequency input could otherwise produce N × M renders per second under implicit sync. v1 must coalesce render requests per connection on a short timer (10ms is a reasonable starting point; tune after benchmarks). The design should land in the first implementation rather than be retrofitted under load — a single `time.Timer` per connection that resets on each `EnqueueRender` and fires the most recent invalidation is sufficient.
-- **Topic GC on disconnect.** Topics with no subscribers leak in `byTopic` if not cleaned up. `Connection.Close()` (grep anchor: `func (c *Connection) Close`) currently drops `byUser` and `byGroup` entries — the new `byTopic` cleanup must be wired into the *same* code path, not a separate goroutine, to avoid the "no unsubscribe" trade-off described in `docs/references/pubsub.md` ("No Unsubscribe" section).
+- **Render fan-out coalescing — hybrid bounds.** A user with 10 tabs typing in a high-frequency input could otherwise produce N × M renders per second under implicit sync. v1 must coalesce render requests per connection using **two** bounds, not just a debounce:
+  - `IdleDelay` (default 10ms): time since the *last* enqueued invalidation. Resets on every enqueue. A pure-debounce design uses only this, and under sustained high-frequency mutations the timer never fires — the peer never gets an update. Not acceptable.
+  - `MaxDelay` (default 50ms): time since the *first* pending invalidation. Hard ceiling — fires regardless of the idle timer. Bounds the worst-case update latency.
+  - The coalescer fires when *either* bound expires. State source: the most recent state version; intermediate invalidations are dropped. Implement as two `*time.Timer` fields on `Connection` (`idleTimer`, `maxTimer`), reset/set on each `EnqueueDispatch` with `Kind == KindRender`. Both timers are cancelled when the dispatch fires. Default values are placeholders pending the benchmarks below.
+- **Topic GC on disconnect.** Topics with no subscribers leak in `byTopic` if not cleaned up. `Connection.Close()` (grep: `^func \(c \*Connection\) Close`) currently drops `byUser` and `byGroup` entries — the new `byTopic` cleanup must be wired into the *same* code path, not a separate goroutine, to avoid the "no unsubscribe" trade-off described in `docs/references/pubsub.md` ("No Unsubscribe" section).
 - **Cross-instance write ordering.** Persisted state writes must commit before the corresponding `RenderInvalidation` is published. See the constraint note in §1.
+
+## Benchmarks required before implementation finalizes
+
+Performance claims in this proposal (the "implicit sync is cheaper than BroadcastAction", the coalescing defaults of 10ms idle / 50ms max) are reasoned, not measured. The implementation PR must include the following benchmark suite in `internal/session/registry_bench_test.go` or a sibling file, and the proposal's defaults must be revisited against the data:
+
+1. **Per-action render fan-out latency**, varying `N = peer connection count` ∈ {1, 5, 10, 50, 100}. Measures the wall-clock cost of the post-action hook from "action returns" to "all peers have enqueued a render dispatch". Establishes a baseline for the coalescer to improve on.
+2. **Implicit sync vs. `BroadcastAction` cost**, same peer counts. Confirms the proposal's claim that the render-only path is meaningfully cheaper than running a controller method on each peer.
+3. **Coalescer hit-rate and update latency** under three workloads: (a) 1 action/sec (no coalescing benefit), (b) 10 actions/sec (some), (c) 100 actions/sec (peer should see only ~20 updates/sec at 50ms `MaxDelay`). The `IdleDelay` and `MaxDelay` defaults must be tuned against (b) to balance perceived responsiveness against CPU cost.
+4. **Cross-instance `RenderInvalidation` round-trip**, single Redis instance, 1/5/10 instances subscribed. Compares against the existing `GroupActionMessage` path so we know whether the render-invalidation path adds measurable overhead.
+5. **`GetByUserExcept` vs. `GetByGroupExcept` lookup cost**, varying connections-per-user ∈ {1, 5, 50}. Both are O(N) over a slice, but `byUser` may have longer slices than `byGroup` for high-fan-out users.
+
+Implementation PR must report these numbers in the PR description and adjust this proposal's default values if the measurements warrant. Acceptance criteria: at 100 connections/user under workload (b), the post-action hook adds < 1ms of latency over today's no-fan-out baseline.
 
 ## Open questions
 
