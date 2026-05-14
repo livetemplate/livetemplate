@@ -142,11 +142,9 @@ template := livetemplate.New("app",
 
 ### 4. Migration of `ctx.BroadcastAction`
 
-**Behavior-change warning.** Implicit peer sync is a default-on behavior change, not a pure additive improvement. Applications that today *intentionally* do not call `BroadcastAction` — for instance, because they want each tab to remain a sovereign view that only reflects its own actions — will start receiving automatic peer syncs after upgrading. This is a breaking default and should be released behind a major version bump, called out prominently in the changelog, and documented as the first thing the upgrade guide mentions. Two opt-out paths exist:
+Pre-release scope note: the library has no production users outside the ecosystem repos (`lvt`, `client`) at the time of writing, so this change does not require a migration guide or major-version ceremony. The behavior change ships as the new default. Two opt-out paths exist for the cases where per-tab sovereignty is intentional:
 - Per-action: `ctx.SkipPeerSync()`.
-- Per-handler: `livetemplate.WithImplicitSyncDisabled()` at template construction. Applications that want the old "explicit-only" posture set this once and continue using `BroadcastAction` as today.
-
-If reviewers feel the breaking-default risk is too high, the alternative is to invert the toggle: ship implicit sync as opt-in via `WithImplicitSyncEnabled()` and document `BroadcastAction` as legacy. This proposal recommends default-on with a clear opt-out, because the DX gain for the dominant pattern is significant; flag the inversion as an open decision for the reviewer.
+- Per-handler: `livetemplate.WithImplicitSyncDisabled()` at template construction.
 
 Most existing call sites become redundant:
 - `e2e/docker/app/main.go:Send` — the `BroadcastAction("RefreshMessages", nil)` is purely a re-render trigger. Delete; implicit peer sync covers it. Also delete the empty `RefreshMessages` controller method.
@@ -224,4 +222,3 @@ Run `go test -v -race ./...` and the existing broadcast suite (`go test -run Tes
 
 - **Per-connection state.** Use case K is a real gap that implicit sync makes more visible. Worth a separate proposal for `state.PerConnection` or similar.
 - **Wildcard / hierarchical topics.** Out of scope for v1; `"room/*"` patterns can be added later if needed.
-- **Default polarity for implicit sync** (default-on with opt-out vs. opt-in via `WithImplicitSyncEnabled()`). See §4. Recommendation: default-on; flagged for explicit reviewer sign-off given the breaking-default impact.
