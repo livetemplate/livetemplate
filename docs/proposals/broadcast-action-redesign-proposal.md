@@ -111,7 +111,7 @@ Before May 2026, livetemplate had a reserved `Sync()` controller method that the
 
 This proposal restores the **capability** `Sync()` offered (automatic peer convergence after a mutation) without the **mechanism** that made it brittle. Implicit peer sync does not invoke a controller method on the peer; it runs the render phase only (`Parse → Build → Diff → Send`) against the peer's already-persisted state. There is no peer-side controller invocation, so no idempotency hazard. This is also why opt-out is `ctx.SkipPeerSync()` (a flag) rather than "omit a `Sync` method" (presence-based magic): the rendering is the framework's responsibility, not the developer's.
 
-Both the docs site and in-repo docs still carry stale `Sync` references from before #406 (notably `docs/content/recipes/sync-and-broadcast.md`, the Pattern #26 controller in `docs/content/recipes/patterns/_app/handlers_realtime.go`, and `livetemplate/docs/guides/ephemeral-components.md:61`). The implementation PR must clean those up as part of its docs-update scope — see §6. **Cleanup-sweep note:** grep for the bare word `Sync` (`grep -rn '\bSync\b' docs/`), not just `Sync()` — `ephemeral-components.md` references it without parentheses and a `Sync()` sweep silently misses it.
+Both the docs site and in-repo docs still carry stale `Sync` references from before #406 (notably `docs/content/recipes/sync-and-broadcast.md`, the Pattern #26 controller in `docs/content/recipes/patterns/_app/handlers_realtime.go`, and `livetemplate/docs/guides/ephemeral-components.md` — grep `Sync` in the state-init lifecycle list). The implementation PR must clean those up as part of its docs-update scope — see §6. **Cleanup-sweep note:** grep for the bare word `Sync` (`grep -rn '\bSync\b' docs/`), not just `Sync()` — `ephemeral-components.md` references it without parentheses and a `Sync()` sweep silently misses it.
 
 ### 1. Implicit peer sync (default behavior)
 
@@ -226,6 +226,7 @@ Most existing call sites — both in-repo and across sibling repos — become re
 **In `livetemplate/` itself:**
 - `e2e/docker/app/main.go:Send` — the `BroadcastAction("RefreshMessages", nil)` is purely a re-render trigger. Delete; implicit peer sync covers it. Also delete the empty `RefreshMessages` controller method.
 - `broadcast_test.go` — same pattern, but note the echo methods are **not** uniformly `Refresh*`-named: `Increment` → `RefreshCount` (L52), `SetMessage` → `SyncMessage` (L67), `syncController.Add` → `Refresh` (L312). The implementation PR must delete all three echo methods; a `Refresh*` grep alone would miss `SyncMessage`. (`Increment`/`SetMessage` also pass a data payload — `{"newCount": …}`, `{"value": …}` — that the echo method only uses to mirror state; under implicit sync the payload and the echo both disappear.)
+- `context_broadcast_test.go` (14 call sites), `lifecycle_integration_test.go` (5), `handle_test.go` (4), `navigate_test.go` (5) — these are the remaining in-repo `BroadcastAction` test files from the §6 table; this list is the authoritative in-repo migration checklist. Each asserts the legacy peer-dispatch contract and must be retired or re-pointed at `WithImplicitSyncDisabled()` alongside `TestBroadcastAction_NoAutomaticPeerDispatch` (see §"Verification plan" item 11). Cross-reference: §6 "Impacted repositories", `livetemplate` row.
 
 **In `examples/` (verified via `grep -rn "BroadcastAction\b" examples/`):**
 - `landing-demo/main.go` — three `BroadcastAction` calls for `Increment`, `Decrement`, `Reset`. **Delete all three** (pure re-render triggers, use case A/B).
@@ -282,7 +283,7 @@ The audit pass (post-proposal-v1) enumerated every consumer of `BroadcastAction`
 
 **Docs migration scope** — two distinct doc surfaces, both need rewrites:
 
-- **In-repo contributor docs** (under `livetemplate/docs/`): `references/controller-pattern.md`, `references/pubsub.md`, `design/ARCHITECTURE.md`, and `guides/ephemeral-components.md` — the last carries a stale lifecycle reference left by #406: line 61 lists `Sync` (bare, no parens) as a state-init hook alongside `Mount`/`OnConnect`, but the framework no longer dispatches it. This must be rewritten when implicit peer sync replaces the `Sync()` model.
+- **In-repo contributor docs** (under `livetemplate/docs/`): `references/controller-pattern.md`, `references/pubsub.md`, `design/ARCHITECTURE.md`, and `guides/ephemeral-components.md` — the last carries a stale lifecycle reference left by #406: its state-init hook list names `Sync` (bare, no parens) alongside `Mount`/`OnConnect`, but the framework no longer dispatches it. This must be rewritten when implicit peer sync replaces the `Sync()` model.
 - **Site docs** (under `../docs/content/`): user-facing. The full list, verified via `grep -rln "BroadcastAction" docs/content/`:
   - **Top-of-funnel** (touched first by new users) — `index.md`, `getting-started/your-first-app.md`.
   - **Reference** — `reference/api.md`, `reference/controller-pattern.md` §"Cross-Tab Updates with BroadcastAction", `reference/server-actions.md`, `reference/session.md`, `reference/pubsub.md`, `reference/navigate.md`, `reference/limitations.md`.
