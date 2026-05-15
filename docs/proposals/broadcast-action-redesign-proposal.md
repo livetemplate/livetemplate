@@ -1,233 +1,157 @@
-# BroadcastAction Redesign — Research & Proposal
+# Publish/Subscribe Topic Model — Research & Proposal
 
-**Status:** Proposed
+**Status:** Proposed (supersedes the earlier "implicit peer sync + topics" two-target design)
 
 ## Context
 
-LiveTemplate today exposes a single broadcast primitive — `ctx.BroadcastAction(action, data)` — that fans out a server-side controller invocation to all WebSocket connections in the originator's session group, sender excluded. The current API has two ergonomic problems and one capability gap:
+LiveTemplate today exposes a single broadcast primitive — `ctx.BroadcastAction(action, data)` — that fans out a server-side controller invocation to all WebSocket connections in the originator's session group, sender excluded. Two ergonomic problems and one capability gap:
 
-1. **Boilerplate at every mutation site.** The dominant usage pattern (visible in `e2e/docker/app/main.go:Send`, `broadcast_test.go:syncController.Add`, `broadcast_test.go:Increment`, `broadcast_test.go:SetMessage`) is: mutate state → `ctx.BroadcastAction("RefreshFoo", nil)` → write a `RefreshFoo` controller method whose only job is to re-read the freshly-persisted state. The action call exists solely to fan-out a re-render. This is mechanical, easy to forget, and adds a second controller method per mutation pattern.
-2. **No same-user, cross-device default.** Whether `BroadcastAction` reaches other devices of the same user depends entirely on how `Authenticator.GetSessionGroup` happens to map `userID → groupID`. With `BasicAuthenticator` it works because groupID = userID; with custom per-device groupIDs it silently doesn't. There's no "this is the same human" primitive.
-3. **No cross-user topic broadcast.** PubSub already implements `PublishGlobal`, `PublishToGroup`, `PublishToUser`, `PublishGroupAction` (interface in `pubsub/types.go:54-95`; Redis implementations span roughly `pubsub/redis.go:104-323` — see `^func (b \*RedisBroadcaster) Publish` for current anchors), but the public Context API exposes only group-scoped broadcasts. There is no way to fan out to "everyone in chat room 42" or "everyone watching auction 17" without coercing the Authenticator into producing a contrived groupID — which breaks state-isolation semantics.
+1. **Boilerplate at every mutation site.** The dominant pattern (`e2e/docker/app/main.go:Send`, `broadcast_test.go:syncController.Add`, `Increment`, `SetMessage`): mutate state → `ctx.BroadcastAction("RefreshFoo", nil)` → write a `RefreshFoo` controller method whose only job is to re-read freshly-persisted state.
+2. **No same-user, cross-device target.** Whether `BroadcastAction` reaches a user's other devices depends entirely on how `Authenticator.GetSessionGroup` maps `userID → groupID`. With `BasicAuthenticator` it works (groupID = userID); with custom per-device groupIDs it silently doesn't.
+3. **No cross-user topic broadcast.** PubSub already implements `PublishGlobal`/`PublishToGroup`/`PublishToUser`/`PublishGroupAction` (`pubsub/types.go`, grep `^type Broadcaster interface`; Redis impls in `pubsub/redis.go`, grep `^func \(b \*RedisBroadcaster\) Publish`), but the public Context API exposes only group-scoped broadcasts. No way to fan out to "everyone in chat room 42" without coercing the Authenticator into a contrived groupID.
 
-The intended outcome is a redesign where (a) state changes propagate automatically across the same user's devices with zero developer effort, (b) topic-scoped broadcasts become a first-class concept with authentication gating, and (c) the existing escape hatches remain for the rare cases where neither default fits.
+An earlier revision of this proposal addressed these with **two** fan-out concerns: implicit user/group peer-sync *and* explicit topics. Maintainer review (2026-05-15) judged two broadcast targets to be excess API surface and a footgun source (an empty-userID fan-out hazard, a userID-vs-groupID scope rule, a state-merge tag, a render-only mode with a silent-no-op failure). **The intended outcome is now a single primitive: a named topic, with classic publish/subscribe naming, where per-identity targeting is a topic derived from the identity** — exactly the `Phoenix.PubSub` model. Per-connection state is the default; nothing fans out unless you `Publish`.
 
-**Sibling-repo audit (complete).** The post-proposal audit pass found: `lvt` has **zero** `BroadcastAction` call sites in source or templates — its scaffolds (`internal/generator/templates/`) emit CRUD action methods with no fan-out, so impact is a `go.mod` pin bump only. The TypeScript `client` already handles `UpdateResponse` arriving without a paired outgoing action (its diff path is stateless), so the implicit-render-sync flow needs no changes there; the only client work is a small error-envelope guard for `ErrTopicForbidden` (see §3, "Wire-format note"). The cross-repo migration scope — `examples/` (11 call sites across 4 apps), `tinkerdown/` (6), the docs site (22 content files plus three pattern scaffolds), and the in-repo `e2e/docker/app/main.go` — is enumerated in §6 "Impacted repositories" below.
+### Prior art: Phoenix (verified)
 
-**Related prior change:** the reserved `Sync()` controller method, which the framework auto-dispatched to peers, was removed two days before this proposal in [PR #406](https://github.com/livetemplate/livetemplate/pull/406). That removal motivated the current state where every mutation needs an explicit `BroadcastAction("RefreshX", nil)` pair — the boilerplate this proposal targets. See "Relationship to the removed `Sync()` method" inside §"Proposed design" for why implicit peer sync is not a return to `Sync()`.
+`Phoenix.PubSub` (hexdocs v2.2.0) has **no** per-user or per-connection broadcast primitive — only `subscribe(pubsub, topic)` and `broadcast(pubsub, topic, message)`. Targeting one user is purely a topic-string convention (`"user:123"`): subscribe each of that user's processes to `"user:#{id}"`, broadcast to it. Phoenix LiveView has no implicit cross-tab sync — a LiveView process is per-connection; cross-tab/device/node convergence is explicit `subscribe` in `mount/3` plus a `handle_info/2` that updates only the relevant assigns and re-renders. This proposal is Phoenix-faithful: the reconciler method below is the `handle_info` analog.
+
+### Related prior change
+
+The reserved `Sync()` controller method (framework auto-dispatched to peers) was removed in [PR #406](https://github.com/livetemplate/livetemplate/pull/406) two days before this proposal — that removal produced today's explicit-`BroadcastAction` boilerplate. Stale `Sync` references remain in docs (`docs/content/recipes/sync-and-broadcast.md`, Pattern #26 in `docs/content/recipes/patterns/_app/handlers_realtime.go`, and `livetemplate/docs/guides/ephemeral-components.md` — bare `Sync` in its state-init lifecycle list). The implementation PR cleans these up; see §6. **Cleanup sweep:** `grep -rn '\bSync\b' docs/ --exclude-dir=proposals` (bare word, not just `Sync()` — `ephemeral-components.md` omits the parens).
 
 ## At a glance
 
-The shape of the change, in code. Same `Send` action, three transports:
+One `Publish`, one `Subscribe`, identity-derived topic strings. Three shapes:
 
 ```go
-// Today — every mutation needs an explicit broadcast call + a re-render method.
-func (c *ChatController) Send(state ChatState, ctx *livetemplate.Context) (ChatState, error) {
-    state.Messages = c.loadMessages()
-    ctx.BroadcastAction("RefreshMessages", nil)  // boilerplate
-    return state, nil
+// Self-sync (same user, multi-device/tab) — explicit, Phoenix-style.
+func (c *Ctl) Mount(s S, ctx *livetemplate.Context) (S, error) {
+    ctx.Subscribe(ctx.SelfTopic())                  // explicit; no auto-subscribe
+    return s, nil
 }
-func (c *ChatController) RefreshMessages(state ChatState, ctx *livetemplate.Context) (ChatState, error) {
-    state.Messages = c.loadMessages()             // duplicate of Send's body
-    return state, nil
+func (c *Ctl) AddItem(s S, ctx *livetemplate.Context) (S, error) {
+    c.store.Add(ctx.GetString("title"))             // mutate the shared source
+    ctx.Publish(ctx.SelfTopic(), "Reload", nil)     // notify this identity's connections
+    return s, nil
+}
+func (c *Ctl) Reload(s S, ctx *livetemplate.Context) (S, error) {
+    s.Items = c.store.List()                        // re-read ONLY shared fields
+    return s, nil                                   // per-connection fields untouched → preserved
 }
 ```
 
 ```go
-// Proposed (same user, multi-device) — implicit. Zero broadcast code.
-func (c *ChatController) Send(state ChatState, ctx *livetemplate.Context) (ChatState, error) {
-    state.Messages = c.loadMessages()
-    return state, nil   // framework re-renders peers automatically
+// Cross-user room — same primitive, a developer-named topic.
+func (c *ChatCtl) Mount(s S, ctx *livetemplate.Context) (S, error) {
+    s.RoomID = ctx.Param("room")
+    ctx.Subscribe("room/" + s.RoomID)               // ACL-gated (deny-all default)
+    return s, nil
 }
-```
-
-```go
-// Proposed (cross-user chat room) — explicit topic.
-func (c *ChatController) Mount(state ChatState, ctx *livetemplate.Context) (ChatState, error) {
-    state.RoomID = ctx.Param("room")
-    ctx.SubscribeTopic("room/" + state.RoomID)   // server-side, ACL-gated
-    return state, nil
-}
-func (c *ChatController) Send(state ChatState, ctx *livetemplate.Context) (ChatState, error) {
+func (c *ChatCtl) Send(s S, ctx *livetemplate.Context) (S, error) {
     msg := c.persist(ctx.GetString("body"))
-    ctx.BroadcastToTopic("room/"+state.RoomID, "NewMessage", map[string]interface{}{
+    ctx.Publish("room/"+s.RoomID, "NewMessage", map[string]any{
         "id": msg.ID, "author": ctx.UserID(), "body": msg.Body,
     })
-    return state, nil
+    return s, nil
 }
 ```
 
 ```go
-// Proposed (server push from a webhook / cron) — handler-level entry point.
-handler.BroadcastToUser("alice", "DM", map[string]interface{}{"from": "bob"})
-handler.BroadcastToTopic("auction/42", "BidUpdate", bidData)
-handler.BroadcastGlobal("Maintenance", map[string]interface{}{"at": deadline})
+// Out-of-band (webhook / cron) — handler-level, no Context.
+handler.Publish(livetemplate.UserTopic("alice"), "DM", map[string]any{"from": "bob"})
+handler.Publish("auction/42", "BidUpdate", bidData)
+handler.Publish(livetemplate.GlobalTopic(), "Maintenance", map[string]any{"at": deadline})
 ```
 
-Three concerns, three code shapes. The redesign separates them so each lives in the smallest API surface that fits.
+One concern, one code shape. Identity targeting (`SelfTopic()`, `UserTopic`, `SessionTopic`, `GlobalTopic`) is just a topic-name helper.
 
 ## Use cases (exhaustive enumeration)
 
-| # | Use case | Today | Pain |
-|---|---|---|---|
-| A | Same user, multi-device state sync (user adds an item on phone → desktop updates) | Works if `groupID = userID`; needs explicit `BroadcastAction` + matching re-render method | Boilerplate; silently broken if custom Authenticator splits userID across groupIDs |
-| B | Same browser, multi-tab sync (anonymous, two tabs) | Works via `AnonymousAuthenticator` cookie + `BroadcastAction` | Same boilerplate as A |
-| C | Cross-user collaborative editing (chat room, shared doc, live cursor) | **Not supported in public API.** Would require lying to the Authenticator | The big gap |
-| D | Cross-user, auth-gated room (private chat, team channel) | Not supported | The big gap, plus needs auth |
-| E | Anonymous-readable topic (public auction bids, live sports score, stock ticker) | Not supported | The big gap, with no auth required |
-| F | Server push to one user from outside an action (webhook, cron, background job) | `Session.TriggerAction` if you cached a Session handle from OnConnect | Requires keeping the Session around; awkward outside connection lifecycle |
-| G | Server push to one topic from outside an action | Not supported in public API; only `pubsub.PublishGlobal` exists | No handler-level entry point |
-| H | Global announcement (maintenance banner, deploy notice) | Not supported in public API | `pubsub.PublishGlobal` is internal-only from the developer's perspective |
-| I | Sender exclusion (originating tab updates via its own action response, not the broadcast) | `BroadcastAction` already excludes sender via `GetByGroupExcept` | None — preserve this semantic |
-| J | HTTP POST mutating state, fan-out to peer WS connections | Works (`mount.go:processBroadcasts` runs after action regardless of transport) | None — preserve |
-| K | Per-connection state that should *not* sync (transient UI like collapsed-panel flags) | N/A — state is group-scoped, so today this is a developer-discipline problem | **Solved in v1**: tag the field `lvt:"local"`; the render-only peer path merges shared-from-originator with local-from-self (§1a) |
+| # | Use case | Under the pub/sub topic model |
+|---|---|---|
+| A | Same user, multi-device sync (phone → desktop) | `ctx.Subscribe(ctx.SelfTopic())` in Mount + `ctx.Publish(ctx.SelfTopic(), "Reload", …)` after mutation + a `Reload` reconciler that re-reads shared fields. Works regardless of the Authenticator's groupID strategy — `SelfTopic()` keys on `UserID` when authenticated. |
+| B | Same browser, multi-tab (anonymous) | Identical; `SelfTopic()` resolves to `lvt:session:<GroupID>`. |
+| C | Cross-user collaborative (chat, shared doc) | `ctx.Subscribe("room/"+id)` + `ctx.Publish("room/"+id, "NewMessage", data)` + handler. |
+| D | Cross-user, auth-gated room | Same + `WithTopicACL` gating `room/*`. |
+| E | Anonymous-readable topic (auction bids, ticker) | Same + ACL allows / `WithOpenTopics()`. |
+| F | Server push to one user (webhook/cron) | `handler.Publish(livetemplate.UserTopic("alice"), "DM", data)`. |
+| G | Server push to one topic | `handler.Publish("auction/42", "BidUpdate", data)`. |
+| H | Global announcement | Subscribers `ctx.Subscribe(livetemplate.GlobalTopic())`; `handler.Publish(livetemplate.GlobalTopic(), "Maintenance", data)`. |
+| I | Sender exclusion (originating tab updates via its own action response) | The calling connection is excluded from its own `Publish` by default. Preserved. |
+| J | HTTP POST mutating state, fan out to peer WS connections | After the action, `ctx.Publish(ctx.SelfTopic(), "Reload", …)` runs regardless of transport; WS subscribers reconcile, the POST gets its normal response. |
+| K | Per-connection state that should *not* sync (collapsed-panel flag, draft text) | **Default, correct by construction.** The reconciler writes only shared fields; per-connection fields in each receiver's *own* state are never written, so they survive. No tag, no merge, no API. |
 
-Use cases A, B, F, I, J have working machinery in the codebase already — the redesign must preserve them. C, D, E, G, H are the missing capabilities. K becomes important once fan-out is implicit.
+C/D/E/F/G/H are the capabilities missing today; A/B/I/J have working machinery (`handleDispatchedAction`, `GetByGroupExcept`) the model reuses; K is free.
 
 ## Current architecture (key references)
 
-References use grep anchors (per CLAUDE.md guidance) so they don't drift as line numbers shift.
+Grep anchors (CLAUDE.md) so they don't drift.
 
-- **`ctx.BroadcastAction`** queues `broadcastRequest{action, data}` on the Context. Grep: `^func \(c \*Context\) BroadcastAction` in `context.go`. Cap: `MaxBroadcastsPerAction = 100`.
-- **`processBroadcasts` / `dispatchBroadcastToGroup`** run after the action returns successfully. Grep: `^func \(h \*liveHandler\) processBroadcasts` and `^func \(h \*liveHandler\) dispatchBroadcastToGroup` in `mount.go`. They call `registry.GetByGroupExcept` for local fan-out and `pubsub.GroupActionBroadcaster.PublishGroupAction` for cross-instance fan-out.
-- **`Connection.DispatchChan`** is the per-connection mailbox. Grep: `DispatchChan chan \*DispatchRequest` in `internal/session/registry.go`. The event loop selects on it (grep in `mount.go`: `case req := <-connection.DispatchChan`) and invokes `handleDispatchedAction` (grep: `^func \(h \*liveHandler\) handleDispatchedAction`), which **runs the controller method again** against the receiving connection's state.
-- **`Authenticator.GetSessionGroup`** decides who shares state (`auth.go`, grep: `GetSessionGroup\(r \*http.Request`). `BasicAuthenticator` returns `userID`; `AnonymousAuthenticator` returns a cookie-bound ID.
-- **`Connection.UserID`** is already populated at register time, and `ConnectionRegistry.byUser` already indexes by it (grep in `internal/session/registry.go`: `^func \(r \*ConnectionRegistry\) GetByUser`). The registry currently exposes `GetByGroupExcept` (grep: `^func \(r \*ConnectionRegistry\) GetByGroupExcept`) but **not** a `GetByUserExcept` — that's a small new function to add, following the same pattern as `GetByGroupExcept`. The underlying index is already there; the missing piece is the exclusion accessor.
-- **PubSub** interfaces in `pubsub/types.go`: `Broadcaster` (grep: `^type Broadcaster interface`) declares `PublishGlobal` / `PublishToUser` / `PublishServerAction`; `GroupActionBroadcaster` (grep: `^type GroupActionBroadcaster interface`) declares `PublishGroupAction`; `DynamicSubscriber` (grep: `^type DynamicSubscriber interface`) declares per-scope subscribe methods. Redis implementations in `pubsub/redis.go` — grep: `^func \(b \*RedisBroadcaster\) Publish` and `^func \(b \*RedisBroadcaster\) Subscribe`. The plumbing is there; only the public-API surface is missing.
+- **`ctx.BroadcastAction`** queues `broadcastRequest{action,data}`. Grep `^func \(c \*Context\) BroadcastAction` in `context.go`; cap `MaxBroadcastsPerAction = 100`. **Removed by this proposal.**
+- **`dispatchBroadcastToGroup` / `processBroadcasts`** run after the action returns. Grep `^func \(h \*liveHandler\) dispatchBroadcastToGroup` / `^func \(h \*liveHandler\) processBroadcasts` in `mount.go`. `Publish`'s local fan-out reuses this shape (registry lookup + `EnqueueDispatch`); cross-instance reuses `PublishGroupAction`'s Redis pattern.
+- **`Connection.DispatchChan`** is the per-connection serial mailbox. Grep `DispatchChan chan \*DispatchRequest` in `internal/session/registry.go`; the event loop selects on it (grep `case req := <-connection.DispatchChan` in `mount.go`) and invokes `handleDispatchedAction` (grep `^func \(h \*liveHandler\) handleDispatchedAction`), which **runs the controller method against the receiving connection's own state**. This is the load-bearing fact that makes the reconciler pattern correct with no merge machinery: each receiver's state is independent, so a selective reconciler leaves per-connection fields intact.
+- **`Connection.UserID` / `GroupID`** are populated at `Register` (grep `^func \(r \*ConnectionRegistry\) Register`); `byUser`/`byGroup` are indexed there. `SelfTopic()` is computable from these fields with no new index.
+- **`Authenticator.GetSessionGroup`** (grep `GetSessionGroup\(r \*http.Request` in `auth.go`): `BasicAuthenticator` returns `userID`; `AnonymousAuthenticator` returns a cookie-bound ID. Unchanged.
+- **PubSub** (`pubsub/types.go`, `pubsub/redis.go`) — `PublishGroupAction`/`SubscribeGroupActions` are the template for the new single topic channel; `subscribedChannels` ref-count + `reconnect()` replay is the template for pattern subscriptions.
 
 ## Proposed design
 
-### Principle: separate three concerns that are currently fused
+### Principle: two concerns, not three
 
-1. **State scope** — who shares the same `State` struct. Decided by `Authenticator.GetSessionGroup` today; no change.
-2. **Auto-sync scope** — which other connections re-render after a mutation. **New:** defaults to the user's connections (or the session group's connections if anonymous). Opt-out per action.
-3. **Topic fan-out** — explicit, cross-cutting, identity-agnostic. **New:** named topics with server-side subscription and a single ACL hook.
+1. **State scope** — who shares the same persisted `State`. Decided by `Authenticator.GetSessionGroup`; **unchanged**.
+2. **Topic fan-out** — the single, explicit publish/subscribe mechanism. Identity targeting is a derived topic name; per-connection is the default.
 
-`BroadcastAction` today entangles (1) and (2). Splitting them lets the default cover use cases A/B with no API surface, and lets topics (3) cover C/D/E without abusing the Authenticator.
+The earlier revision had a third "auto-sync scope" concern (implicit peer sync). It is **deleted** — collapsed into (2): self-sync is `Subscribe(SelfTopic())` + `Publish` + a reconciler.
 
-### Relationship to the removed `Sync()` method
+### 1. Self-sync = Subscribe(SelfTopic()) + Publish + reconciler
 
-Before May 2026, livetemplate had a reserved `Sync()` controller method that the framework auto-dispatched to peers after every action. It was removed in [PR #406](https://github.com/livetemplate/livetemplate/pull/406) ("refactor: remove reserved Sync action") for two reasons: (a) magic method names with no compile-time signal, and (b) the dispatched method still re-ran a controller method on each peer — same idempotency hazards that motivate this proposal's stance on `BroadcastAction`. The replacement after #406 was explicit `BroadcastAction("RefreshX", nil)` calls at every mutation site — exactly the boilerplate this proposal targets.
+`ctx.SelfTopic()` returns this connection's identity-derived topic: `lvt:user:<UserID>` when authenticated, else `lvt:session:<GroupID>`. The developer **explicitly** subscribes to it in `Mount` (Phoenix-style; no framework auto-subscribe — no hidden lifecycle). After a mutation, `ctx.Publish(ctx.SelfTopic(), "Reload", …)` dispatches the `Reload` action to every connection of that identity (sender excluded). Each receiver runs `Reload` against **its own** `connState.state` (verified behavior of `handleDispatchedAction`).
 
-This proposal restores the **capability** `Sync()` offered (automatic peer convergence after a mutation) without the **mechanism** that made it brittle. Implicit peer sync does not invoke a controller method on the peer; it runs the render phase only (`Parse → Build → Diff → Send`) against the peer's already-persisted state. There is no peer-side controller invocation, so no idempotency hazard. This is also why opt-out is `ctx.SkipPeerSync()` (a flag) rather than "omit a `Sync` method" (presence-based magic): the rendering is the framework's responsibility, not the developer's.
+**Per-connection state is safe by construction (use case K).** The reconciler (`Reload`) writes only shared fields — from a payload or a shared source (the controller singleton's mutex-guarded data, or the group-keyed session store). Fields that are per-connection (a collapsed-panel bool, a draft string) live in the receiver's own state and are simply never written by the reconciler, so they survive the re-render unchanged. This is exactly Phoenix's `handle_info` semantics. There is **no** state-merge, **no** `lvt:"local"` tag, **no** opt-out flag — the earlier revision's §1a is gone, and the silent-no-op failure of a render-only mode is gone with it (there is no render-only mode; every `Publish` invokes a method the developer wrote).
 
-Both the docs site and in-repo docs still carry stale `Sync` references from before #406 (notably `docs/content/recipes/sync-and-broadcast.md`, the Pattern #26 controller in `docs/content/recipes/patterns/_app/handlers_realtime.go`, and `livetemplate/docs/guides/ephemeral-components.md` — grep `Sync` in the state-init lifecycle list). The implementation PR must clean those up as part of its docs-update scope — see §6. **Cleanup-sweep note:** grep for the bare word `Sync` (`grep -rn '\bSync\b' docs/`), not just `Sync()` — `ephemeral-components.md` references it without parentheses and a `Sync()` sweep silently misses it.
+**Ordering.** Mutate the shared source *before* `Publish` so the reconciler reads fresh data. For a synchronously-mutated controller singleton this is trivially true. For a reconciler that re-reads the group-keyed session store, the originator's `persistState` write must commit before the dispatch is published cross-instance — the existing `processBroadcasts`-after-`persistState` ordering already provides this; document it as a hard requirement so session-store implementors don't switch to async writes silently.
 
-### 1. Implicit peer sync (default behavior)
+**The reconciler is not "boilerplate to eliminate."** It is the explicit, selective reconciliation point — the thing that makes per-connection state correct and makes "what converges" reviewable in code. This is a deliberate trade: one small method per sync pattern, in exchange for one mental model and zero implicit fan-out.
 
-After any successful action — HTTP POST, WebSocket action, or server-initiated dispatch — the framework re-renders every peer connection that shares state with the originator and sends them a diff. **No controller method invocation on the peer; no `ctx.BroadcastAction` call at the mutation site.**
+### 2. Topics (the one primitive)
 
-**Mechanics:**
-- Add a post-action hook in `mount.go` (next to the existing `processBroadcasts` call site) that:
-  1. Resolves the fan-out target set: `registry.GetByUserExcept(userID, originator)` when `ctx.UserID() != ""`, else `registry.GetByGroupExcept(groupID, originator)`.
-  2. For each peer connection, enqueue a discriminated **`DispatchRequest{Kind: KindRender}`** on the existing `Connection.DispatchChan`. **Decision:** use a discriminated request on the existing channel rather than a second `Connection.RenderChan`. Rationale: a second channel doubles the event-loop `select` cases, forces explicit priority rules between actions and renders, and complicates the coalescing logic (the coalescer needs to drop pending renders without affecting action delivery). A single mailbox with a `Kind` field keeps the event loop linear; coalescing is a per-connection `*time.Timer` field on `Connection` that's independent of channel semantics.
-  3. The connection's event loop dequeues, runs the **render phase only** (`Parse → Build → Diff → Send`, skipping the action dispatch step), and writes the diff.
+A connection `Subscribe`s to named topics; `Publish` sends `(action, data)` to a topic; every subscriber (local + cross-instance) runs `action` against its own state via `handleDispatchedAction`. There is exactly one mode (always invoke a handler method) — no render-only mode.
 
-**State source for the render-only path.** Local peers (same instance as the originator) read from the in-memory state object the originator just persisted — the same `connSt.state` pointer the existing `dispatchBroadcastToGroup` reaches via the registry. No store round-trip. Remote peers (cross-instance) re-read from the session store after receiving the `RenderInvalidation` message. This split is intentional: local fan-out should be fast (no extra I/O); the store round-trip is the cost of being on a different process. The cross-instance write-ordering constraint below ensures the remote read sees the post-mutation state.
+**Subscription (Mount):**
+```go
+ctx.Subscribe("room/" + state.RoomID)   // or ctx.Subscribe(ctx.SelfTopic())
+```
 
-- Cross-instance: publish a new `RenderInvalidation{groupID}` message via PubSub (analogous to `GroupActionMessage` but with no action name or payload — just "your group's state changed, re-read"). Each receiving instance walks its local connections in that group and enqueues a render-kind dispatch per peer.
+**Publish (action):**
+```go
+ctx.Publish("room/"+state.RoomID, "NewMessage", map[string]any{"id": id, "body": body})
+```
+The receiver-side controller defines a `NewMessage` method (same dispatch path as today's `BroadcastAction` — `handleDispatchedAction`). The calling connection is excluded by default (use case I).
 
-**Why not just call `BroadcastAction` internally?** Because BroadcastAction re-runs the controller method on the peer with the *original* action's data. That's wrong for an implicit re-sync — the peer's controller would re-execute the mutation (idempotency-dependent, error-prone, double-counted side effects). The new render-only path skips the controller entirely; peers only re-read state and re-render their existing template.
+**Out-of-band (webhook/cron):** `handler.Publish(topic, action, data)` — same primitive, no `Context`. Identity helpers are pure string constructors usable anywhere: `livetemplate.UserTopic(userID)`, `livetemplate.SessionTopic(groupID)`, `livetemplate.GlobalTopic()`.
 
-**Implicit sync is suppressed inside dispatched actions.** When `handleDispatchedAction` runs a controller method on a peer (e.g., a topic broadcast or `BroadcastAction`), any state mutation that method produces does **not** trigger another round of implicit peer sync. This is the analog of the existing broadcast-storm guard (grep `mount.go`: `BroadcastAction calls inside a dispatched action are ignored`). Without it, a single topic broadcast that mutates state on every receiver would cascade: each receiver's mutation re-fans-out a render diff to all *their* peers, multiplying the original fan-out by N for an N-connection user. The suppression is a flag the post-action hook checks, set on the dispatched action's Context by `handleDispatchedAction`.
+**Reserved `lvt:` namespace + anti-spoof (security, baked in — not optional).** Identity-derived topics live under the reserved `lvt:` prefix. `Subscribe` **rejects** any `lvt:`-prefixed topic that is not the caller's own `SelfTopic()` or `GlobalTopic()` — a connection cannot subscribe to another user's `lvt:user:<x>`. Developer topic names must not start with `lvt:`. This structurally removes the earlier revision's empty-userID fan-out footgun: the anonymous self-topic is the specific non-empty `GroupID`, never an empty key matching all anonymous connections.
 
-**`SubscribeTopic` on HTTP GET is a no-op.** Mount runs on every HTTP request and on WebSocket connect (per CLAUDE.md's Mount guard guidance). `ctx.SubscribeTopic(name)` records the desired topic on the Context but only attaches a subscription to a `Connection` when one exists — i.e., during WebSocket connect/reconnect. On HTTP GET, the call returns `nil` without subscribing. This means the same `Mount` body works for both transports without requiring `if ctx.IsInitialMount()` guards around topic subscription. The ACL check still runs on HTTP GET (so an unauthorized subscribe is rejected eagerly, before the WS upgrade), but the subscription itself materializes only when a Connection is present.
+**Subscription is server-driven.** `Subscribe` is called from controller code (`Mount`/actions); the client sends no subscribe message. On WS reconnect the server re-runs `Mount`, which re-subscribes. `Subscribe` on an HTTP GET is a no-op for the subscription itself (it only materializes with a `Connection`) but the ACL still runs eagerly so an unauthorized subscribe is rejected before the WS upgrade.
 
-**Opt-out:** `ctx.SkipPeerSync()` on the Context. Sets a flag the post-action hook checks. For controllers where many actions are per-connection, also `livetemplate.WithImplicitSyncDisabled()` on the template handler.
-
-**Default fan-out scope decision (matters for use case A):**
-- If `ctx.UserID() != ""`: fan-out target is `registry.GetByUserExcept(userID, originator)` — every connection of this human, regardless of how their `groupID`s are arranged. (`GetByUserExcept` does not exist today; see "Critical files to modify".)
-- Else (anonymous, `userID == ""`): fan-out target is `registry.GetByGroupExcept(groupID, originator)` — the existing group-scoped semantic. Explicitly **not** `GetByUser("")`, which would match every anonymous connection across every group and leak state between unrelated browsers.
-- **This is the key DX change.** Today `BroadcastAction` only follows groupID. The new implicit sync follows userID when present, group when not. This makes "same user, all devices" work regardless of the Authenticator's groupID strategy.
-
-**Cross-instance state-consistency constraint.** The render-only path on a peer reads the latest persisted state from the session store. For this to be safe across instances, the originator's `persistState` write **must commit before** the `RenderInvalidation` is published to PubSub — otherwise a remote instance can re-render with stale state. Two implementation options: (a) publish only after `persistState` returns successfully (preferred; matches existing `processBroadcasts` ordering at `mount.go:processBroadcasts`); (b) include a monotonic state version in the invalidation message and have receivers retry/skip if the store version they read is older. Option (a) is simpler and consistent with current behavior; document it as a hard requirement so session-store implementors don't switch to async writes silently.
-
-**Per-connection state (use case K) is solved in v1 — see §1a.** Fields that must diverge per-connection (collapsed panels, draft text) are tagged `lvt:"local"`; the render-only peer path merges shared-from-originator with local-from-self rather than overwriting wholesale. This was pulled into v1 scope (resolved decision); the mechanics are below.
-
-### 1a. Per-connection state — the `lvt:"local"` tag
-
-Implicit peer sync's default is "every shared field converges across the user's connections." Use case K needs the opposite for *specific* fields: transient UI state (a collapsed-panel bool, an in-progress draft string) must stay per-connection. v1 solves this with a struct tag that mirrors the existing `lvt:"persist"` machinery (`detectPersistFields[T]()`, `validatePersistTag`, `ExtractPersistFields` in `state.go`).
+**Wildcard / hierarchical topics** (in v1, resolved decision). A subscription may end in a single trailing `*` segment:
 
 ```go
-type DocState struct {
-    Body          string            // shared — converges across the user's tabs
-    SidebarOpen   bool   `lvt:"local"` // per-connection — never synced to peers
-    DraftComment  string `lvt:"local"` // per-connection
-}
+ctx.Subscribe("room/*")                       // receives room/42, room/99, …
+ctx.Publish("room/42", "NewMessage", data)    // reaches room/* subscribers + room/42 subscribers
 ```
 
-**Render-only peer path with `lvt:"local"` (the load-bearing mechanic).** After the originator's action persists, for each peer connection:
-
-```
-peer_render_state = copy(peer.connState.state)        # retains the peer's own lvt:"local" fields
-for field F in originator.persisted_state:
-    if F is NOT tagged lvt:"local":
-        peer_render_state[F] = originator.persisted_state[F]
-peer.connState.state = peer_render_state               # commit the merge
-render(peer_render_state) -> diff -> send              # peer sees shared change, keeps its local UI
-```
-
-This replaces §1's earlier "local peers read the originator's `connSt.state` pointer directly" — under `lvt:"local"` the peer renders against a *merged* state, not the originator's pointer.
-
-- **Race:** the merge mutates `peer.connState.state`, but `Connection.DispatchChan` is serial per connection (the event loop processes one dispatch at a time), so there is no race with the peer's own in-flight action. No lock needed; documented so a future reader doesn't add one defensively.
-- **Cross-instance parity:** a remote peer re-reads shared state from the session store, which **never contained `lvt:"local"` fields** (they are excluded from `ExtractPersistFields`, exactly as `json:"-"` fields are today), and merges that against its own in-RAM local fields. Same result as the local path — no special cross-instance code.
-- **Scope (v1):** `lvt:"local"` is honored on **top-level State fields only**. The `lvt:"persist"` machinery recurses into nested structs; `lvt:"local"` deliberately does not in v1 (recursive per-connection merge has deep-merge ambiguities not worth resolving now — deferred, see §"Deferred"). Realistic K cases are top-level flags/strings.
-- **Lifecycle:** `lvt:"local"` fields are never persisted and never restored. On reconnect they zero out — correct for transient UI (a refreshed tab starts with panels collapsed/draft empty). A field tagged **both** `persist` and `local` is a construction-time validation error (mirror `validatePersistTag`'s typo/conflict diagnostics — the two are semantically contradictory).
-
-### 2. Topics (new public API)
-
-Topics are **named broadcast channels**, independent of session groups and users. Connections subscribe explicitly; broadcasts to a topic reach all subscribed connections regardless of identity.
-
-**Server-side subscription** (Mount or OnConnect):
-```go
-func (c *ChatController) Mount(state ChatState, ctx *livetemplate.Context) (ChatState, error) {
-    state.RoomID = ctx.Param("room")
-    ctx.SubscribeTopic("room/" + state.RoomID)
-    return state, nil
-}
-```
-
-**Broadcast from an action:**
-```go
-func (c *ChatController) Send(state ChatState, ctx *livetemplate.Context) (ChatState, error) {
-    // ... persist message ...
-    ctx.BroadcastToTopic("room/" + state.RoomID, "NewMessage", map[string]interface{}{
-        "id": msg.ID, "author": ctx.UserID(), "body": msg.Body,
-    })
-    return state, nil
-}
-```
-
-**Receiver-side:** the controller defines a `NewMessage` method that runs on each subscribed connection (same dispatch path as today's BroadcastAction — `handleDispatchedAction`). This is the *one* place we keep the existing "fan-out a controller method" semantic, because topic broadcasts often carry payloads peers need to act on (e.g., append to a chat log), not just "re-render with new state".
-
-**Server-initiated topic broadcast** (use cases G, H — from webhooks, cron, etc.):
-```go
-handler.BroadcastToTopic("auction/42", "BidUpdate", data)
-handler.BroadcastToUser("alice", "DM", data)
-handler.BroadcastGlobal("Maintenance", data)
-```
-
-These wrap the existing pubsub `Publish*` methods plus local-instance fan-out (same pattern as `dispatchBroadcastToGroup`). Specifically, `handler.BroadcastToUser` is a thin public wrapper around the existing `pubsub.Broadcaster.PublishServerAction(userID, action, data)` (already in `pubsub/types.go`) plus a local-instance loop over `registry.GetByUser(userID)`. No new PubSub protocol is needed for use case F — just the handler-level entry point so webhook/cron code doesn't have to hold a Session.
-
-**Interaction with topic broadcasts (deduplication semantics).** A peer connection that is both in the originator's user/group fan-out set *and* subscribed to a topic the originator broadcasts to in the same action receives two messages from one action: one render diff (from implicit sync), then one action dispatch (from the topic broadcast). **User-visible behavior:** two consecutive WebSocket frames in rapid succession — the first re-renders the peer's view against the new state, the second invokes the topic action's controller method which may mutate state and produce a third render diff. For most UI this is a fast double-update and indistinguishable from a single update; for focus-sensitive or animation-heavy UI it can be disruptive. The proposal's stance: this is **not** an error condition and the framework does not dedupe — the two paths serve different purposes (state diff vs. payload-carrying controller call). Developers who want strictly one update call `ctx.SkipPeerSync()` before `BroadcastToTopic`. Dedup logic pairing renders to topic identities would be expensive and not worth the complexity for v1.
-
-**Wildcard / hierarchical topics.** Pulled into v1 scope (resolved decision). A subscription may end in a single trailing `*` segment to receive every broadcast under that prefix:
-
-```go
-ctx.SubscribeTopic("room/*")                 // receives room/42, room/99, …
-ctx.BroadcastToTopic("room/42", "NewMessage", data) // reaches room/* subscribers + room/42 subscribers
-```
-
-- **Grammar.** Canonical separator is `/` (HTTP-path convention). This resolves the prior `/` vs `:` inconsistency: *topic names* use `/`; the Redis transport keeps its `livetemplate:topic:` channel prefix and the slash stays literal in the channel suffix. Topic chars: `[a-zA-Z0-9/_-]+`. The only wildcard form in v1 is a single trailing `*` as the final segment (`room/*`, `user/alice/*`). Mid-pattern globs (`room/*/log`) are out of v1 (see §"Deferred").
+- **Grammar.** Canonical separator `/` (HTTP-path convention). Topic chars `[a-zA-Z0-9/_-]+`. The only wildcard form is a single trailing `*` as the final segment (`room/*`, `user/alice/*`). Mid-pattern globs (`room/*/log`) are out of v1 (§"Deferred"). The Redis transport keeps its `livetemplate:topic:` channel prefix; the slash stays literal in the channel suffix.
 - **Matcher.** No glob matcher exists in the codebase; v1 adds a tiny one — trailing-`*` reduces to `strings.HasPrefix(concreteTopic, pattern[:len(pattern)-1])`. No regex, no trie.
-- **Registry.** Add `byTopicPattern map[string][]*Connection` alongside the exact `byTopic` map in `internal/session/registry.go`. A broadcast to concrete `room/42` resolves to `union(byTopic["room/42"], { conns in byTopicPattern[p] : p matches "room/42" })`, **deduplicated by connection identity** — a connection subscribed to *both* `room/42` and `room/*` receives **exactly one** frame, not two. The pattern scan is O(P) over distinct patterns P (small in practice); exact lookup stays O(1).
-- **ACL receives the pattern, not the concrete topic.** `WithTopicACL` is called once at `SubscribeTopic("room/*")` time with `topic == "room/*"`. The authorization question is therefore coarser — *"may this user subscribe to the whole `room/*` space?"* — not *"may they read `room/42`?"*. This is a deliberate trade-off (one ACL call per subscription, not per matched topic); a §3 example covers it. Applications needing per-room authorization must subscribe to concrete topics, not a wildcard.
-- **New topics auto-match existing wildcard subscribers — by design.** When `room/99` is broadcast for the very first time, connections already subscribed to `room/*` receive it with **no re-invocation of the ACL**. This is the entire point of wildcards (you don't re-authorize per never-before-seen room); it is intentional and documented here so it is not mistaken for an authorization bug.
-- **Cross-instance.** Pattern subscriptions map to Redis `PSUBSCRIBE livetemplate:topic:room/*`; exact subscriptions use `SUBSCRIBE` (as already planned). Add `subscribedPatterns map[string]int` parallel to the existing `subscribedChannels` ref-count map in `pubsub/redis.go`, replayed in `reconnect()` exactly like the exact-channel set. This extends the existing subscription-tracking mechanism; it is not a new architecture.
+- **Registry.** Add `byTopicPattern map[string][]*Connection` alongside the exact `byTopic` map. A publish to concrete `room/42` resolves to `union(byTopic["room/42"], { conns in byTopicPattern[p] : p matches "room/42" })`, **deduplicated by connection identity** — a connection subscribed to *both* `room/42` and `room/*` receives **exactly one** frame. Pattern scan is O(P) over distinct patterns; exact lookup stays O(1).
+- **ACL receives the pattern, not the concrete topic.** `WithTopicACL` is called once at `Subscribe("room/*")` with `topic == "room/*"` — a coarser question ("may this user subscribe to the whole `room/*` space?"). Apps needing per-room authorization subscribe to concrete topics.
+- **New topics auto-match existing wildcard subscribers — by design.** A first-ever `Publish("room/99", …)` reaches existing `room/*` subscribers with **no** re-invocation of the ACL. Intentional (you don't re-authorize per never-before-seen room); documented so it is not mistaken for an authorization bug.
+- **Cross-instance.** Pattern subscriptions map to Redis `PSUBSCRIBE livetemplate:topic:room/*`; exact subscriptions use `SUBSCRIBE`. Add `subscribedPatterns map[string]int` parallel to the existing `subscribedChannels` ref-count map in `pubsub/redis.go`, replayed in `reconnect()` exactly like the exact-channel set. Extends the existing subscription-tracking mechanism; not a new architecture.
 
 ### 3. Topic ACL (auth gating)
 
-A single global hook configured at template construction:
+A single global hook configured at template construction. It is called once per `Subscribe`, with the literal subscribed name (the pattern `"room/*"`, not concrete matches):
 
 ```go
 template := livetemplate.New("app",
@@ -235,219 +159,180 @@ template := livetemplate.New("app",
         switch {
         case strings.HasPrefix(topic, "public/"):
             return true, nil
-        case strings.HasPrefix(topic, "user/"):
-            return userID != "" && strings.HasSuffix(topic, "/"+userID), nil
-        case strings.HasPrefix(topic, "room/"):
-            return userID != "" && c.UserInRoom(userID, topic), nil
+        case strings.HasPrefix(topic, "room/"):   // pattern-aware: covers "room/*" and "room/42"
+            return userID != "" && c.UserMayJoinRooms(userID), nil
         }
         return false, fmt.Errorf("unknown topic: %s", topic)
     }))
 ```
 
-`ctx.SubscribeTopic(name)` calls the ACL; on `(false, _)` it returns `ErrTopicForbidden` and the subscription is rejected.
+On `(false, _)` the subscription is rejected with `ErrTopicForbidden`.
 
-**Default is `deny all`** (resolved decision — see §"Resolved decisions"). With neither `WithTopicACL` nor `WithOpenTopics()` configured, every `SubscribeTopic` returns `ErrTopicForbidden`. This is deliberately *not* "same posture as today's group broadcasts": a group broadcast is bounded by the Authenticator (state is isolated to the resolved `groupID`/`userID`, so there is an implicit boundary even with no ACL). A topic is identity-agnostic and cross-user — the ACL is its **only** boundary. Defaulting that single boundary to "open" is a footgun, and the pattern scaffolds in the docs site get copy-pasted into user projects, so an `allow-all` default would teach an insecure idiom. The opt-in is one self-documenting line:
+**Default is `deny all`** (resolved decision). With neither `WithTopicACL` nor `WithOpenTopics()`, every `Subscribe` returns `ErrTopicForbidden`. Topics are identity-agnostic and cross-user — the ACL is their **only** boundary (a group broadcast is Authenticator-bounded; a topic is not). Defaulting that single boundary open is a footgun, and the docs-site pattern scaffolds get copy-pasted into user projects, so an allow-all default would teach an insecure idiom. The opt-in is one self-documenting line:
 
 ```go
 template := livetemplate.New("app", livetemplate.WithOpenTopics()) // every topic public; explicit
 ```
 
-`WithOpenTopics()` and `WithTopicACL(fn)` are mutually exclusive (configuring both is a construction-time error). The discovery path is clean: call `SubscribeTopic` with no config → `ErrTopicForbidden` → you learn you must configure one of the two.
+`WithOpenTopics()` and `WithTopicACL(fn)` are mutually exclusive (both set = construction-time error). Discovery path: `Subscribe` with no config → `ErrTopicForbidden` → you learn you must configure one.
 
-**Scope guard.** Deny-all gates *only* the topic primitives (`SubscribeTopic` / `BroadcastToTopic`). Implicit peer sync (use cases A/B — user/group-scoped via the Authenticator) has **no ACL and is entirely unaffected** by this default. The three concerns stay separate: state scope (Authenticator), auto-sync scope (implicit, no ACL), topic fan-out (explicit, ACL-gated, deny-by-default).
+**Self/global topics are ACL-exempt.** `ctx.SelfTopic()` and `livetemplate.GlobalTopic()` bypass the ACL — you are inherently authorized for your own identity's topic, and the reserved-namespace rule already prevents subscribing to anyone else's. The ACL only gates developer-named (non-`lvt:`) topics. This means deny-all never breaks self-sync.
 
-**Wire-format note (client surface).** When a denial happens on the WS-connect path (Mount calling `SubscribeTopic` during a fresh upgrade), the controller's `Mount` returns an error that today's TS client cannot distinguish from a generic connection failure. The implementation should extend the WS response envelope with an optional discriminator so the client can surface the denial without dropping the connection. Recommended shape: `{ "type": "error", "code": "topic_forbidden", "topic": "..." }`. The TS client's `handleWebSocketPayload` (grep `livetemplate-client.ts`: `handleWebSocketPayload`) currently shape-tests for upload-specific fields before falling back to `UpdateResponse`; that same pattern admits a `type === "error"` branch. Browser code observes the denial via an `lvt:error` `CustomEvent` with the error object as `detail`. This is the **only** client-side change this proposal requires; the diff-handling path is unaffected by implicit peer sync (the client already accepts `UpdateResponse` frames that arrive without a paired outgoing action).
+**Wire-format note (client surface).** An ACL denial on the WS-connect path makes `Mount` return an error the current TS client cannot distinguish from a generic connection failure. The implementation should extend the WS response envelope with `{ "type": "error", "code": "topic_forbidden", "topic": "..." }`. The TS client's `handleWebSocketPayload` (grep `livetemplate-client.ts`: `handleWebSocketPayload`) already shape-tests for upload fields before falling back to `UpdateResponse`; the same pattern admits a `type === "error"` branch surfaced as an `lvt:error` `CustomEvent`. This is the **only** client-side change this proposal requires.
 
-**ACL is evaluated at subscribe time, not on every broadcast.** This is an explicit design decision, consistent with how WebSocket session-lifetime authorization already works (an authenticated session that has its permissions revoked continues to receive WS messages until the connection drops or the controller calls `ctx.UnsubscribeTopic`). For per-message authorization, the developer should perform the check inside the receiver controller method instead. The trade-off: cheap fan-out (one ACL call per Mount) versus revocation latency (bounded by connection lifetime). Applications needing immediate revocation must explicitly drop the connection or call `UnsubscribeTopic` from a server-side action when permissions change.
+**ACL is evaluated at subscribe time, not per broadcast** — consistent with WS session-lifetime authorization (a revoked session keeps receiving until the connection drops or the controller calls `ctx.Unsubscribe`). For per-message authorization, check inside the receiver method. Immediate revocation requires dropping the connection or `ctx.Unsubscribe` from a server-side action.
 
-**The `*http.Request` passed to the ACL is the WebSocket upgrade request, not a per-action request.** It's the request captured when the Connection was established. Request-scoped values set by HTTP middleware (e.g., a JWT parsed into `r.Context()`) are available; session state that has mutated since the upgrade — for example, a permission change in a database — is **not** reflected unless the ACL hook re-queries the source of truth on each call. For stateless checks (JWT in cookie, Bearer in header, role embedded in claims) this is fine. For database-backed permission models, the ACL hook is responsible for the lookup.
+**The `*http.Request` passed to the ACL is the WS upgrade request**, captured at connection establishment. Request-scoped values from HTTP middleware (a JWT in `r.Context()`) are available; DB-mutated permissions since the upgrade are not unless the hook re-queries the source of truth.
 
-**ACL execution on HTTP GET is a hot path.** Because `SubscribeTopic` is a no-op on HTTP GET (it doesn't materialize a subscription without a Connection) but the ACL still runs eagerly, every HTTP page render that calls `SubscribeTopic` in Mount will execute the ACL hook. For a high-traffic landing page with a database-backed ACL, this can become a hot path. Two mitigations: (a) prefer stateless ACL checks (JWT claims) when feasible; (b) for database-backed ACL, the hook can return early on `r.Method == "GET"` and defer the real check to a WS-only path, but this loses the "subscribe rejected before WS upgrade" property and should be a deliberate trade-off. The proposal recommends (a) as the default.
+**ACL on HTTP GET is a hot path.** `Subscribe` is a no-op on GET but the ACL still runs eagerly. For a high-traffic page with a DB-backed ACL: prefer stateless checks (JWT claims); or return early on `r.Method == "GET"` and defer to a WS-only path (loses "rejected before WS upgrade" — a deliberate trade-off). Recommendation: stateless by default.
 
-`BroadcastToTopic` does **not** ACL-check the sender, because:
-- Sending and receiving are independent operations.
-- The Mount-time ACL gates who can read; senders are gated by whether they're allowed to invoke the action handler at all (existing authorization).
-- If a developer wants send-side gating, it goes in the action handler, not the topic layer.
+`Publish` does **not** ACL-check the sender: send and receive are independent; the Subscribe-time ACL gates who reads; senders are gated by whether they can invoke the action at all. Send-side gating belongs in the action handler.
 
-### 4. Migration of `ctx.BroadcastAction`
+### 4. Migration — `BroadcastAction` is removed
 
-Pre-release scope note: the library has no production users outside the ecosystem repos (`lvt`, `client`) at the time of writing, so this change does not require a migration guide or major-version ceremony. The behavior change ships as the new default. Two opt-out paths exist for the cases where per-tab sovereignty is intentional:
-- Per-action: `ctx.SkipPeerSync()`.
-- Per-handler: `livetemplate.WithImplicitSyncDisabled()` at template construction.
-
-Most existing call sites — both in-repo and across sibling repos — become redundant.
+Pre-release: the library has no production users outside the ecosystem repos. `ctx.BroadcastAction` is **removed**, not deprecated — a clean break. Every call site migrates this wave to `Publish` + a reconciler/handler. The paired echo methods are not deleted but **repurposed** as reconcilers where peers must reflect a change.
 
 **In `livetemplate/` itself:**
-- `e2e/docker/app/main.go:Send` — the `BroadcastAction("RefreshMessages", nil)` is purely a re-render trigger. Delete; implicit peer sync covers it. Also delete the empty `RefreshMessages` controller method.
-- `broadcast_test.go` — same pattern, but note the echo methods are **not** uniformly `Refresh*`-named: `Increment` → `RefreshCount`, `SetMessage` → `SyncMessage`, `syncController.Add` → `Refresh`. The implementation PR must delete all three echo methods; a `Refresh*` grep alone would miss `SyncMessage`. (`Increment`/`SetMessage` also pass a data payload — `{"newCount": …}`, `{"value": …}` — that the echo method only uses to mirror state; under implicit sync the payload and the echo both disappear.)
-- `context_broadcast_test.go` (14 call sites), `lifecycle_integration_test.go` (5), `handle_test.go` (4), `navigate_test.go` (5) — these are the remaining in-repo `BroadcastAction` test files from the §6 table; this list is the authoritative in-repo migration checklist. Each asserts the legacy peer-dispatch contract and must be retired or re-pointed at `WithImplicitSyncDisabled()` alongside `TestBroadcastAction_NoAutomaticPeerDispatch` (see §"Verification plan" item 11). Cross-reference: §6 "Impacted repositories", `livetemplate` row.
+- `e2e/docker/app/main.go:Send` — `BroadcastAction("RefreshMessages", nil)` → `ctx.Publish(ctx.SelfTopic(), "Reload", nil)`; `RefreshMessages` → a `Reload` reconciler (re-read shared messages).
+- `broadcast_test.go` — echo methods are **not** uniformly `Refresh*`-named: `Increment` → `RefreshCount`, `SetMessage` → `SyncMessage`, `syncController.Add` → `Refresh`. Migrate each to a `Publish(SelfTopic(), …)` + reconciler; a `Refresh*` grep alone misses `SyncMessage`.
+- `context_broadcast_test.go` (14 sites), `lifecycle_integration_test.go` (5), `handle_test.go` (4), `navigate_test.go` (5) — authoritative in-repo migration checklist (cross-ref §6 `livetemplate` row). `TestBroadcastAction_NoAutomaticPeerDispatch` asserted "no peer dispatch without an explicit call" — still true under pub/sub (nothing fans out without `Publish`); repurpose it to assert that, not delete it.
 
-**In `examples/` (verified via `grep -rn "BroadcastAction\b" examples/`):**
-- `landing-demo/main.go` — three `BroadcastAction` calls for `Increment`, `Decrement`, `Reset`. **Delete all three** (pure re-render triggers, use case A/B).
-- `shared-notepad/main.go` — one `BroadcastAction("Refresh", nil)` after Save. **Delete** (use case A — sync across same-user tabs/devices is now implicit).
-- `todos/controller.go` — four `BroadcastAction("RefreshTodos", nil)` calls in Add/Toggle/Delete/Update. **Delete all four**; the paired `RefreshTodos` controller method becomes unused.
-- `chat/main.go` — three calls for `UserJoined`, `NewMessage`, `UserLeft`. **Migrate to topic API** (`ctx.BroadcastToTopic("chat:room:"+state.RoomID, "NewMessage", data)`, etc.). This is the canonical use-case-C migration target — the data is meaningful to peer handlers, not just a re-render signal.
+**In `examples/` (verified `grep -rn "BroadcastAction\b" examples/`):**
+- `landing-demo/main.go` (3: Increment/Decrement/Reset), `shared-notepad/main.go` (1: Save), `todos/controller.go` (4: Add/Toggle/Delete/Update) — each becomes `Subscribe(ctx.SelfTopic())` in Mount + `Publish(ctx.SelfTopic(), "Reload", nil)` + a `Reload` reconciler (use case A/B).
+- `chat/main.go` (3: UserJoined/NewMessage/UserLeft) — `Subscribe("chat/"+room)` + `Publish("chat/"+room, "NewMessage", data)` + handlers (use case C).
 
-**In `tinkerdown/`:**
-- `examples/literate-counter-include/_app/counter.go` and `examples/literate-linked-include/_app/counter.go` — three `BroadcastAction` calls each (Increment/Decrement/Reset). These rely on a tutorial-only `sharedAuth` (constant `groupID`) to simulate visitor-shared sync. Under implicit peer sync, the explicit calls can be deleted; the tutorial comments must clarify that `sharedAuth` is an artificial setup, not production-shaped.
+**In `tinkerdown/`:** `examples/literate-counter-include/_app/counter.go` and `examples/literate-linked-include/_app/counter.go` (3 each). Migrate to `Subscribe(ctx.SelfTopic())`+`Publish`; the tutorial comments must clarify `sharedAuth` (constant groupID) is an artificial teaching setup.
 
-**Empty echo methods** (the second controller method per pattern that exists solely as a re-render target — `RefreshTodos`, `RefreshMessages`, `Refresh`, `RefreshCount`, `SyncMessage`, etc.) become dead code in every migration above. The naming is **not uniform** — grep for both `Refresh*` and `Sync*` echo methods, not just `Refresh*`. Flag them for deletion in the same step.
+**Empty echo methods** that carried no reconciliation logic (pure re-render triggers) become dead code; ones that re-read shared data become the reconciler. Grep both `Refresh*` and `Sync*` — naming is not uniform.
 
-Call sites that **stay** as `BroadcastAction`:
-- Any case where the peer needs to react to a payload the sender chose, not just re-render with new state. The `chat/` migration above shows the right replacement (`BroadcastToTopic`); `BroadcastAction` itself stays in the API for cases where group-scoped (not topic-scoped) controller dispatch is still wanted.
-- Any case where the developer explicitly wants the peer's controller method to run with specific data (e.g., a chat client that does optimistic updates and needs the canonical server message on peers).
-
-Keep `ctx.BroadcastAction` in the API; document it as **"dispatch this action to peer connections in my group"** — same semantics as today, but no longer the default fan-out mechanism.
-
-### 5. Final API surface (summary)
+### 5. Final API surface
 
 **On `*Context`:**
-- `ctx.BroadcastAction(action, data)` — *(unchanged, deprioritized in docs)* — peer-group dispatch with controller invocation.
-- `ctx.SkipPeerSync()` — *(new)* — opt out of implicit fan-out for this action only.
-- `ctx.SubscribeTopic(name)` / `ctx.UnsubscribeTopic(name)` — *(new)*. `name` may end in a single trailing `*` segment for wildcard/hierarchical subscription (`"room/*"`).
-- `ctx.BroadcastToTopic(topic, action, data)` — *(new)* — cross-cutting topic dispatch; reaches exact subscribers **and** matching wildcard subscribers, deduped by connection.
+- `ctx.Subscribe(topic string) error` — wildcard trailing-`*` allowed; ACL deny-all default except self/global; no-op subscription on HTTP GET (ACL still runs).
+- `ctx.Unsubscribe(topic string)`.
+- `ctx.Publish(topic string, action string, data map[string]any) error` — invoke `action(data)` on each subscriber; calling connection excluded by default.
+- `ctx.SelfTopic() string` — `lvt:user:<UserID>` if authenticated, else `lvt:session:<GroupID>`. ACL-exempt; reserved namespace.
+
+**Package-level (usable from anywhere, incl. webhook/cron):**
+- `livetemplate.UserTopic(userID) string`, `livetemplate.SessionTopic(groupID) string`, `livetemplate.GlobalTopic() string` — pure reserved-name constructors.
 
 **On `LiveHandler`:**
-- `handler.BroadcastToUser(userID, action, data)` — *(new)* — out-of-band push to a user.
-- `handler.BroadcastToTopic(topic, action, data)` — *(new)*.
-- `handler.BroadcastGlobal(action, data)` — *(new)*.
+- `handler.Publish(topic, action, data)` — out-of-band, no `Context`.
 
 **On the template builder:**
-- `WithTopicACL(fn)` — *(new)*. ACL is called once per subscription with the literal subscribed name (the pattern `"room/*"`, not the concrete matched topics).
-- `WithOpenTopics()` — *(new)* — opt into permissive topics (no ACL). Required because the default is **deny-all**; mutually exclusive with `WithTopicACL`.
-- `WithImplicitSyncDisabled()` — *(new, opt-out at handler level)*.
+- `WithTopicACL(fn)` — called once per `Subscribe` with the literal name (pattern, not concrete).
+- `WithOpenTopics()` — opt into permissive topics; mutually exclusive with `WithTopicACL`; required because the default is deny-all.
 
-**On the State struct (tags):**
-- `lvt:"local"` — *(new)* — field is per-connection; excluded from peer render-sync and from persistence. Top-level fields only in v1. Contradictory with `lvt:"persist"` on the same field (validation error).
+**Removed (the simplification payoff):** `ctx.BroadcastAction`; `ctx.SkipPeerSync`; `WithImplicitSyncDisabled`; `handler.BroadcastToUser`; `handler.BroadcastGlobal` (now `Publish` to `UserTopic`/`GlobalTopic`); the `lvt:"local"` tag and its merge machinery; render-only dispatch mode; `GetByUserExcept`; the `RenderInvalidation` message type and the `livetemplate:render:{groupID}` channel; the userID-vs-groupID fan-out scope rule; the render-fan-out coalescing-bounds design.
 
-**Unchanged:**
-- `Session` interface and `Session.TriggerAction` — still the right tool for goroutines holding a captured Session handle.
-- `Authenticator` interface — no change.
-- All PubSub interfaces — they were already capable; this just exposes them.
+**Unchanged:** `Session` interface and `Session.TriggerAction` (still valid for goroutines holding a captured Session; orthogonal to topics — it dispatches to one session, not a topic); `Authenticator`; all PubSub interfaces.
 
 ## Impacted repositories
 
-The audit pass (post-proposal-v1) enumerated every consumer of `BroadcastAction` across the workspace. The table below replaces "the sibling-repo caveat" and feeds the release sequencing below.
-
-| Repo (`../<name>/`) | `go.mod` / `package.json` pin | `BroadcastAction` call sites | Migration type |
+| Repo (`../<name>/`) | pin | `BroadcastAction` sites | Migration |
 |---|---|---|---|
-| `livetemplate` (this repo) | — | `e2e/docker/app/main.go`, `broadcast_test.go`, `context_broadcast_test.go`, `lifecycle_integration_test.go`, `handle_test.go`, `navigate_test.go` | Core implementation; rewrite e2e Docker app; retire `TestBroadcastAction_NoAutomaticPeerDispatch` (see §"Verification plan" item 11). |
-| `lvt` | `v0.8.23-0.2026...` | **0** | Version pin bump **plus a small internal rename** (resolved decision): `WebSocketManager.Broadcast()` → `ReloadClients()` in `internal/serve/` — 3 files: `websocket.go` (method def), `server.go` (the single production caller), `websocket_test.go` (`TestWebSocketManager_Broadcast` + 2 call sites → rename to `TestWebSocketManager_ReloadClients`). Internal-only, zero user-facing API impact; `ReloadClients()` is more accurate (it only emits `{"type":"reload"}` on file change) and removes the cross-repo `Broadcast` name collision. Scaffolds (`internal/generator/templates/`, `internal/kits/system/{single,multi}/templates/`) emit CRUD only — no broadcasts, no migration. |
-| `client` (TypeScript) | `0.9.0` | N/A (browser) | Add `type === "error"` branch in `handleWebSocketPayload` (see §3 "Wire-format note"). Optional: dispatch a distinct `lvt:broadcast` `CustomEvent` for topic broadcasts so apps can hook in without sniffing `meta.action`. |
-| `examples` | `v0.9.0` | 11 sites across 4 apps — see §4 Migration for the per-file list | Delete redundant `Refresh*` calls in `landing-demo`, `shared-notepad`, `todos`. Migrate `chat` to the topic API (use case C). |
-| `tinkerdown` | `v0.8.16` (stale) | 6 sites in 2 tutorial examples | Bump pin to `v0.9.x`; delete explicit broadcasts; clarify in tutorial comments that `sharedAuth` is teaching-only, not production-shaped. |
-| `devbox-dash` | (single-user app) | 0 | Routine version bump. |
-| `docs` (site) | `v0.8.23` | 22 content files mention `BroadcastAction`; `content/recipes/patterns/_app/handlers_realtime.go` Patterns #27 (Broadcasting) and #28 (Presence) use it; **Pattern #26 (Multi-User Sync) still references the removed `Sync()` method** — pre-existing stale state from PR #406 that this proposal's docs scope cleans up. | **Heaviest impact.** See "Docs migration scope" below for the file list. |
+| `livetemplate` (this repo) | — | `e2e/docker/app/main.go`, `broadcast_test.go`, `context_broadcast_test.go`, `lifecycle_integration_test.go`, `handle_test.go`, `navigate_test.go` | Core implementation; rewrite e2e Docker app; migrate/repurpose the test files (see §4). |
+| `lvt` | `v0.8.23-0.2026...` | **0** | `go.mod` pin bump **plus an internal rename** (resolved): `WebSocketManager.Broadcast()` → `ReloadClients()` in `internal/serve/` — 3 files: `websocket.go` (def), `server.go` (the single production caller), `websocket_test.go` (`TestWebSocketManager_Broadcast` + 2 calls → `TestWebSocketManager_ReloadClients`). Internal-only, zero user-facing impact; the name is accurate (it only emits `{"type":"reload"}` on file change) and removes the cross-repo `Broadcast` collision. Scaffolds emit CRUD only — no migration. |
+| `client` (TS) | `0.9.0` | N/A | One change: a `type === "error"` branch in `handleWebSocketPayload` for `topic_forbidden` (§3 wire-format note). Otherwise the stateless diff path is unaffected. |
+| `examples` | `v0.9.0` | 11 sites / 4 apps (§4) | `landing-demo`/`shared-notepad`/`todos` → `Subscribe(SelfTopic())`+`Publish`+reconciler; `chat` → developer topic + handlers. |
+| `tinkerdown` | `v0.8.16` (stale) | 6 sites / 2 examples | Bump to `v0.9.x`; migrate to `Subscribe(SelfTopic())`+`Publish`; clarify `sharedAuth` is teaching-only. |
+| `devbox-dash` | (single-user) | 0 | Routine version bump. |
+| `docs` (site) | `v0.8.23` | 22 content files; `handlers_realtime.go` Patterns #27/#28 use it; Pattern #26 still references removed `Sync()` | **Heaviest impact.** See "Docs migration scope". |
 
-**Docs migration scope** — two distinct doc surfaces, both need rewrites:
+**Docs migration scope** — two surfaces:
 
-- **In-repo contributor docs** (under `livetemplate/docs/`): `references/controller-pattern.md`, `references/pubsub.md`, `design/ARCHITECTURE.md`, and `guides/ephemeral-components.md` — the last carries a stale lifecycle reference left by #406: its state-init hook list names `Sync` (bare, no parens) alongside `Mount`/`OnConnect`, but the framework no longer dispatches it. This must be rewritten when implicit peer sync replaces the `Sync()` model.
-- **Site docs** (under `../docs/content/`): user-facing. The full list, verified via `grep -rln "BroadcastAction" docs/content/`:
-  - **Top-of-funnel** (touched first by new users) — `index.md`, `getting-started/your-first-app.md`.
-  - **Reference** — `reference/api.md`, `reference/controller-pattern.md` §"Cross-Tab Updates with BroadcastAction", `reference/server-actions.md`, `reference/session.md`, `reference/pubsub.md`, `reference/navigate.md`, `reference/limitations.md`.
+- **In-repo contributor docs** (`livetemplate/docs/`): `references/controller-pattern.md`, `references/pubsub.md`, `design/ARCHITECTURE.md`, `guides/ephemeral-components.md` (stale bare `Sync` in its state-init list).
+- **Site docs** (`../docs/content/`, verified `grep -rln "BroadcastAction" docs/content/`):
+  - **Top-of-funnel** — `index.md`, `getting-started/your-first-app.md`.
+  - **Reference** — `reference/api.md`, `reference/controller-pattern.md`, `reference/server-actions.md`, `reference/session.md`, `reference/pubsub.md`, `reference/navigate.md`, `reference/limitations.md`.
   - **Guides** — `guides/standard-html-reactivity.md`, `guides/progressive-complexity.md`.
-  - **Recipes** — `recipes/broadcasting.md` (rewrite end-to-end), `recipes/sync-and-broadcast.md` (rewrite or retire — the `Sync()` half is stale post-#406), `recipes/counter/index.md` §"How BroadcastAction routes", `recipes/architecture-flow.md`, `recipes/progressive-enhancement/index.md`, `recipes/todos/index.md`.
-  - **Pattern scaffolds** (critical path — these get copy-pasted into user projects) — `recipes/patterns/_app/templates/realtime/{broadcasting,multi-user-sync,server-push}.tmpl` and the matching Go controllers in `recipes/patterns/_app/handlers_realtime.go` (Patterns #26, #27, #28).
-  - **Deny-all ripple (must-fix, not optional):** any scaffold or recipe that calls `SubscribeTopic` will **fail out of the box** under the new deny-all default (returns `ErrTopicForbidden`). The docs-PR author must add `livetemplate.WithOpenTopics()` to tutorial/scaffold setup (and say *why* in a one-line comment — it is itself pedagogical: "topics are deny-by-default; this is the public-demo opt-in") **or** show a real `WithTopicACL` example. Shipping a scaffold that errors on first run is the failure mode this callout exists to prevent. Applies to the Pattern scaffolds above and any new topic recipe.
-  - **Historical** — `changelog.md` only needs an entry, not a rewrite.
+  - **Recipes** — `recipes/broadcasting.md` (rewrite end-to-end as pub/sub), `recipes/sync-and-broadcast.md` (rewrite/retire — the `Sync()` half is stale post-#406), `recipes/counter/index.md`, `recipes/architecture-flow.md`, `recipes/progressive-enhancement/index.md`, `recipes/todos/index.md`.
+  - **Pattern scaffolds** (critical path — copy-pasted into user projects) — `recipes/patterns/_app/templates/realtime/{broadcasting,multi-user-sync,server-push}.tmpl` + `recipes/patterns/_app/handlers_realtime.go` (Patterns #26–#28). Rewrite to `Subscribe`/`Publish`/reconciler.
+  - **Deny-all ripple (must-fix):** any scaffold/recipe calling `Subscribe` **fails out of the box** under deny-all (`ErrTopicForbidden`). The docs-PR author must add `livetemplate.WithOpenTopics()` (with a one-line "topics are deny-by-default; this is the public-demo opt-in" comment — itself pedagogical) **or** a real `WithTopicACL` example. Self-sync recipes are exempt (`SelfTopic()` bypasses the ACL).
+  - **Historical** — `changelog.md` gets an entry, not a rewrite.
 
-**Release order (critical path).** The dependency arrows below assume the redesign ships in a single coordinated wave:
-
-1. `livetemplate` core API + new tests (this proposal becomes implementation).
-2. `client` error-envelope branch (independent; can ship in parallel with #1).
-3. **`docs` recipes + reference rewrites** — gating step, because the pattern scaffolds get copy-pasted into user projects.
-4. `lvt` `go.mod` pin bump (no template changes needed; emits no `BroadcastAction`).
-5. `examples` migration (replaces user-facing demos with the new idiom).
-6. `tinkerdown`, `devbox-dash` lag bumps.
+**Release order (single coordinated wave):** 1. `livetemplate` core + tests → 2. `client` error-envelope (parallel) → 3. **`docs`** recipes/reference/scaffolds (gating — scaffolds are copy-pasted) → 4. `lvt` pin bump + `ReloadClients()` rename → 5. `examples` migration → 6. `tinkerdown`/`devbox-dash` lag bumps.
 
 ## Critical files to modify (for the implementation that would follow)
 
-- `context.go` — add `SkipPeerSync`, `SubscribeTopic`, `UnsubscribeTopic`, `BroadcastToTopic`; reuse the existing `broadcasts []broadcastRequest` slice pattern for a new `topicBroadcasts` queue. `SubscribeTopic` validates the topic grammar (`[a-zA-Z0-9/_-]+`, optional single trailing `*`) and runs the ACL (deny-by-default unless `WithOpenTopics()`/`WithTopicACL`) before recording the subscription.
-- `state.go` — add `localTagValue = "local"` and `detectLocalFields[T]()` mirroring `detectPersistFields[T]()`; extend `validatePersistTag` (or a sibling) to flag a field tagged **both** `persist` and `local` as a contradiction, and to keep the typo-warning posture (`"Local"`, `"loca"`). `ExtractPersistFields` must **exclude** `lvt:"local"` fields (they never reach the session store). Add a `mergeSharedFields(dst, src)` reflection helper (copies every non-`lvt:"local"` top-level field src→dst) for the `mount.go` render-only peer merge. v1: top-level fields only (do **not** recurse, unlike persist).
-- `config.go` / builder — add `WithOpenTopics()` and `WithTopicACL(fn)`; constructing with both set is a hard error (panic at `New(...)` or returned build error, matching how other mutually-exclusive options are handled). Default state (neither set) = deny-all.
-- `mount.go` — at `dispatchBroadcastToGroup`, split into three siblings: `dispatchBroadcastToGroup` (existing), `dispatchPeerSyncToUser` (new, render-only, uses `GetByUserExcept` or `GetByGroupExcept` per the fan-out scope rule), `dispatchToTopic` (new). At the connection event-loop `select` (grep: `case req := <-connection.DispatchChan`), extend the handler to switch on `req.Kind` — see "discriminated dispatch" decision in §1. **The render-only peer path must implement the `lvt:"local"` merge from §1a** — render against `merge(peer.connState.state, originatorPersisted, skip=lvt:"local")`, not the originator's state pointer; reuse the `state.go` reflection helpers below.
+- `context.go` — add `Subscribe`, `Unsubscribe`, `Publish`, `SelfTopic`; reuse the existing `broadcasts []broadcastRequest` slice pattern for a `topicPublishes` queue (drained after the action like `processBroadcasts`). `Subscribe` validates the grammar (`[a-zA-Z0-9/_-]+`, optional single trailing `*`), enforces the reserved-`lvt:` anti-spoof rule, and runs the ACL (deny-by-default; self/global exempt) before recording.
+- package file (e.g. `topics.go`) — `UserTopic`/`SessionTopic`/`GlobalTopic` constructors + a shared reserved-namespace validator used by both `Subscribe` and the constructors.
+- `config.go` / builder — `WithTopicACL(fn)` and `WithOpenTopics()`; both set = hard error at `New(...)`; neither = deny-all.
+- `mount.go` — add `dispatchToTopic` next to `dispatchBroadcastToGroup` (reuse the registry-lookup + `EnqueueDispatch` shape); wire the post-action drain of `topicPublishes`; reuse the existing recursion guard (grep `BroadcastAction calls inside a dispatched action are ignored`) so a `Publish` inside a dispatched action is logged-and-dropped. **No** `dispatchPeerSyncToUser`, **no** render-only handler, **no** `RenderInvalidation`.
 - `internal/session/registry.go` —
-  - (a) **Add `Kind` field to `DispatchRequest`** (grep: `^type DispatchRequest struct`). New type `RequestKind` with values `KindAction` (existing default, backward-compatible zero value) and `KindRender` (new). All current call sites of `EnqueueDispatch` continue to work because they leave `Kind` zero-valued.
-  - (b) Add `GetByUserExcept(userID, excludeConn)` following the same pattern as `GetByGroupExcept`. **Godoc invariant: `userID == ""` is a programmer error and MUST be guarded by the caller via `ctx.UserID() != ""` — calling with empty userID would match every anonymous connection across every group and leak state between unrelated browsers.** **Decision: on empty userID, the function returns an empty slice and emits `slog.Error("GetByUserExcept called with empty userID", ...)`** — consistent with `EnqueueDispatch`'s drop-on-overflow + log pattern, and avoids hard-killing production from a guard misuse.
-  - (c) Add `byTopic map[string][]*Connection` (exact) **and** `byTopicPattern map[string][]*Connection` (trailing-`*` patterns, see §2 "Wildcard / hierarchical topics").
-  - (d) Add `SubscribeConnectionToTopic(conn, topic)` / `UnsubscribeConnectionFromTopic(conn, topic)` / `GetByTopicExcept(topic, excludeConn)`. `GetByTopicExcept(concrete)` returns `union(byTopic[concrete], { conns in byTopicPattern[p] : p matches concrete })` **deduplicated by `*Connection` identity** so a connection subscribed to both `room/42` and `room/*` receives exactly one frame. Pattern match is the tiny trailing-`*` `HasPrefix` helper; O(P) over distinct patterns.
-  - (e) Wire **both** `byTopic` and `byTopicPattern` cleanup into the existing `Unregister()` path (grep: `^func \(r \*ConnectionRegistry\) Unregister`), where `byUser` and `byGroup` cleanup already happens. **Not** `Connection.Close()` — `Unregister()` is the canonical index-cleanup site; `Close()` is the lifecycle-shutdown call that delegates index work to `Unregister()`.
-  - Reuse existing `byUser` index for `BroadcastToUser`.
-- `pubsub/types.go`, `pubsub/redis.go` — add the `RenderInvalidationMessage` type + `PublishRenderInvalidation` method + `SubscribeRenderInvalidations` handler. **Channel pattern decision: `livetemplate:render:{groupID}` as a new, dedicated channel pattern.** Rationale: existing channels encode (scope, action-vs-broadcast) in their prefix (`livetemplate:groupaction:group:{id}` vs `livetemplate:broadcast:group:{id}`); a dedicated render channel keeps the schema regular and lets receivers subscribe selectively without parsing message envelopes. Add topic-channel pattern `livetemplate:topic:{name}` for the new `BroadcastToTopic`. **Wildcard topics:** a trailing-`*` subscription issues a Redis `PSUBSCRIBE livetemplate:topic:{prefix}*` (the codebase uses no `PSUBSCRIBE` today — this is the first); track these in a new `subscribedPatterns map[string]int` parallel to the existing `subscribedChannels` ref-count map, and replay them in `reconnect()` exactly like the exact-channel set (it already replays `subscribedChannels`; add the pattern set to the same loop). Exact subscriptions keep using `SUBSCRIBE`. **Wire format for handler-level `Broadcast*` entry points:** the new entry points serialize their `(action, data)` payload using the same envelope shape as the existing `GroupActionMessage` (JSON: `{"type": "...", "action": "...", "data": {...}, "timestamp": ..., "instanceID": ...}`). `handler.BroadcastGlobal` adapts to `Broadcaster.PublishGlobal([]byte)` by marshalling the envelope to bytes before calling the existing primitive — no change to the byte-oriented `PublishGlobal` signature; the action-oriented entry point lives at the handler layer.
+  - (a) `byTopic map[string][]*Connection` (exact) **and** `byTopicPattern map[string][]*Connection` (trailing-`*`).
+  - (b) `SubscribeConnectionToTopic` / `UnsubscribeConnectionFromTopic` / `GetByTopicExcept`. `GetByTopicExcept(concrete, excludeConn)` returns `union(byTopic[concrete], { conns in byTopicPattern[p] : p matches concrete })` **deduplicated by `*Connection` identity**; pattern match = the trailing-`*` `HasPrefix` helper, O(P).
+  - (c) Wire **both** topic maps into the existing `Unregister()` cleanup path (grep `^func \(r \*ConnectionRegistry\) Unregister`), where `byUser`/`byGroup` cleanup already happens. **Not** `Connection.Close()` (it delegates to `Unregister()`).
+  - (d) Optionally add a `Kind` field to `DispatchRequest` as a forward-compatible placeholder (single value `KindAction` in v1; zero-valued, backward-compatible). **Drop `GetByUserExcept` entirely** (not needed; the empty-userID footgun never exists).
+- `pubsub/types.go`, `pubsub/redis.go` — one new channel scheme `livetemplate:topic:{name}` for `Publish` (exact `SUBSCRIBE`) and `PSUBSCRIBE livetemplate:topic:{prefix}*` for wildcard subscriptions; add `subscribedPatterns map[string]int` parallel to `subscribedChannels`, replayed in `reconnect()`. Envelope reuses the `GroupActionMessage` JSON shape (`{"type","action","data","timestamp","instanceID"}`). **No** `livetemplate:render:{groupID}` channel.
 - `auth.go` — no change.
-- `e2e/docker/app/main.go` — migration target; delete `Send`'s `BroadcastAction("RefreshMessages", nil)` and the empty `RefreshMessages` controller method (the in-repo concrete example of the broadcast-as-re-render-trigger pattern this proposal eliminates).
-- `docs/references/pubsub.md`, `docs/references/controller-pattern.md`, `docs/design/ARCHITECTURE.md` — document the three-concern model (state scope, sync scope, topic fan-out). **In-repo contributor docs only**; the user-facing site docs at `../docs/content/` are scoped in §6 "Impacted repositories".
+- `e2e/docker/app/main.go` — migration target (§4).
+- In-repo `docs/references/{controller-pattern,pubsub}.md`, `docs/design/ARCHITECTURE.md` — document the two-concern pub/sub model. Site docs scoped in §6.
 
 ## Existing utilities to reuse
 
-- `ConnectionRegistry.GetByUser` and `GetByGroupExcept` (grep `internal/session/registry.go`: `^func \(r \*ConnectionRegistry\) GetByUser` / `^func \(r \*ConnectionRegistry\) GetByGroupExcept`) — the building blocks for use case A's fan-out. `GetByUserExcept` is new but trivially derivable from these two; see Critical Files for the `userID == ""` invariant.
-- `Connection.EnqueueDispatch` (grep `internal/session/registry.go`: `^func \(c \*Connection\) EnqueueDispatch`) — the non-blocking, drop-on-overflow mailbox primitive. The render path reuses this with a discriminated `DispatchRequest{Kind: KindRender}` rather than adding a parallel `EnqueueRender`.
-- `pubsub.RedisBroadcaster.PublishGroupAction` / `SubscribeGroupActions` (grep `pubsub/redis.go`: `^func \(b \*RedisBroadcaster\) (PublishGroupAction|SubscribeGroupActions)`) — template for the new `PublishRenderInvalidation` and topic equivalents.
-- `pubsub.DynamicSubscriber.SubscribeToGroup` (grep `pubsub/types.go`: `^type DynamicSubscriber interface`) — pattern for dynamic topic subscription on connect.
-- `processBroadcasts` post-action hook site (grep `mount.go`: `^func \(h \*liveHandler\) processBroadcasts`) — the right place to add the implicit render-fan-out call.
-- The existing "broadcasts inside a dispatched action are dropped" guard in `mount.go` — grep: `BroadcastAction calls inside a dispatched action are ignored`. Replicate verbatim for render-fan-out and topic broadcasts, with the same recursion-storm rationale (see also "implicit sync suppressed inside dispatched actions" in §1).
+- `handleDispatchedAction` (grep `^func \(h \*liveHandler\) handleDispatchedAction` in `mount.go`) — runs the action against the receiver's own state; `Publish` reuses it unchanged. This is what makes the reconciler/per-connection-state guarantee free.
+- `Connection.EnqueueDispatch` (grep `^func \(c \*Connection\) EnqueueDispatch`) — non-blocking, drop-on-overflow mailbox; `Publish`'s local fan-out enqueues one per subscriber.
+- `dispatchBroadcastToGroup` (grep in `mount.go`) — structural template for `dispatchToTopic` (registry lookup → `EnqueueDispatch` loop → cross-instance publish).
+- `pubsub.RedisBroadcaster.PublishGroupAction` / `SubscribeGroupActions` (grep `pubsub/redis.go`) — template for the single topic channel; `subscribedChannels` + `reconnect()` replay — template for `subscribedPatterns`.
+- The existing recursion guard (grep `BroadcastAction calls inside a dispatched action are ignored`) — reused verbatim for `Publish`.
+- `processBroadcasts` post-action hook site (grep `^func \(h \*liveHandler\) processBroadcasts`) — the drain point for the new `topicPublishes` queue, preserving persist-before-publish ordering.
 
 ## Verification plan (when the implementation lands)
 
-End-to-end tests (mirroring `broadcast_test.go` structure):
-1. **Implicit sync, two devices, one user.** Custom Authenticator returns `groupID = "device-" + userID + "-" + deviceID` (per-device groups). User "alice" connects two WebSockets with different `deviceID`. Tab 1 invokes a mutation. Assert Tab 2 receives a render diff *without* either tab calling `BroadcastAction`. Confirms use case A works regardless of groupID strategy.
-2. **Implicit sync, anonymous.** Two tabs in one browser via `AnonymousAuthenticator`. Tab 1 mutates. Tab 2 receives diff. Confirms use case B.
-3. **Opt-out per action.** Action calls `ctx.SkipPeerSync()`. Peer tab does **not** receive a diff. Confirms K.
-4. **Topic broadcast, public.** Two anonymous tabs both `SubscribeTopic("public/feed")` in Mount. One invokes `BroadcastToTopic`. The other receives the action dispatch. Confirms use case E.
-5. **Topic ACL, denied.** `WithTopicACL` returns `(false, nil)` for `"private/admin"`. Anonymous tab's `SubscribeTopic("private/admin")` returns `ErrTopicForbidden`. Confirms use case D's auth gate.
-6. **Out-of-band `handler.BroadcastToUser`.** Goroutine without a Context calls `handler.BroadcastToUser("alice", "DM", data)`. Alice's connection's controller `DM` method runs and a diff is sent. Confirms use case F without holding a Session.
-7. **Cross-instance.** Two `liveHandler` instances behind a shared `RedisBroadcaster`. Tab on instance A mutates; tab on instance B receives the render diff. Then a `BroadcastToTopic` from instance A reaches a subscriber on instance B. Confirms PubSub plumbing for both the new paths.
-8. **Sender exclusion preserved.** Tab 1 mutates; Tab 1 must not receive a *second* render diff after its own action response. Confirms I.
-9. **Recursion guard.** Action handler invoked via topic dispatch calls `ctx.BroadcastToTopic` again — verify it's logged-and-dropped, matching the existing behavior for `BroadcastAction` (grep `mount.go`: `BroadcastAction calls inside a dispatched action are ignored`).
-10. **Suppress implicit sync inside dispatched actions.** A topic broadcast handler that mutates state on a peer must **not** trigger another implicit-sync round to the peer's peers. Set up three connections in the same group, subscribe two to a topic, broadcast from outside, verify each subscribed connection receives exactly one update (the topic dispatch), not two (one from the topic, one from the cascaded implicit sync).
-11. **Invert `TestBroadcastAction_NoAutomaticPeerDispatch`.** The existing test (grep `broadcast_test.go`: `TestBroadcastAction_NoAutomaticPeerDispatch`) explicitly asserts that peers do *not* receive updates without an explicit `BroadcastAction` call. Under the new default this is a regression test for *the old behavior* and must either be deleted or repurposed under `WithImplicitSyncDisabled()` to assert that the opt-out actually suppresses fan-out.
-12. **`SubscribeTopic` on HTTP GET.** Issue a plain HTTP GET to a Mount that calls `SubscribeTopic`. Assert: no error, the response renders normally, and no `byTopic` entry is created (because there's no Connection). Then upgrade to WS for the same group and assert the subscription materializes on the WS connection.
-13. **`lvt`-generated scaffolds compile against the new API.** Run `lvt new` (or the equivalent generator entry in `../lvt/internal/generator/`) against a temp dir and confirm `go build ./...` succeeds on the generated project. Guards against accidentally breaking the scaffold's compile surface when bumping `lvt`'s `go.mod` pin to the redesigned `livetemplate`. This is a sanity check, not a behavior assertion — `lvt`'s scaffolds emit zero `BroadcastAction` calls, so no semantic migration is required there.
-14. **Client error envelope.** With `WithTopicACL` denying `"private/admin"` and a TS client calling `SubscribeTopic("private/admin")` in Mount: assert the client surfaces the denial as an `lvt:error` `CustomEvent` with `detail = { code: "topic_forbidden", topic: "private/admin" }` and that the WebSocket connection stays open. Covers the wire-format note in §3.
-15. **Docs-e2e under stale `Sync` references.** `docs/e2e/patterns/patterns_test.go` (in the `../docs/` repo) exercises Patterns #26–#31. Pattern #26's controller calls `Sync()`, which is dead code post-PR #406; today the test passes only because the framework no longer dispatches it. Verify which pattern test cases continue to pass under the new implicit-sync behavior, and identify which ones the docs rewrite must update before the implementation lands. **Acceptance:** `grep -rn '\bSync\b' docs/ --exclude-dir=proposals` (over both `livetemplate/docs/` and `../docs/content/`) returns no stale lifecycle references (bare `Sync`, not just `Sync()`) after the docs pass. The `--exclude-dir=proposals` is required — this proposal itself records the `Sync()` removal as historical context and would otherwise be a permanent false positive; it still covers `references/`, `guides/`, `design/`, and the entire site-docs tree.
+E2E tests (mirroring `broadcast_test.go` structure):
 
-16. **Deny-all default.** No `WithTopicACL`, no `WithOpenTopics()`: `ctx.SubscribeTopic("anything")` returns `ErrTopicForbidden`. With `WithOpenTopics()`: succeeds. With `WithTopicACL(fn)`: the hook decides. Constructing a template with **both** `WithOpenTopics()` and `WithTopicACL` is a hard error.
-17. **`lvt:"local"` not synced, shared field is.** Two connections, same user (per-device groupIDs, as in test 1). Conn-A mutates a shared field **and** an `lvt:"local"` field. Assert conn-B's render reflects the shared change but conn-B's own `lvt:"local"` field is unchanged (the merge preserved it). Cross-instance variant: same assertion with conn-B on a second instance reading shared state from the session store.
-18. **`lvt:"local"` lifecycle + conflict.** An `lvt:"local"` field is absent from the session-store blob (`ExtractPersistFields` excludes it) and zero-valued after a reconnect/restore. A struct with one field tagged both `lvt:"persist"` and `lvt:"local"` fails at construction (validation error).
-19. **Wildcard fan-out + dedupe.** Conn-A `SubscribeTopic("room/*")`; `BroadcastToTopic("room/42", …)` reaches conn-A. A connection subscribed to **both** `room/42` and `room/*` receives **exactly one** frame. A first-ever `BroadcastToTopic("room/99", …)` reaches the `room/*` subscriber with the ACL **not** re-invoked. Cross-instance: a `room/*` subscriber on instance B receives instance A's `room/42` broadcast via Redis `PSUBSCRIBE`.
-20. **ACL receives the pattern.** `WithTopicACL` records its `topic` argument; on `SubscribeTopic("room/*")` assert the hook saw the literal `"room/*"`, not `"room/<something>"`.
+1. **Self-sync, two devices, one user.** Custom Authenticator → per-device groupIDs. Alice connects two WS (different deviceID), both `Subscribe(ctx.SelfTopic())` in Mount. Tab 1 mutates + `Publish(SelfTopic(), "Reload", nil)`. Assert Tab 2's `Reload` runs and it receives a diff. Confirms A regardless of groupID strategy.
+2. **Self-sync, anonymous.** Two tabs via `AnonymousAuthenticator` (`SelfTopic()` → `lvt:session:<gid>`). Confirms B.
+3. **Per-connection field preserved (K).** Same as test 1; Tab 1 also mutates a per-connection field that the `Reload` reconciler does **not** write. Assert Tab 2's shared field updates while Tab 2's own per-connection field is unchanged. No tag involved — it works because `Reload` is selective.
+4. **Cross-user topic, public.** Two anon tabs `Subscribe("public/feed")` (under `WithOpenTopics()`); one `Publish`es; the other's handler runs. Confirms E.
+5. **Topic ACL, denied.** `WithTopicACL` returns `(false, nil)` for `"private/admin"`; `Subscribe("private/admin")` → `ErrTopicForbidden`. Confirms D.
+6. **Self/global ACL-exempt under deny-all.** No `WithTopicACL`, no `WithOpenTopics()`: `Subscribe(ctx.SelfTopic())` and `Subscribe(livetemplate.GlobalTopic())` succeed; `Subscribe("room/1")` → `ErrTopicForbidden`.
+7. **Reserved-namespace anti-spoof.** Connection for user `bob` calling `Subscribe(livetemplate.UserTopic("alice"))` (i.e. `lvt:user:alice`) is rejected. Any non-self `lvt:`-prefixed `Subscribe` is rejected.
+8. **Out-of-band.** Goroutine without a Context: `handler.Publish(livetemplate.UserTopic("alice"), "DM", data)` runs alice's `DM`; `handler.Publish(livetemplate.GlobalTopic(), "Maint", data)` reaches global subscribers. Confirms F/H.
+9. **Cross-instance.** Two `liveHandler`s behind a shared `RedisBroadcaster`. `Publish` on instance A reaches a subscriber on instance B over the single `livetemplate:topic:{name}` channel.
+10. **Sender exclusion.** The connection that calls `Publish` does not receive its own dispatch (use case I).
+11. **Recursion guard.** A handler invoked via `Publish` calls `Publish` again → logged-and-dropped (reuses the existing `BroadcastAction`-era guard).
+12. **`Subscribe` on HTTP GET.** Plain GET to a Mount calling `Subscribe`: no error, normal render, no `byTopic` entry; ACL still ran. Upgrade to WS for the same identity → subscription materializes.
+13. **`lvt` scaffolds compile.** `lvt new` → `go build ./...` succeeds against the redesigned `livetemplate` (sanity for the pin bump; scaffolds emit no broadcasts).
+14. **Client error envelope.** `WithTopicACL` denies `"private/admin"`; TS client `Subscribe("private/admin")` → `lvt:error` `CustomEvent` `{ code:"topic_forbidden", topic:"private/admin" }`; WS stays open.
+15. **Docs-e2e stale `Sync`.** `docs/e2e/patterns/patterns_test.go` exercises Patterns #26–#31; #26 calls dead `Sync()`. Identify which cases the docs rewrite must update. **Acceptance:** `grep -rn '\bSync\b' docs/ --exclude-dir=proposals` (both `livetemplate/docs/` and `../docs/content/`) returns no stale lifecycle references after the docs pass.
+16. **Deny-all default.** No ACL config: `Subscribe("anything")` → `ErrTopicForbidden`. `WithOpenTopics()` → succeeds. `WithTopicACL` → hook decides. Both set → hard error at `New(...)`.
+17. **Wildcard fan-out + dedupe.** `Subscribe("room/*")`; `Publish("room/42", …)` reaches it. A connection subscribed to **both** `room/42` and `room/*` gets **exactly one** frame. First-ever `Publish("room/99", …)` reaches the `room/*` subscriber with the ACL **not** re-invoked. Cross-instance: a `room/*` subscriber on instance B receives instance A's `room/42` via `PSUBSCRIBE`.
+18. **ACL receives the pattern.** On `Subscribe("room/*")` the hook's `topic` argument is the literal `"room/*"`.
 
-Run `go test -v -race ./...` and the existing broadcast suite (`go test -run TestWSAction_BroadcastAction -v`) to confirm no regressions in the legacy `BroadcastAction` path.
+Run `go test -v -race ./...`.
 
 ## Design constraints (must be satisfied by v1)
 
-- **Render fan-out coalescing — hybrid bounds.** A user with 10 tabs typing in a high-frequency input could otherwise produce N × M renders per second under implicit sync. v1 must coalesce render requests per connection using **two** bounds, not just a debounce:
-  - `IdleDelay` (default 10ms): time since the *last* enqueued invalidation. Resets on every enqueue. A pure-debounce design uses only this, and under sustained high-frequency mutations the timer never fires — the peer never gets an update. Not acceptable.
-  - `MaxDelay` (default 50ms): time since the *first* pending invalidation. Hard ceiling — fires regardless of the idle timer. Bounds the worst-case update latency.
-  - The coalescer fires when *either* bound expires. State source: the most recent state version; intermediate invalidations are dropped. Implement as two `*time.Timer` fields on `Connection` (`idleTimer`, `maxTimer`), reset/set on each `EnqueueDispatch` with `Kind == KindRender`. Both timers are cancelled when the dispatch fires. Default values are placeholders pending the benchmarks below.
-- **Topic GC on disconnect.** Topics with no subscribers leak in `byTopic` if not cleaned up. `Connection.Close()` (grep: `^func \(c \*Connection\) Close`) currently drops `byUser` and `byGroup` entries — the new `byTopic` cleanup must be wired into the *same* code path, not a separate goroutine, to avoid the "no unsubscribe" trade-off described in `docs/references/pubsub.md` ("No Unsubscribe" section).
-- **Cross-instance write ordering.** Persisted state writes must commit before the corresponding `RenderInvalidation` is published. See the constraint note in §1.
+- **Topic GC on disconnect.** Topics with no subscribers must not leak in `byTopic`/`byTopicPattern`. Cleanup wires into the existing `Unregister()` index-cleanup path (where `byUser`/`byGroup` already clean up) — not a separate goroutine.
+- **Cross-instance ordering.** When a reconciler re-reads the group-keyed session store, the originator's `persistState` write must commit before the dispatch is published cross-instance — the existing `processBroadcasts`-after-`persistState` ordering provides this; document it as a hard requirement.
+- **No implicit fan-out.** `Publish` is always an explicit developer call. There is no high-frequency implicit render path, so the earlier revision's render-fan-out coalescer is not needed; if a single developer `Publish`-per-keystroke pattern emerges, debouncing is the developer's call at the call site (same as any action).
 
 ## Benchmarks required before implementation finalizes
 
-Performance claims in this proposal (the "implicit sync is cheaper than BroadcastAction", the coalescing defaults of 10ms idle / 50ms max) are reasoned, not measured. The implementation PR must include the following benchmark suite in `internal/session/registry_bench_test.go` or a sibling file, and the proposal's defaults must be revisited against the data:
+1. **Topic fan-out latency**, varying subscriber count N ∈ {1,5,10,50,100} — wall-clock from `Publish` to "all subscribers enqueued".
+2. **Wildcard pattern-scan cost**, varying distinct patterns P ∈ {1,10,100} against a concrete publish — confirms the O(P) linear scan is acceptable; informs whether the trie deferral ever matters.
+3. **Cross-instance `Publish` round-trip**, single Redis, 1/5/10 instances — compares against the existing `GroupActionMessage` path so the single topic channel adds no measurable overhead.
 
-1. **Per-action render fan-out latency**, varying `N = peer connection count` ∈ {1, 5, 10, 50, 100}. Measures the wall-clock cost of the post-action hook from "action returns" to "all peers have enqueued a render dispatch". Establishes a baseline for the coalescer to improve on.
-2. **Implicit sync vs. `BroadcastAction` cost**, same peer counts. Confirms the proposal's claim that the render-only path is meaningfully cheaper than running a controller method on each peer.
-3. **Coalescer hit-rate and update latency** under three workloads: (a) 1 action/sec (no coalescing benefit), (b) 10 actions/sec (some), (c) 100 actions/sec (peer should see only ~20 updates/sec at 50ms `MaxDelay`). The `IdleDelay` and `MaxDelay` defaults must be tuned against (b) to balance perceived responsiveness against CPU cost.
-4. **Cross-instance `RenderInvalidation` round-trip**, single Redis instance, 1/5/10 instances subscribed. Compares against the existing `GroupActionMessage` path so we know whether the render-invalidation path adds measurable overhead.
-5. **`GetByUserExcept` vs. `GetByGroupExcept` lookup cost**, varying connections-per-user ∈ {1, 5, 50}. Both are O(N) over a slice, but `byUser` may have longer slices than `byGroup` for high-fan-out users.
-
-Implementation PR must report these numbers in the PR description and adjust this proposal's default values if the measurements warrant. Acceptance criteria: at 100 connections/user under workload (b), the post-action hook adds < 1ms of latency over today's no-fan-out baseline.
+Report numbers in the PR description.
 
 ## Resolved decisions
 
-All four formerly-open questions were decided by the maintainer (2026-05-15):
+Decided by the maintainer (2026-05-15):
 
-- **Default topic ACL → `deny all` + `WithOpenTopics()`.** Topics are identity-agnostic and cross-user; the ACL is their *only* boundary (a group broadcast is Authenticator-bounded, a topic is not). Deny-by-default is secure-by-default; the opt-in is one self-documenting line and prevents the copy-pasted pattern scaffolds from teaching an insecure idiom. Scoped to topics only — implicit peer sync is unaffected. (§3)
-- **Per-connection state → in v1 via `lvt:"local"`.** Use case K is solved, not deferred: a struct tag mirroring `lvt:"persist"`; the render-only peer path merges shared-from-originator with local-from-self. Top-level fields only in v1. (§1a, §5)
-- **Wildcard / hierarchical topics → in v1, trailing-`*` only.** `SubscribeTopic("room/*")` with `/` as the canonical separator, a tiny `HasPrefix` matcher, a deduped exact∪pattern fan-out, ACL receiving the literal pattern, and Redis `PSUBSCRIBE` for cross-instance. (§2)
-- **`lvt` dev-server `Broadcast()` → renamed `ReloadClients()`.** Internal-only, 3 files in `lvt/internal/serve/`; better name on its own merits and removes the cross-repo collision. (§6)
+- **Single primitive — pub/sub topics.** Collapse the two-target (implicit sync + topics) design to one topic primitive; per-identity targeting is a derived topic string. Phoenix-faithful (verified: `Phoenix.PubSub` has no per-user primitive).
+- **Self-sync = action-mode + reconciler.** No render-only self-sync, no `lvt:"local"`, no state-merge. The reconciler is the Phoenix `handle_info` analog; per-connection state is safe by construction.
+- **Render-only mode dropped entirely.** One method, one mode (`Publish` always invokes a handler). Eliminates the silent-no-op footgun.
+- **`ctx.BroadcastAction` removed entirely** (pre-release; clean break; all call sites migrate this wave).
+- **Explicit `Subscribe(ctx.SelfTopic())` in Mount** — no framework auto-subscribe (Phoenix-pure; no hidden lifecycle).
+- **Publish/Subscribe naming** — the redundant `Topic` suffix dropped (topic is the only target).
+- **Default topic ACL → `deny all` + `WithOpenTopics()`.** Self/global topics ACL-exempt; reserved `lvt:` namespace + anti-spoof.
+- **Wildcard / hierarchical topics in v1** — single trailing `*`, `/` separator, `HasPrefix` matcher, deduped exact∪pattern fan-out, ACL receives the pattern, Redis `PSUBSCRIBE` cross-instance.
+- **`lvt` dev-server `Broadcast()` → `ReloadClients()`** — internal-only, 3 files.
 
 ## Deferred (post-v1)
 
-Recorded so this proposal does not claim zero remaining ambiguity:
-
-- **Recursive `lvt:"local"`** into nested structs. v1 honors the tag on top-level State fields only; `lvt:"persist"` recurses, so the divergence is intentional but worth revisiting if real use cases need nested per-connection fields (deep-merge semantics must be settled first).
-- **Mid-pattern / multi-segment wildcards** (`room/*/log`, `*/alice`). v1 is a single trailing `*` only. Anything richer needs a real matcher (glob or trie) and a clear precedence rule when multiple patterns match.
-- **Trie/radix pattern index** for high-`P` fan-out. v1's O(P) linear pattern scan is fine for the expected pattern counts; a prefix tree is the optimization if a deployment ever has thousands of distinct live patterns.
+- **Mid-pattern / multi-segment wildcards** (`room/*/log`, `*/alice`). v1 is a single trailing `*` only; richer matching needs a real matcher and a multi-match precedence rule.
+- **Trie/radix pattern index** for high-`P` fan-out. v1's O(P) linear scan is fine for expected pattern counts; revisit only if a deployment has thousands of distinct live patterns.
+- **A `Publish` debounce/coalesce helper.** Not needed in v1 (fan-out is explicit); a convenience wrapper could be added if a real high-frequency pattern emerges.
