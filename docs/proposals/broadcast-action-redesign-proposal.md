@@ -12,7 +12,9 @@ LiveTemplate today exposes a single broadcast primitive — `ctx.BroadcastAction
 
 The intended outcome is a redesign where (a) state changes propagate automatically across the same user's devices with zero developer effort, (b) topic-scoped broadcasts become a first-class concept with authentication gating, and (c) the existing escape hatches remain for the rare cases where neither default fits.
 
-**Sibling-repo caveat (hard gate before implementation):** the research pass for this proposal did not have `../lvt` or `../client` reachable. External usage patterns from those repos may surface additional cases. **The implementation PR must not open until** `lvt`'s e2e app and any `BroadcastAction` call sites in `client` have been audited against this design — specifically, the proposal recommends deleting redundant `BroadcastAction` calls (see §4 Migration), and `lvt`'s e2e app uses exactly that pattern. Confirm those deletions are intended, and surface any usage shapes the use-case matrix (A–K) doesn't cover before code lands.
+**Sibling-repo audit (complete).** The post-proposal audit pass found: `lvt` has **zero** `BroadcastAction` call sites in source or templates — its scaffolds (`internal/generator/templates/`) emit CRUD action methods with no fan-out, so impact is a `go.mod` pin bump only. The TypeScript `client` already handles `UpdateResponse` arriving without a paired outgoing action (its diff path is stateless), so the implicit-render-sync flow needs no changes there; the only client work is a small error-envelope guard for `ErrTopicForbidden` (see §3, "Wire-format note"). The cross-repo migration scope — `examples/` (11 call sites across 4 apps), `tinkerdown/` (6), the docs site (22 content files plus three pattern scaffolds), and the in-repo `e2e/docker/app/main.go` — is enumerated in §6 "Impacted repositories" below.
+
+**Related prior change:** the reserved `Sync()` controller method, which the framework auto-dispatched to peers, was removed two days before this proposal in [PR #406](https://github.com/livetemplate/livetemplate/pull/406). That removal motivated the current state where every mutation needs an explicit `BroadcastAction("RefreshX", nil)` pair — the boilerplate this proposal targets. See "Relationship to the removed `Sync()` method" inside §"Proposed design" for why implicit peer sync is not a return to `Sync()`.
 
 ## At a glance
 
@@ -103,6 +105,14 @@ References use grep anchors (per CLAUDE.md guidance) so they don't drift as line
 
 `BroadcastAction` today entangles (1) and (2). Splitting them lets the default cover use cases A/B with no API surface, and lets topics (3) cover C/D/E without abusing the Authenticator.
 
+### Relationship to the removed `Sync()` method
+
+Before May 2026, livetemplate had a reserved `Sync()` controller method that the framework auto-dispatched to peers after every action. It was removed in [PR #406](https://github.com/livetemplate/livetemplate/pull/406) ("refactor: remove reserved Sync action") for two reasons: (a) magic method names with no compile-time signal, and (b) the dispatched method still re-ran a controller method on each peer — same idempotency hazards that motivate this proposal's stance on `BroadcastAction`. The replacement after #406 was explicit `BroadcastAction("RefreshX", nil)` calls at every mutation site — exactly the boilerplate this proposal targets.
+
+This proposal restores the **capability** `Sync()` offered (automatic peer convergence after a mutation) without the **mechanism** that made it brittle. Implicit peer sync does not invoke a controller method on the peer; it runs the render phase only (`Parse → Build → Diff → Send`) against the peer's already-persisted state. There is no peer-side controller invocation, so no idempotency hazard. This is also why opt-out is `ctx.SkipPeerSync()` (a flag) rather than "omit a `Sync` method" (presence-based magic): the rendering is the framework's responsibility, not the developer's.
+
+The docs site still carries stale `Sync()` references from before #406 (notably `docs/content/recipes/sync-and-broadcast.md` and the Pattern #26 controller in `docs/content/recipes/patterns/_app/handlers_realtime.go`). The implementation PR for this proposal must clean those up as part of its docs-update scope — see §6.
+
 ### 1. Implicit peer sync (default behavior)
 
 After any successful action — HTTP POST, WebSocket action, or server-initiated dispatch — the framework re-renders every peer connection that shares state with the originator and sends them a diff. **No controller method invocation on the peer; no `ctx.BroadcastAction` call at the mutation site.**
@@ -190,7 +200,9 @@ template := livetemplate.New("app",
     }))
 ```
 
-`ctx.SubscribeTopic(name)` calls the ACL; on `(false, _)` it returns `ErrTopicForbidden` and the subscription is rejected. Default (no ACL configured) is `allow all` — same posture as today's group broadcasts.
+`ctx.SubscribeTopic(name)` calls the ACL; on `(false, _)` it returns `ErrTopicForbidden` and the subscription is rejected. Default (no ACL configured) is `allow all` — same posture as today's group broadcasts. (Whether `allow all` is the right default given the surface-area expansion is an open question — see §"Open questions".)
+
+**Wire-format note (client surface).** When a denial happens on the WS-connect path (Mount calling `SubscribeTopic` during a fresh upgrade), the controller's `Mount` returns an error that today's TS client cannot distinguish from a generic connection failure. The implementation should extend the WS response envelope with an optional discriminator so the client can surface the denial without dropping the connection. Recommended shape: `{ "type": "error", "code": "topic_forbidden", "topic": "..." }`. The TS client's `handleWebSocketPayload` (grep `livetemplate-client.ts`: `handleWebSocketPayload`) currently shape-tests for upload-specific fields before falling back to `UpdateResponse`; that same pattern admits a `type === "error"` branch. Browser code observes the denial via an `lvt:error` `CustomEvent` with the error object as `detail`. This is the **only** client-side change this proposal requires; the diff-handling path is unaffected by implicit peer sync (the client already accepts `UpdateResponse` frames that arrive without a paired outgoing action).
 
 **ACL is evaluated at subscribe time, not on every broadcast.** This is an explicit design decision, consistent with how WebSocket session-lifetime authorization already works (an authenticated session that has its permissions revoked continues to receive WS messages until the connection drops or the controller calls `ctx.UnsubscribeTopic`). For per-message authorization, the developer should perform the check inside the receiver controller method instead. The trade-off: cheap fan-out (one ACL call per Mount) versus revocation latency (bounded by connection lifetime). Applications needing immediate revocation must explicitly drop the connection or call `UnsubscribeTopic` from a server-side action when permissions change.
 
@@ -209,12 +221,25 @@ Pre-release scope note: the library has no production users outside the ecosyste
 - Per-action: `ctx.SkipPeerSync()`.
 - Per-handler: `livetemplate.WithImplicitSyncDisabled()` at template construction.
 
-Most existing call sites become redundant:
+Most existing call sites — both in-repo and across sibling repos — become redundant.
+
+**In `livetemplate/` itself:**
 - `e2e/docker/app/main.go:Send` — the `BroadcastAction("RefreshMessages", nil)` is purely a re-render trigger. Delete; implicit peer sync covers it. Also delete the empty `RefreshMessages` controller method.
 - `broadcast_test.go:Increment`, `SetMessage`, `Add` — same pattern. The `Refresh*` methods become unused.
 
+**In `examples/` (verified via `grep -rn "BroadcastAction\b" examples/`):**
+- `landing-demo/main.go` — three `BroadcastAction` calls for `Increment`, `Decrement`, `Reset`. **Delete all three** (pure re-render triggers, use case A/B).
+- `shared-notepad/main.go` — one `BroadcastAction("Refresh", nil)` after Save. **Delete** (use case A — sync across same-user tabs/devices is now implicit).
+- `todos/controller.go` — four `BroadcastAction("RefreshTodos", nil)` calls in Add/Toggle/Delete/Update. **Delete all four**; the paired `RefreshTodos` controller method becomes unused.
+- `chat/main.go` — three calls for `UserJoined`, `NewMessage`, `UserLeft`. **Migrate to topic API** (`ctx.BroadcastToTopic("chat:room:"+state.RoomID, "NewMessage", data)`, etc.). This is the canonical use-case-C migration target — the data is meaningful to peer handlers, not just a re-render signal.
+
+**In `tinkerdown/`:**
+- `examples/literate-counter-include/_app/counter.go` and `examples/literate-linked-include/_app/counter.go` — three `BroadcastAction` calls each (Increment/Decrement/Reset). These rely on a tutorial-only `sharedAuth` (constant `groupID`) to simulate visitor-shared sync. Under implicit peer sync, the explicit calls can be deleted; the tutorial comments must clarify that `sharedAuth` is an artificial setup, not production-shaped.
+
+**Empty `Refresh*` paired methods** (the second controller method per pattern that exists solely as a re-render target — `RefreshTodos`, `RefreshMessages`, `Refresh`, etc.) become dead code in every migration above. Flag them for deletion in the same step.
+
 Call sites that **stay** as `BroadcastAction`:
-- Any case where the peer needs to react to a payload the sender chose, not just re-render with new state. (None in the current repo, but conceptually valid.)
+- Any case where the peer needs to react to a payload the sender chose, not just re-render with new state. The `chat/` migration above shows the right replacement (`BroadcastToTopic`); `BroadcastAction` itself stays in the API for cases where group-scoped (not topic-scoped) controller dispatch is still wanted.
 - Any case where the developer explicitly wants the peer's controller method to run with specific data (e.g., a chat client that does optimistic updates and needs the canonical server message on peers).
 
 Keep `ctx.BroadcastAction` in the API; document it as **"dispatch this action to peer connections in my group"** — same semantics as today, but no longer the default fan-out mechanism.
@@ -241,6 +266,40 @@ Keep `ctx.BroadcastAction` in the API; document it as **"dispatch this action to
 - `Authenticator` interface — no change.
 - All PubSub interfaces — they were already capable; this just exposes them.
 
+## Impacted repositories
+
+The audit pass (post-proposal-v1) enumerated every consumer of `BroadcastAction` across the workspace. The table below replaces "the sibling-repo caveat" and feeds the release sequencing below.
+
+| Repo (`../<name>/`) | `go.mod` / `package.json` pin | `BroadcastAction` call sites | Migration type |
+|---|---|---|---|
+| `livetemplate` (this repo) | — | `e2e/docker/app/main.go`, `broadcast_test.go`, `context_broadcast_test.go`, `lifecycle_integration_test.go`, `handle_test.go`, `navigate_test.go` | Core implementation; rewrite e2e Docker app; retire `TestBroadcastAction_NoAutomaticPeerDispatch` (see §"Verification plan" item 11). |
+| `lvt` | `v0.8.23-0.2026...` | **0** | Version pin bump after release. Scaffolds (`internal/generator/templates/`, `internal/kits/system/{single,multi}/templates/`) emit CRUD action methods that mutate state and return — no broadcasts. The dev-server's `internal/serve/websocket.go:Broadcast()` is a hot-reload notifier, semantically unrelated; see §"Open questions" for the naming-overlap discussion. |
+| `client` (TypeScript) | `0.9.0` | N/A (browser) | Add `type === "error"` branch in `handleWebSocketPayload` (see §3 "Wire-format note"). Optional: dispatch a distinct `lvt:broadcast` `CustomEvent` for topic broadcasts so apps can hook in without sniffing `meta.action`. |
+| `examples` | `v0.9.0` | 11 sites across 4 apps — see §4 Migration for the per-file list | Delete redundant `Refresh*` calls in `landing-demo`, `shared-notepad`, `todos`. Migrate `chat` to the topic API (use case C). |
+| `tinkerdown` | `v0.8.16` (stale) | 6 sites in 2 tutorial examples | Bump pin to `v0.9.x`; delete explicit broadcasts; clarify in tutorial comments that `sharedAuth` is teaching-only, not production-shaped. |
+| `devbox-dash` | (single-user app) | 0 | Routine version bump. |
+| `docs` (site) | `v0.8.23` | 22 content files mention `BroadcastAction`; `content/recipes/patterns/_app/handlers_realtime.go` Patterns #27 (Broadcasting) and #28 (Presence) use it; **Pattern #26 (Multi-User Sync) still references the removed `Sync()` method** — pre-existing stale state from PR #406 that this proposal's docs scope cleans up. | **Heaviest impact.** See "Docs migration scope" below for the file list. |
+
+**Docs migration scope** — two distinct doc surfaces, both need rewrites:
+
+- **In-repo contributor docs** (under `livetemplate/docs/`): `references/controller-pattern.md`, `references/pubsub.md`, `design/ARCHITECTURE.md`. These describe the framework to contributors.
+- **Site docs** (under `../docs/content/`): user-facing. The full list, verified via `grep -rln "BroadcastAction" docs/content/`:
+  - **Top-of-funnel** (touched first by new users) — `index.md`, `getting-started/your-first-app.md`.
+  - **Reference** — `reference/api.md`, `reference/controller-pattern.md` §"Cross-Tab Updates with BroadcastAction", `reference/server-actions.md`, `reference/session.md`, `reference/pubsub.md`, `reference/navigate.md`, `reference/limitations.md`.
+  - **Guides** — `guides/standard-html-reactivity.md`, `guides/progressive-complexity.md`.
+  - **Recipes** — `recipes/broadcasting.md` (rewrite end-to-end), `recipes/sync-and-broadcast.md` (rewrite or retire — the `Sync()` half is stale post-#406), `recipes/counter/index.md` §"How BroadcastAction routes", `recipes/architecture-flow.md`, `recipes/progressive-enhancement/index.md`, `recipes/todos/index.md`.
+  - **Pattern scaffolds** (critical path — these get copy-pasted into user projects) — `recipes/patterns/_app/templates/realtime/{broadcasting,multi-user-sync,server-push}.tmpl` and the matching Go controllers in `recipes/patterns/_app/handlers_realtime.go` (Patterns #26, #27, #28).
+  - **Historical** — `changelog.md` only needs an entry, not a rewrite.
+
+**Release order (critical path).** The dependency arrows below assume the redesign ships in a single coordinated wave:
+
+1. `livetemplate` core API + new tests (this proposal becomes implementation).
+2. `client` error-envelope branch (independent; can ship in parallel with #1).
+3. **`docs` recipes + reference rewrites** — gating step, because the pattern scaffolds get copy-pasted into user projects.
+4. `lvt` `go.mod` pin bump (no template changes needed; emits no `BroadcastAction`).
+5. `examples` migration (replaces user-facing demos with the new idiom).
+6. `tinkerdown`, `devbox-dash` lag bumps.
+
 ## Critical files to modify (for the implementation that would follow)
 
 - `context.go` — add `SkipPeerSync`, `SubscribeTopic`, `UnsubscribeTopic`, `BroadcastToTopic`; reuse the existing `broadcasts []broadcastRequest` slice pattern for a new `topicBroadcasts` queue.
@@ -254,7 +313,8 @@ Keep `ctx.BroadcastAction` in the API; document it as **"dispatch this action to
   - Reuse existing `byUser` index for `BroadcastToUser`.
 - `pubsub/types.go`, `pubsub/redis.go` — add the `RenderInvalidationMessage` type + `PublishRenderInvalidation` method + `SubscribeRenderInvalidations` handler. **Channel pattern decision: `livetemplate:render:{groupID}` as a new, dedicated channel pattern.** Rationale: existing channels encode (scope, action-vs-broadcast) in their prefix (`livetemplate:groupaction:group:{id}` vs `livetemplate:broadcast:group:{id}`); a dedicated render channel keeps the schema regular and lets receivers subscribe selectively without parsing message envelopes. Add topic-channel pattern `livetemplate:topic:{name}` for the new `BroadcastToTopic`. **Wire format for handler-level `Broadcast*` entry points:** the new entry points serialize their `(action, data)` payload using the same envelope shape as the existing `GroupActionMessage` (JSON: `{"type": "...", "action": "...", "data": {...}, "timestamp": ..., "instanceID": ...}`). `handler.BroadcastGlobal` adapts to `Broadcaster.PublishGlobal([]byte)` by marshalling the envelope to bytes before calling the existing primitive — no change to the byte-oriented `PublishGlobal` signature; the action-oriented entry point lives at the handler layer.
 - `auth.go` — no change.
-- `docs/references/pubsub.md`, `docs/references/controller-pattern.md`, `docs/design/ARCHITECTURE.md` — document the three-concern model (state scope, sync scope, topic fan-out).
+- `e2e/docker/app/main.go` — migration target; delete `Send`'s `BroadcastAction("RefreshMessages", nil)` and the empty `RefreshMessages` controller method (the in-repo concrete example of the broadcast-as-re-render-trigger pattern this proposal eliminates).
+- `docs/references/pubsub.md`, `docs/references/controller-pattern.md`, `docs/design/ARCHITECTURE.md` — document the three-concern model (state scope, sync scope, topic fan-out). **In-repo contributor docs only**; the user-facing site docs at `../docs/content/` are scoped in §6 "Impacted repositories".
 
 ## Existing utilities to reuse
 
@@ -280,6 +340,9 @@ End-to-end tests (mirroring `broadcast_test.go` structure):
 10. **Suppress implicit sync inside dispatched actions.** A topic broadcast handler that mutates state on a peer must **not** trigger another implicit-sync round to the peer's peers. Set up three connections in the same group, subscribe two to a topic, broadcast from outside, verify each subscribed connection receives exactly one update (the topic dispatch), not two (one from the topic, one from the cascaded implicit sync).
 11. **Invert `TestBroadcastAction_NoAutomaticPeerDispatch`.** The existing test (grep `broadcast_test.go`: `TestBroadcastAction_NoAutomaticPeerDispatch`) explicitly asserts that peers do *not* receive updates without an explicit `BroadcastAction` call. Under the new default this is a regression test for *the old behavior* and must either be deleted or repurposed under `WithImplicitSyncDisabled()` to assert that the opt-out actually suppresses fan-out.
 12. **`SubscribeTopic` on HTTP GET.** Issue a plain HTTP GET to a Mount that calls `SubscribeTopic`. Assert: no error, the response renders normally, and no `byTopic` entry is created (because there's no Connection). Then upgrade to WS for the same group and assert the subscription materializes on the WS connection.
+13. **`lvt`-generated scaffolds compile against the new API.** Run `lvt new` (or the equivalent generator entry in `../lvt/internal/generator/`) against a temp dir and confirm `go build ./...` succeeds on the generated project. Guards against accidentally breaking the scaffold's compile surface when bumping `lvt`'s `go.mod` pin to the redesigned `livetemplate`. This is a sanity check, not a behavior assertion — `lvt`'s scaffolds emit zero `BroadcastAction` calls, so no semantic migration is required there.
+14. **Client error envelope.** With `WithTopicACL` denying `"private/admin"` and a TS client calling `SubscribeTopic("private/admin")` in Mount: assert the client surfaces the denial as an `lvt:error` `CustomEvent` with `detail = { code: "topic_forbidden", topic: "private/admin" }` and that the WebSocket connection stays open. Covers the wire-format note in §3.
+15. **Docs-e2e under stale `Sync()` references.** `docs/e2e/patterns/patterns_test.go` (in the `../docs/` repo) exercises Patterns #26–#31. Pattern #26's controller calls `Sync()`, which is dead code post-PR #406; today the test passes only because the framework no longer dispatches it. Verify which pattern test cases continue to pass under the new implicit-sync behavior, and identify which ones the docs rewrite must update before the implementation lands.
 
 Run `go test -v -race ./...` and the existing broadcast suite (`go test -run TestWSAction_BroadcastAction -v`) to confirm no regressions in the legacy `BroadcastAction` path.
 
@@ -306,5 +369,7 @@ Implementation PR must report these numbers in the PR description and adjust thi
 
 ## Open questions
 
-- **Per-connection state.** Use case K is a real gap that implicit sync makes more visible. Worth a separate proposal for `state.PerConnection` or similar.
+- **Per-connection state.** Use case K is a real gap that implicit sync makes more visible. Worth a separate proposal for `state.PerConnection` or similar. (No `state.PerConnection` follow-up exists in `docs/proposals/` at the time of writing.)
 - **Wildcard / hierarchical topics.** Out of scope for v1; `"room/*"` patterns can be added later if needed.
+- **Default ACL when `WithTopicACL` is not configured.** §3 specifies `allow all`, matching today's group-broadcast posture. But topics widen the surface — under `BroadcastAction` a sender could only fan out within their own authenticated session group; with topics any caller of `SubscribeTopic("X")` from `Mount` joins fan-out for `"X"`. Question: should the default be `deny all` (forcing explicit `WithTopicACL` opt-in), with a single-line `WithOpenTopics()` builder option for developers who want the current permissive behavior? Trade-off: `allow all` keeps demos and tutorials terse; `deny all` is the safer production default.
+- **Naming overlap with `lvt`'s dev-server `Broadcast()`.** `lvt`'s development server has a `Broadcast()` method (`../lvt/internal/serve/websocket.go`) that fans hot-reload notifications to all connected dev clients. Different mechanism, different concern, but readers working across both packages will see `Broadcast` and have to context-switch. Question: rename one (`Broadcast` → `NotifyClients` in `lvt`, perhaps) when this proposal ships? Cost is a small `lvt` change; benefit is conceptual clarity.
