@@ -45,6 +45,9 @@ client/dist
 /livetemplate-client.browser.js
 .reviews
 
+# prereview tool runtime scratch (per-line review comments, DONE marker)
+.prereview/
+
 # Git worktrees
 .worktrees/
 
