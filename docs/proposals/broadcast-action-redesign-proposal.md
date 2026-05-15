@@ -111,7 +111,7 @@ Before May 2026, livetemplate had a reserved `Sync()` controller method that the
 
 This proposal restores the **capability** `Sync()` offered (automatic peer convergence after a mutation) without the **mechanism** that made it brittle. Implicit peer sync does not invoke a controller method on the peer; it runs the render phase only (`Parse → Build → Diff → Send`) against the peer's already-persisted state. There is no peer-side controller invocation, so no idempotency hazard. This is also why opt-out is `ctx.SkipPeerSync()` (a flag) rather than "omit a `Sync` method" (presence-based magic): the rendering is the framework's responsibility, not the developer's.
 
-The docs site still carries stale `Sync()` references from before #406 (notably `docs/content/recipes/sync-and-broadcast.md` and the Pattern #26 controller in `docs/content/recipes/patterns/_app/handlers_realtime.go`). The implementation PR for this proposal must clean those up as part of its docs-update scope — see §6.
+Both the docs site and in-repo docs still carry stale `Sync` references from before #406 (notably `docs/content/recipes/sync-and-broadcast.md`, the Pattern #26 controller in `docs/content/recipes/patterns/_app/handlers_realtime.go`, and `livetemplate/docs/guides/ephemeral-components.md:61`). The implementation PR must clean those up as part of its docs-update scope — see §6. **Cleanup-sweep note:** grep for the bare word `Sync` (`grep -rn '\bSync\b' docs/`), not just `Sync()` — `ephemeral-components.md` references it without parentheses and a `Sync()` sweep silently misses it.
 
 ### 1. Implicit peer sync (default behavior)
 
@@ -225,7 +225,7 @@ Most existing call sites — both in-repo and across sibling repos — become re
 
 **In `livetemplate/` itself:**
 - `e2e/docker/app/main.go:Send` — the `BroadcastAction("RefreshMessages", nil)` is purely a re-render trigger. Delete; implicit peer sync covers it. Also delete the empty `RefreshMessages` controller method.
-- `broadcast_test.go:Increment`, `SetMessage`, `Add` — same pattern. The `Refresh*` methods become unused.
+- `broadcast_test.go` — same pattern, but note the echo methods are **not** uniformly `Refresh*`-named: `Increment` → `RefreshCount` (L52), `SetMessage` → `SyncMessage` (L67), `syncController.Add` → `Refresh` (L312). The implementation PR must delete all three echo methods; a `Refresh*` grep alone would miss `SyncMessage`. (`Increment`/`SetMessage` also pass a data payload — `{"newCount": …}`, `{"value": …}` — that the echo method only uses to mirror state; under implicit sync the payload and the echo both disappear.)
 
 **In `examples/` (verified via `grep -rn "BroadcastAction\b" examples/`):**
 - `landing-demo/main.go` — three `BroadcastAction` calls for `Increment`, `Decrement`, `Reset`. **Delete all three** (pure re-render triggers, use case A/B).
@@ -236,7 +236,7 @@ Most existing call sites — both in-repo and across sibling repos — become re
 **In `tinkerdown/`:**
 - `examples/literate-counter-include/_app/counter.go` and `examples/literate-linked-include/_app/counter.go` — three `BroadcastAction` calls each (Increment/Decrement/Reset). These rely on a tutorial-only `sharedAuth` (constant `groupID`) to simulate visitor-shared sync. Under implicit peer sync, the explicit calls can be deleted; the tutorial comments must clarify that `sharedAuth` is an artificial setup, not production-shaped.
 
-**Empty `Refresh*` paired methods** (the second controller method per pattern that exists solely as a re-render target — `RefreshTodos`, `RefreshMessages`, `Refresh`, etc.) become dead code in every migration above. Flag them for deletion in the same step.
+**Empty echo methods** (the second controller method per pattern that exists solely as a re-render target — `RefreshTodos`, `RefreshMessages`, `Refresh`, `RefreshCount`, `SyncMessage`, etc.) become dead code in every migration above. The naming is **not uniform** — grep for both `Refresh*` and `Sync*` echo methods, not just `Refresh*`. Flag them for deletion in the same step.
 
 Call sites that **stay** as `BroadcastAction`:
 - Any case where the peer needs to react to a payload the sender chose, not just re-render with new state. The `chat/` migration above shows the right replacement (`BroadcastToTopic`); `BroadcastAction` itself stays in the API for cases where group-scoped (not topic-scoped) controller dispatch is still wanted.
@@ -282,7 +282,7 @@ The audit pass (post-proposal-v1) enumerated every consumer of `BroadcastAction`
 
 **Docs migration scope** — two distinct doc surfaces, both need rewrites:
 
-- **In-repo contributor docs** (under `livetemplate/docs/`): `references/controller-pattern.md`, `references/pubsub.md`, `design/ARCHITECTURE.md`. These describe the framework to contributors.
+- **In-repo contributor docs** (under `livetemplate/docs/`): `references/controller-pattern.md`, `references/pubsub.md`, `design/ARCHITECTURE.md`, and `guides/ephemeral-components.md` — the last carries a stale lifecycle reference left by #406: line 61 lists `Sync` (bare, no parens) as a state-init hook alongside `Mount`/`OnConnect`, but the framework no longer dispatches it. This must be rewritten when implicit peer sync replaces the `Sync()` model.
 - **Site docs** (under `../docs/content/`): user-facing. The full list, verified via `grep -rln "BroadcastAction" docs/content/`:
   - **Top-of-funnel** (touched first by new users) — `index.md`, `getting-started/your-first-app.md`.
   - **Reference** — `reference/api.md`, `reference/controller-pattern.md` §"Cross-Tab Updates with BroadcastAction", `reference/server-actions.md`, `reference/session.md`, `reference/pubsub.md`, `reference/navigate.md`, `reference/limitations.md`.
@@ -342,7 +342,7 @@ End-to-end tests (mirroring `broadcast_test.go` structure):
 12. **`SubscribeTopic` on HTTP GET.** Issue a plain HTTP GET to a Mount that calls `SubscribeTopic`. Assert: no error, the response renders normally, and no `byTopic` entry is created (because there's no Connection). Then upgrade to WS for the same group and assert the subscription materializes on the WS connection.
 13. **`lvt`-generated scaffolds compile against the new API.** Run `lvt new` (or the equivalent generator entry in `../lvt/internal/generator/`) against a temp dir and confirm `go build ./...` succeeds on the generated project. Guards against accidentally breaking the scaffold's compile surface when bumping `lvt`'s `go.mod` pin to the redesigned `livetemplate`. This is a sanity check, not a behavior assertion — `lvt`'s scaffolds emit zero `BroadcastAction` calls, so no semantic migration is required there.
 14. **Client error envelope.** With `WithTopicACL` denying `"private/admin"` and a TS client calling `SubscribeTopic("private/admin")` in Mount: assert the client surfaces the denial as an `lvt:error` `CustomEvent` with `detail = { code: "topic_forbidden", topic: "private/admin" }` and that the WebSocket connection stays open. Covers the wire-format note in §3.
-15. **Docs-e2e under stale `Sync()` references.** `docs/e2e/patterns/patterns_test.go` (in the `../docs/` repo) exercises Patterns #26–#31. Pattern #26's controller calls `Sync()`, which is dead code post-PR #406; today the test passes only because the framework no longer dispatches it. Verify which pattern test cases continue to pass under the new implicit-sync behavior, and identify which ones the docs rewrite must update before the implementation lands.
+15. **Docs-e2e under stale `Sync` references.** `docs/e2e/patterns/patterns_test.go` (in the `../docs/` repo) exercises Patterns #26–#31. Pattern #26's controller calls `Sync()`, which is dead code post-PR #406; today the test passes only because the framework no longer dispatches it. Verify which pattern test cases continue to pass under the new implicit-sync behavior, and identify which ones the docs rewrite must update before the implementation lands. **Acceptance:** a repo-wide `grep -rn '\bSync\b'` over both `livetemplate/docs/` and `../docs/content/` returns no stale lifecycle references (bare `Sync`, not just `Sync()`) after the docs pass.
 
 Run `go test -v -race ./...` and the existing broadcast suite (`go test -run TestWSAction_BroadcastAction -v`) to confirm no regressions in the legacy `BroadcastAction` path.
 
