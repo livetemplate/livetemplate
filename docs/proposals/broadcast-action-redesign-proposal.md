@@ -127,7 +127,11 @@ ctx.Subscribe("room/" + state.RoomID)   // or ctx.Subscribe(ctx.SelfTopic())
 ```go
 ctx.Publish("room/"+state.RoomID, "NewMessage", map[string]any{"id": id, "body": body})
 ```
-The receiver-side controller defines a `NewMessage` method (same dispatch path as today's `BroadcastAction` — `handleDispatchedAction`). The calling connection is excluded by default (use case I).
+The receiver-side controller defines a `NewMessage` method (same dispatch path as today's `BroadcastAction` — `handleDispatchedAction` → `DispatchWithState`). The calling connection is excluded by default (use case I).
+
+**Dispatch model: named-action, not a `handle_info` inbox (resolved decision).** `Publish`'s `action` resolves to a controller method *by name*, through the **exact same** `DispatchWithState` resolver that routes user-initiated (button/form) actions — `handleDispatchedAction` at `mount.go` (grep `^func \(h \*liveHandler\) handleDispatchedAction`) builds a `Context` with the action and calls `DispatchWithState` unchanged. We deliberately do **not** introduce a Phoenix-style single inbox method (`handle_info`/`OnPublish`): Go has no pattern matching, so one inbox would force a manual `switch` on a message-type string in every controller — more boilerplate and less type safety than one well-named method per message — and a reserved magic method is exactly the shape PR #406 removed (`Sync()`). Named dispatch adds zero new machinery, which is this proposal's core low-risk property.
+
+**Symmetry (the consequence, by design).** Because topic dispatch and user-action dispatch share one resolver, a topic action and a same-named user action invoke the **same method**: `ctx.Publish(topic, "Delete", …)` runs the same `Delete` a `<button name="Delete">` triggers. This is intentional and symmetric — server-pushed and client-initiated invocations of the same logical action are the same handler (the same property the removed `Sync()` had). It is **not** a separate namespace. Practical guidance for the docs/scaffolds: name a topic action for the *receiver's* reaction (`"NewMessage"`, `"Reload"`, `"PresenceChanged"`), and do not reuse a destructive user-action name (`"Delete"`, `"Submit"`) as a topic action unless you intend peers to run exactly that handler. The recursion guard (a dispatched action that calls `Publish` is logged-and-dropped) bounds the blast radius to one hop.
 
 **Out-of-band (webhook/cron):** `handler.Publish(topic, action, data)` — same primitive, no `Context`. Identity helpers are pure string constructors usable anywhere: `livetemplate.UserTopic(userID)`, `livetemplate.SessionTopic(groupID)`, `livetemplate.GlobalTopic()`.
 
@@ -372,8 +376,9 @@ Cross-reference: §6's *release order* is the cross-repo publish sequence; the p
 Decided by the maintainer (2026-05-15):
 
 - **Single primitive — pub/sub topics.** Collapse the two-target (implicit sync + topics) design to one topic primitive; per-identity targeting is a derived topic string. Phoenix-faithful (verified: `Phoenix.PubSub` has no per-user primitive).
-- **Self-sync = action-mode + reconciler.** No render-only self-sync, no `lvt:"local"`, no state-merge. The reconciler is the Phoenix `handle_info` analog; per-connection state is safe by construction.
+- **Self-sync = action-mode + reconciler.** No render-only self-sync, no `lvt:"local"`, no state-merge. The reconciler plays the *role* of Phoenix `handle_info` (the place pushed messages reconcile state) but is an ordinary named method, not an inbox; per-connection state is safe by construction.
 - **Render-only mode dropped entirely.** One method, one mode (`Publish` always invokes a handler). Eliminates the silent-no-op footgun.
+- **Named-action dispatch, not a `handle_info` inbox** (resolved 2026-05-15, from prereview). `Publish`'s `action` resolves to a method by name via the existing `DispatchWithState` resolver — the same one user/button actions use. Rejected a single reserved inbox method: Go has no pattern matching (one inbox ⇒ per-controller type-switch boilerplate + weaker type safety) and reserved magic methods are what #406 removed. Consequence is **intentional symmetry** — a topic action and a same-named user action are the same handler — documented in §2 with naming guidance.
 - **`ctx.BroadcastAction` removed entirely** (pre-release; clean break; all call sites migrate this wave).
 - **Explicit `Subscribe(ctx.SelfTopic())` in Mount** — no framework auto-subscribe (Phoenix-pure; no hidden lifecycle).
 - **Publish/Subscribe naming** — the redundant `Topic` suffix dropped (topic is the only target).
