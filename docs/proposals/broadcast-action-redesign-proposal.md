@@ -317,6 +317,56 @@ Run `go test -v -race ./...`.
 
 Report numbers in the PR description.
 
+## Phased implementation plan (tracker)
+
+The implementation ships as one coordinated release wave but is built and verified in dependency order. Each phase is independently testable and gated by its own subset of the §"Verification plan" items (numbered `V1`–`V18` below = list items 1–18). All boxes unchecked — this is still a design doc; the implementation PR fills them in.
+
+Cross-reference: §6's *release order* is the cross-repo publish sequence; the phases below are the *engineering* sequence. They agree — Phases 0–5 are the `livetemplate`/`lvt`/`client` core (release steps 1–4); Phase 6 is the docs→examples→lag-bump tail (release steps 3, 5, 6).
+
+### Phase 0 — Foundations (pure additions, no behavior wired)
+- [ ] `internal/session/registry.go`: add `byTopic` + `byTopicPattern map[string][]*Connection`; `SubscribeConnectionToTopic` / `UnsubscribeConnectionFromTopic` / `GetByTopicExcept` (deduped exact∪pattern union); wire both maps into the existing `Unregister()` cleanup path (grep `^func \(r \*ConnectionRegistry\) Unregister`).
+- [ ] New `topics.go`: `UserTopic`/`SessionTopic`/`GlobalTopic` constructors; shared reserved-`lvt:` namespace validator; topic grammar validator (`[a-zA-Z0-9/_-]+`, optional single trailing `*`); trailing-`*` `HasPrefix` matcher.
+- [ ] Optional forward-compat `DispatchRequest.Kind` placeholder (single `KindAction`, zero-valued).
+- **Gate:** registry + helper **unit** tests green (subscribe/unsubscribe, dedup union, `Unregister` cleanup, grammar/namespace/matcher edge cases). No e2e yet.
+
+### Phase 1 — Context API + ACL (single instance, no Redis)
+- [ ] `context.go`: `Subscribe`/`Unsubscribe`/`Publish`/`SelfTopic`; `topicPublishes` queue (reuse the `broadcasts []broadcastRequest` slice pattern).
+- [ ] `config.go`/builder: `WithTopicACL(fn)` + `WithOpenTopics()`; both-set = hard error at `New(...)`; neither = deny-all; self/global ACL-exempt.
+- [ ] `mount.go`: `dispatchToTopic` (local fan-out via `EnqueueDispatch`, reusing `dispatchBroadcastToGroup`'s shape); drain `topicPublishes` at the `processBroadcasts` post-action site (preserves persist-before-publish ordering); reuse the existing recursion guard (grep `BroadcastAction calls inside a dispatched action are ignored`); `Subscribe`-on-HTTP-GET no-op with ACL still eager.
+- **Gate:** `V1`–`V7`, `V10`–`V12`, `V16` green (self-sync 2-device + anon, K-by-construction, public topic, ACL denied, self/global exempt, anti-spoof, sender-exclusion, recursion guard, HTTP GET, deny-all default). Single-instance only.
+
+### Phase 2 — Cross-instance (Redis)
+- [ ] `pubsub/types.go` + `pubsub/redis.go`: one `livetemplate:topic:{name}` channel (exact `SUBSCRIBE`); envelope reuses the `GroupActionMessage` JSON shape; `PublishToTopic`/`SubscribeToTopic` modeled on `PublishGroupAction`/`SubscribeGroupActions`.
+- [ ] `mount.go`: `dispatchToTopic` cross-instance leg; `handler.Publish` out-of-band entry point (no `Context`).
+- **Gate:** `V8` (out-of-band `handler.Publish` to `UserTopic`/`GlobalTopic`), `V9` (cross-instance over the single channel) green — Redis-container e2e.
+
+### Phase 3 — Wildcards
+- [ ] `pubsub/redis.go`: `PSUBSCRIBE livetemplate:topic:{prefix}*`; `subscribedPatterns map[string]int` parallel to `subscribedChannels`; replay in `reconnect()` in the same loop.
+- [ ] Confirm ACL receives the literal pattern; first-ever concrete publish auto-matches existing pattern subscribers with no re-ACL.
+- **Gate:** `V17` (wildcard fan-out + dedupe + first-ever + cross-instance via `PSUBSCRIBE`), `V18` (ACL receives the pattern) green.
+
+### Phase 4 — Client error envelope (`../client`, parallelizable with 1–3)
+- [ ] `client` TS: `type === "error"` branch in `handleWebSocketPayload`; surface as an `lvt:error` `CustomEvent`. No change to the diff path.
+- **Gate:** `V14` (denied `Subscribe` → `lvt:error` event, WS stays open) green; client jest suite green.
+
+### Phase 5 — Removal + in-repo/lvt migration
+- [ ] Remove `ctx.BroadcastAction` (and the now-unused group-dispatch path it was the only caller of, if any) from `context.go`/`mount.go`.
+- [ ] Migrate in-repo call sites to `Subscribe(SelfTopic())`+`Publish`+reconciler: `e2e/docker/app/main.go`, `broadcast_test.go`, `context_broadcast_test.go`, `lifecycle_integration_test.go`, `handle_test.go`, `navigate_test.go`. Repurpose `TestBroadcastAction_NoAutomaticPeerDispatch` (still true: nothing fans out without `Publish`).
+- [ ] `lvt`: `go.mod` pin bump + `WebSocketManager.Broadcast()` → `ReloadClients()` (3 files: `internal/serve/{websocket.go,server.go,websocket_test.go}`).
+- **Gate:** `V13` (lvt scaffolds compile) green; full `go test -race ./...` green in `livetemplate` **and** `lvt`; pre-commit hook green.
+
+### Phase 6 — Docs + examples + ecosystem (the §6 release tail)
+- [ ] Site docs rewrite per §6 "Docs migration scope" (top-of-funnel, reference, guides, recipes); rewrite the 3 pattern scaffolds to `Subscribe`/`Publish`/reconciler; apply the **deny-all ripple** fix (`WithOpenTopics()` or real `WithTopicACL` in every scaffold/recipe that subscribes; self-sync recipes exempt).
+- [ ] In-repo contributor docs: `references/{controller-pattern,pubsub}.md`, `design/ARCHITECTURE.md`, and the stale bare-`Sync` in `guides/ephemeral-components.md`.
+- [ ] `examples`: migrate 4 apps (`landing-demo`/`shared-notepad`/`todos` → self-sync; `chat` → developer topic).
+- [ ] `tinkerdown` (2 examples + `sharedAuth` comment clarification) and `devbox-dash` pin bumps.
+- **Gate:** `V15` green — `docs/e2e/patterns/patterns_test.go` passes and the acceptance sweep `grep -rn '\bSync\b' docs/ --exclude-dir=proposals` (both `livetemplate/docs/` and `../docs/content/`) returns no stale lifecycle references; `examples` build + e2e green.
+
+### Cross-cutting (every phase)
+- [ ] Pre-commit hook (golangci-lint + full Go suite) green before each commit; never `--no-verify`.
+- [ ] Benchmarks (§"Benchmarks required") run before Phase 2 sign-off; numbers in the PR description.
+- [ ] No phase merges to the release wave until its gating `V`-items pass on CI.
+
 ## Resolved decisions
 
 Decided by the maintainer (2026-05-15):
