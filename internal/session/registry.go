@@ -4,6 +4,7 @@ package session
 
 import (
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 )
@@ -56,6 +57,16 @@ type Connection struct {
 	// Dispatch channel for broadcast actions from other connections.
 	// Actions enqueued here are processed by the connection's select-based event loop.
 	DispatchChan chan *DispatchRequest
+
+	// subscribedTopics is this connection's pub/sub topic membership set — the
+	// GC root for topic cleanup on Unregister(). Topics are many-to-many (unlike
+	// GroupID/UserID), so the connection must carry its own subscription set;
+	// Unregister() walks it to remove this conn from the registry's byTopic/
+	// byTopicPattern indexes in O(t). Set semantics (idempotent): a repeated
+	// subscribe is one membership; a single unsubscribe clears it. Always
+	// accessed under ConnectionRegistry.mu (same discipline as byGroup/byUser),
+	// so it needs no separate lock. Lazily allocated on first subscribe.
+	subscribedTopics map[string]struct{}
 }
 
 // wsMessage represents a WebSocket message to be sent asynchronously.
@@ -319,7 +330,9 @@ type MetricsRecorder interface {
 type ConnectionRegistry struct {
 	byGroup            map[string][]*Connection // groupID → connections
 	byUser             map[string][]*Connection // userID → connections  (empty string for anonymous)
-	mu                 sync.RWMutex             // Protects both maps
+	byTopic            map[string][]*Connection // exact pub/sub topic → connections
+	byTopicPattern     map[string][]*Connection // wildcard topic pattern (contains "*") → connections
+	mu                 sync.RWMutex             // Protects all four maps
 	metrics            MetricsRecorder          // Optional: metrics recorder for observability
 	dispatchBufferSize int                      // Dispatch channel buffer size (0 = use default)
 }
@@ -329,8 +342,10 @@ const defaultDispatchBufferSize = 16
 // NewConnectionRegistry creates a new empty connection registry.
 func NewConnectionRegistry() *ConnectionRegistry {
 	return &ConnectionRegistry{
-		byGroup: make(map[string][]*Connection),
-		byUser:  make(map[string][]*Connection),
+		byGroup:        make(map[string][]*Connection),
+		byUser:         make(map[string][]*Connection),
+		byTopic:        make(map[string][]*Connection),
+		byTopicPattern: make(map[string][]*Connection),
 	}
 }
 
@@ -416,6 +431,23 @@ func (r *ConnectionRegistry) Unregister(conn *Connection) {
 		delete(r.byUser, conn.UserID)
 	}
 
+	// Remove from the topic indexes (Topic-GC-on-disconnect). Topics are
+	// many-to-many, so — unlike byGroup/byUser — there is no O(1) reverse
+	// lookup; walk this connection's own subscription set instead (O(t),
+	// t = topics this conn holds). Route each topic to the exact or pattern
+	// index by "*"-presence, mirroring SubscribeConnectionToTopic.
+	for topic := range conn.subscribedTopics {
+		index := r.byTopic
+		if isPatternTopic(topic) {
+			index = r.byTopicPattern
+		}
+		index[topic] = removeConnection(index[topic], conn)
+		if len(index[topic]) == 0 {
+			delete(index, topic)
+		}
+	}
+	conn.subscribedTopics = nil
+
 	// Close the connection AFTER removing from indexes.
 	// This signals the done channel, which EnqueueDispatch checks before sending.
 	if err := conn.Close(); err != nil {
@@ -480,6 +512,109 @@ func (r *ConnectionRegistry) GetByGroupExcept(groupID string, excludeConn *Conne
 	for _, conn := range conns {
 		if conn != excludeConn {
 			result = append(result, conn)
+		}
+	}
+	return result
+}
+
+// isPatternTopic reports whether a topic string is a wildcard subscription
+// pattern (contains "*") rather than an exact topic. Full segment-grammar
+// validation lives in the root package (topics.go) and runs before any
+// connection reaches the registry; here only the exact-vs-pattern routing
+// decision is needed, for which "*"-presence is sufficient and self-contained.
+func isPatternTopic(topic string) bool {
+	return strings.Contains(topic, "*")
+}
+
+// SubscribeConnectionToTopic adds conn to the registry index for topic.
+//
+// Exact topics (no "*") are indexed in byTopic; wildcard patterns in
+// byTopicPattern. Idempotent set semantics: a repeat subscribe to the same
+// topic is a no-op, so the index slice holds conn at most once per topic. This
+// per-connection membership is deliberately NOT the Phase-2 Redis-side
+// subscribedChannels ref-count (that collapses many distinct connections on one
+// instance to one Redis SUBSCRIBE — a multiplexing concern, not membership).
+// conn.subscribedTopics is the GC root Unregister() walks; it is lazily
+// allocated here.
+func (r *ConnectionRegistry) SubscribeConnectionToTopic(conn *Connection, topic string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if conn.subscribedTopics == nil {
+		conn.subscribedTopics = make(map[string]struct{})
+	}
+	if _, already := conn.subscribedTopics[topic]; already {
+		return // idempotent: already subscribed
+	}
+	conn.subscribedTopics[topic] = struct{}{}
+
+	index := r.byTopic
+	if isPatternTopic(topic) {
+		index = r.byTopicPattern
+	}
+	index[topic] = append(index[topic], conn)
+}
+
+// UnsubscribeConnectionFromTopic removes conn from the registry index for topic.
+//
+// No-op if conn was not subscribed to topic. Emptied index entries are deleted
+// to prevent map-key leaks (same discipline as byGroup/byUser in Unregister).
+func (r *ConnectionRegistry) UnsubscribeConnectionFromTopic(conn *Connection, topic string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, subscribed := conn.subscribedTopics[topic]; !subscribed {
+		return
+	}
+	delete(conn.subscribedTopics, topic)
+
+	index := r.byTopic
+	if isPatternTopic(topic) {
+		index = r.byTopicPattern
+	}
+	index[topic] = removeConnection(index[topic], conn)
+	if len(index[topic]) == 0 {
+		delete(index, topic)
+	}
+}
+
+// GetByTopicExcept returns the deduped union of connections subscribed to a
+// concrete (publishable, no-"*") topic, excluding excludeConn (the publisher).
+//
+// Union = byTopic[concrete] ∪ { conns in byTopicPattern[p] : match(p, concrete) },
+// deduplicated by *Connection identity, returned as a defensive copy. The
+// pattern scan is a linear O(P) pass over distinct patterns — there is no
+// trie/radix index, by design (proposal §2 "Matcher").
+//
+// match is injected by the caller (the root package's segmentMatch): the
+// matcher lives in topics.go (package livetemplate); internal/session cannot
+// import it without an import cycle, so it is passed in. match is REQUIRED —
+// passing nil while pattern subscribers exist panics by design (a loud
+// programmer-error signal, never a silent exact-only degradation).
+func (r *ConnectionRegistry) GetByTopicExcept(concrete string, excludeConn *Connection, match func(pattern, concrete string) bool) []*Connection {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	seen := make(map[*Connection]struct{})
+	result := make([]*Connection, 0, len(r.byTopic[concrete]))
+
+	add := func(conns []*Connection) {
+		for _, conn := range conns {
+			if conn == excludeConn {
+				continue
+			}
+			if _, dup := seen[conn]; dup {
+				continue
+			}
+			seen[conn] = struct{}{}
+			result = append(result, conn)
+		}
+	}
+
+	add(r.byTopic[concrete])
+	for pattern, conns := range r.byTopicPattern {
+		if match(pattern, concrete) {
+			add(conns)
 		}
 	}
 	return result
