@@ -37,7 +37,7 @@ Status values: `not started` → `in progress` → `blocked` → `complete`.
 2. Roll every surfaced scope item into the Ledger below.
 3. Update the Phase Status row: status → `complete`, fill the completed date + learnings-file check.
 4. If you discovered work that changes a later phase's scope, note it in that phase's row so the next session sees it before reading the plan.
-5. Do not create commits for this work without an explicit request; save WIP files (`phase-N.md` drafts) but leave them uncommitted.
+5. Do not create mid-session WIP commits without an explicit request. `phase-N.md` is **not** ephemeral: it is committed as that phase's close-out record, in the phase's own implementation PR alongside its code, and stays in git history (it is the durable handoff the next phase's Audit reads). "Leave uncommitted" applies only to in-session drafts before the phase closes.
 
 **If you block:** set status `blocked`, record the blocker in the row, write `phase-N-partial.md` with what was attempted and why it stalled.
 
