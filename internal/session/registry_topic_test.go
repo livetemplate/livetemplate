@@ -1,8 +1,11 @@
 package session
 
 import (
+	"fmt"
+	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -84,7 +87,7 @@ func TestGetByTopicExcept_DedupedUnion(t *testing.T) {
 
 	got := r.GetByTopicExcept("room/42", publisher, testSegmentMatch)
 	want := []string{"A", "B"}
-	if diff := connIDs(got, id); !equalStrings(diff, want) {
+	if diff := connIDs(got, id); !slices.Equal(diff, want) {
 		t.Errorf("GetByTopicExcept(room/42) = %v, want %v (A once, B via pattern, C excluded by topic, P excluded as sender)", diff, want)
 	}
 }
@@ -207,14 +210,57 @@ func TestUnsubscribeConnectionFromTopic_DifferentTopicKeepsOthers(t *testing.T) 
 	}
 }
 
-func equalStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
+// TestConcurrentTopicSubscription gives the race detector something to
+// actually catch: sequential tests exercise lock correctness but not
+// contention. Each worker owns disjoint (conn, topic) pairs so the final state
+// is deterministic (every subscribe is matched by an unsubscribe → empty
+// registry), while a reader hammers GetByTopicExcept concurrently. Run with
+// -race. This validates Phase 0's lock discipline; it does NOT exercise the
+// subscribe-after-Unregister race (that is Phase 1's deferred concern — there
+// is no Unregister caller here).
+func TestConcurrentTopicSubscription(t *testing.T) {
+	r := NewConnectionRegistry()
+	const workers, iters = 8, 200
+
+	var workerWg sync.WaitGroup
+	stop := make(chan struct{})
+	readerDone := make(chan struct{})
+
+	// Reader hammers the RLock path while writers contend on Lock.
+	go func() {
+		defer close(readerDone)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				_ = r.GetByTopicExcept("room/42", nil, testSegmentMatch)
+			}
 		}
+	}()
+
+	for w := 0; w < workers; w++ {
+		workerWg.Add(1)
+		go func(w int) {
+			defer workerWg.Done()
+			conn := &Connection{}
+			exact := fmt.Sprintf("room/w%d", w)    // disjoint per worker
+			pattern := fmt.Sprintf("org/w%d/*", w) // → deterministic final state
+			for i := 0; i < iters; i++ {
+				r.SubscribeConnectionToTopic(conn, exact)
+				r.SubscribeConnectionToTopic(conn, pattern)
+				r.UnsubscribeConnectionFromTopic(conn, exact)
+				r.UnsubscribeConnectionFromTopic(conn, pattern)
+			}
+		}(w)
 	}
-	return true
+
+	workerWg.Wait() // every subscribe was matched 1:1 by an unsubscribe
+	close(stop)
+	<-readerDone
+
+	if len(r.byTopic) != 0 || len(r.byTopicPattern) != 0 {
+		t.Errorf("concurrent subscribe/unsubscribe left residue: byTopic=%d byTopicPattern=%d",
+			len(r.byTopic), len(r.byTopicPattern))
+	}
 }

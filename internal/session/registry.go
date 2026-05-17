@@ -512,11 +512,8 @@ func (r *ConnectionRegistry) GetByGroupExcept(groupID string, excludeConn *Conne
 	return result
 }
 
-// isPatternTopic reports whether a topic string is a wildcard subscription
-// pattern (contains "*") rather than an exact topic. Full segment-grammar
-// validation lives in the root package (topics.go) and runs before any
-// connection reaches the registry; here only the exact-vs-pattern routing
-// decision is needed, for which "*"-presence is sufficient and self-contained.
+// isPatternTopic routes exact vs. wildcard topics; "*"-presence suffices
+// because the root-package grammar validator already ran before any subscribe.
 func isPatternTopic(topic string) bool {
 	return strings.Contains(topic, "*")
 }
@@ -586,10 +583,15 @@ func (r *ConnectionRegistry) GetByTopicExcept(concrete string, excludeConn *Conn
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	if match == nil && len(r.byTopicPattern) > 0 {
+		// Loud, diagnosable programmer error (vs. an opaque nil-func panic
+		// inside the loop). Nil match is safe only with zero pattern
+		// subscribers — see TestGetByTopicExcept_NilMatchSafeWhenNoPatterns.
+		panic("session: GetByTopicExcept match is nil but pattern subscribers exist — Phase 1 dispatchToTopic must inject segmentMatch")
+	}
+
 	seen := make(map[*Connection]struct{})
-	// Cap hint covers exact + pattern subscribers so a pattern-heavy publish
-	// (few/no exact subscribers) doesn't realloc on the first pattern hit.
-	result := make([]*Connection, 0, len(r.byTopic[concrete])+len(r.byTopicPattern))
+	result := make([]*Connection, 0, len(r.byTopic[concrete]))
 
 	add := func(conns []*Connection) {
 		for _, conn := range conns {
