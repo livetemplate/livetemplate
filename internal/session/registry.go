@@ -587,7 +587,7 @@ func (r *ConnectionRegistry) GetByTopicExcept(concrete string, excludeConn *Conn
 		// Loud, diagnosable programmer error (vs. an opaque nil-func panic
 		// inside the loop). Nil match is safe only with zero pattern
 		// subscribers — see TestGetByTopicExcept_NilMatchSafeWhenNoPatterns.
-		panic("session: GetByTopicExcept match is nil but pattern subscribers exist — Phase 1 dispatchToTopic must inject segmentMatch")
+		panic("session: GetByTopicExcept requires a non-nil match when pattern subscribers are indexed (callers must pass the segment matcher)")
 	}
 
 	seen := make(map[*Connection]struct{})

@@ -1,6 +1,6 @@
 # Phase 0 — Learnings
 
-**Session:** 2026-05-17 / claude-code   **Status at exit:** in progress
+**Session:** 2026-05-17 / claude-code   **Status at exit:** complete
 **Plan reference:** Phase 0 in docs/proposals/broadcast-action-redesign-proposal.md
 
 ## Audit (start) — findings
