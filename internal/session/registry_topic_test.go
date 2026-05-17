@@ -3,7 +3,6 @@ package session
 import (
 	"fmt"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -40,7 +39,7 @@ func connIDs(conns []*Connection, id map[*Connection]string) []string {
 	for _, c := range conns {
 		out = append(out, id[c])
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 
@@ -87,8 +86,8 @@ func TestGetByTopicExcept_DedupedUnion(t *testing.T) {
 
 	got := r.GetByTopicExcept("room/42", publisher, testSegmentMatch)
 	want := []string{"A", "B"}
-	if diff := connIDs(got, id); !slices.Equal(diff, want) {
-		t.Errorf("GetByTopicExcept(room/42) = %v, want %v (A once, B via pattern, C excluded by topic, P excluded as sender)", diff, want)
+	if ids := connIDs(got, id); !slices.Equal(ids, want) {
+		t.Errorf("GetByTopicExcept(room/42) = %v, want %v (A once, B via pattern, C excluded by topic, P excluded as sender)", ids, want)
 	}
 }
 
@@ -104,6 +103,9 @@ func TestGetByTopicExcept_ExcludesSender(t *testing.T) {
 
 func TestUnregister_TopicGC(t *testing.T) {
 	r := NewConnectionRegistry()
+	// Bare Connection (no Register): relies on Close() nil-guarding its `done`
+	// channel — Unregister() calls conn.Close() and closing a nil channel
+	// would panic. Verified safe in the Phase 0 audit (registry.go Close()).
 	conn := &Connection{}
 	r.SubscribeConnectionToTopic(conn, "room/42")
 	r.SubscribeConnectionToTopic(conn, "room/*")

@@ -70,10 +70,9 @@ func validateDeveloperTopic(topic string) error {
 	return nil
 }
 
-// isValidSegmentChar reports whether b is allowed in a literal topic segment:
-// [a-zA-Z0-9_-]. Notably excludes ":" (keeps developer topics disjoint from
-// the reserved lvt: namespace) and "*" (a wildcard is a whole segment, never a
-// partial one — "ro*m" is invalid).
+// isValidSegmentChar's exclusions carry the non-obvious WHY: ":" keeps
+// developer topics disjoint from the reserved lvt: namespace; "*" is rejected
+// inside a segment because a wildcard is a whole segment ("ro*m" is invalid).
 func isValidSegmentChar(b byte) bool {
 	switch {
 	case b >= 'a' && b <= 'z':
