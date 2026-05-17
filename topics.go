@@ -7,8 +7,8 @@ import (
 
 // topicReservedPrefix is the reserved namespace for identity-derived topics
 // (SelfTopic / UserTopic). Developer topic names must never start with it; a
-// connection may only subscribe to a reserved topic that is exactly its own
-// SelfTopic() (the anti-spoof rule, wired in Phase 1's Subscribe).
+// connection may only subscribe to a reserved topic exactly equal to its own
+// SelfTopic() (the anti-spoof rule).
 const topicReservedPrefix = "lvt:"
 
 // UserTopic returns the reserved topic that addresses every connection of the
@@ -23,30 +23,26 @@ func UserTopic(userID string) string {
 	return topicReservedPrefix + "user:" + userID
 }
 
-// isReservedTopic reports whether topic is in the reserved lvt: namespace.
-//
-// Shared by the constructor (its output trivially satisfies this) and, in
-// Phase 1, by Subscribe: a reserved-prefixed argument is admitted only by
-// *exact* string equality to the caller's SelfTopic() — every other lvt:
-// string is rejected (anti-spoof; prefix-equality would let lvt:user:alice*
-// capture lvt:user:alice2). That exact `topic == ctx.SelfTopic()` comparison
-// is a one-liner at the Phase-1 Subscribe call site; this predicate is the
-// reusable classification half it branches on.
+// isReservedTopic reports whether topic is in the reserved lvt: namespace. It
+// is the classification half of the anti-spoof rule: a reserved-prefixed topic
+// is admissible only by *exact* string equality to the connection's own
+// SelfTopic(); every other lvt: string must be rejected (prefix-equality would
+// let lvt:user:alice* capture lvt:user:alice2). The exact-equality check itself
+// lives in the caller; this predicate only answers "is this reserved?".
 func isReservedTopic(topic string) bool {
 	return strings.HasPrefix(topic, topicReservedPrefix)
 }
 
 // validateDeveloperTopic enforces the segment grammar for developer (non-lvt:)
-// topics, used by Subscribe in Phase 1 (the reserved namespace is validated
-// separately and first — this grammar is never applied to lvt: topics, which
-// legitimately contain ':').
+// topics. It is never applied to reserved lvt: topics (they legitimately
+// contain ':', validated separately by the reserved-namespace rule).
 //
 // Grammar (proposal §2): a non-empty, "/"-separated sequence of segments; each
 // segment is either a literal in [a-zA-Z0-9_-]+ or the single character "*".
-// Multiple "*" segments are allowed (general case — Phase 3's risk valve may
-// later tighten *only this validator* to reject non-trailing/multiple "*",
-// never the matcher). No empty segments (rejects "", leading/trailing/double
-// "/"). ":" is excluded by the segment charset.
+// Any number of "*" segments is allowed: only this validator may ever be
+// narrowed to a stricter wildcard subset — the matcher stays general-case. No
+// empty segments (rejects "", leading/trailing/double "/"). ":" is excluded by
+// the segment charset.
 func validateDeveloperTopic(topic string) error {
 	if topic == "" {
 		return fmt.Errorf("invalid topic: empty")
@@ -96,8 +92,8 @@ func isValidSegmentChar(b byte) bool {
 //   - "*" matches one NON-EMPTY segment; guarded explicitly so the matcher is
 //     total even if a degenerate concrete bypasses validateDeveloperTopic.
 //
-// General-case (multi-"*"): Phase 3's risk valve narrows validateDeveloperTopic,
-// never this function.
+// Stays general-case (multi-"*"): any wildcard tightening belongs in
+// validateDeveloperTopic, never here.
 func segmentMatch(pattern, concrete string) bool {
 	patternSegs := strings.Split(pattern, "/")
 	concreteSegs := strings.Split(concrete, "/")

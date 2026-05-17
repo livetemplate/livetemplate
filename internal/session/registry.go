@@ -426,11 +426,8 @@ func (r *ConnectionRegistry) Unregister(conn *Connection) {
 		delete(r.byUser, conn.UserID)
 	}
 
-	// Remove from the topic indexes (Topic-GC-on-disconnect). Topics are
-	// many-to-many, so — unlike byGroup/byUser — there is no O(1) reverse
-	// lookup; walk this connection's own subscription set instead (O(t),
-	// t = topics this conn holds). Route each topic to the exact or pattern
-	// index by "*"-presence, mirroring SubscribeConnectionToTopic.
+	// Topics are many-to-many, so unlike byGroup/byUser there is no O(1)
+	// reverse lookup — walk the connection's own subscription set instead.
 	for topic := range conn.subscribedTopics {
 		index := r.byTopic
 		if isPatternTopic(topic) {
@@ -512,8 +509,8 @@ func (r *ConnectionRegistry) GetByGroupExcept(groupID string, excludeConn *Conne
 	return result
 }
 
-// isPatternTopic routes exact vs. wildcard topics; "*"-presence suffices
-// because the root-package grammar validator already ran before any subscribe.
+// isPatternTopic reports whether topic is a wildcard pattern (contains "*")
+// rather than an exact topic, selecting which index it belongs in.
 func isPatternTopic(topic string) bool {
 	return strings.Contains(topic, "*")
 }
@@ -522,8 +519,8 @@ func isPatternTopic(topic string) bool {
 //
 // Exact topics (no "*") go in byTopic; wildcard patterns in byTopicPattern.
 // Idempotent set semantics: a repeat subscribe is a no-op (the index slice
-// holds conn at most once per topic) — deliberately not a ref-count; see
-// phase-0.md. conn.subscribedTopics is lazily allocated here.
+// holds conn at most once per topic) — membership, deliberately not a
+// ref-count. conn.subscribedTopics is lazily allocated here.
 func (r *ConnectionRegistry) SubscribeConnectionToTopic(conn *Connection, topic string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -574,11 +571,13 @@ func (r *ConnectionRegistry) UnsubscribeConnectionFromTopic(conn *Connection, to
 // pattern scan is a linear O(P) pass over distinct patterns — there is no
 // trie/radix index, by design (proposal §2 "Matcher").
 //
-// match is injected by the caller (the root package's segmentMatch): the
-// matcher lives in topics.go (package livetemplate); internal/session cannot
-// import it without an import cycle, so it is passed in. match is REQUIRED —
-// passing nil while pattern subscribers exist panics by design (a loud
-// programmer-error signal, never a silent exact-only degradation).
+// match is dependency-injected: the segment matcher lives in the root package,
+// which internal/session cannot import without an import cycle, so it is passed
+// in. nil is safe ONLY when no pattern subscribers are registered — a
+// time-of-call property (a nil-passing caller is safe until the first pattern
+// subscriber, then panics). Callers that may face pattern subscribers must
+// always pass a non-nil matcher; passing nil with patterns present panics by
+// design (a loud programmer error, never a silent exact-only degradation).
 func (r *ConnectionRegistry) GetByTopicExcept(concrete string, excludeConn *Connection, match func(pattern, concrete string) bool) []*Connection {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

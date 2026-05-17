@@ -12,8 +12,8 @@ import (
 // drive GetByTopicExcept's union/dedup logic. The real matcher lives in
 // package livetemplate (topics.go) and cannot be imported here (import cycle) —
 // GetByTopicExcept takes the matcher as a parameter precisely so this layer is
-// testable in isolation. This is NOT a copy of the contributed segmentMatch;
-// it only needs to be correct enough to exercise the registry.
+// testable in isolation. This is NOT the root-package segmentMatch; it only
+// needs to be correct enough to exercise the registry's union/dedup.
 func testSegmentMatch(pattern, concrete string) bool {
 	p := strings.Split(pattern, "/")
 	c := strings.Split(concrete, "/")
@@ -101,11 +101,26 @@ func TestGetByTopicExcept_ExcludesSender(t *testing.T) {
 	}
 }
 
+// TestGetByTopicExcept_ExcludesSenderViaPattern pins sender exclusion when the
+// publisher matches only through a pattern (not the exact index) — the
+// exclude-vs-pattern interaction the exact-only ExcludesSender test misses.
+func TestGetByTopicExcept_ExcludesSenderViaPattern(t *testing.T) {
+	r := NewConnectionRegistry()
+	sender := &Connection{}
+	other := &Connection{}
+	r.SubscribeConnectionToTopic(sender, "room/*") // sender via pattern only
+	r.SubscribeConnectionToTopic(other, "room/*")
+
+	got := r.GetByTopicExcept("room/42", sender, testSegmentMatch)
+	if len(got) != 1 || got[0] != other {
+		t.Errorf("publisher matching via pattern must still be excluded; got %d conns, want [other]", len(got))
+	}
+}
+
 func TestUnregister_TopicGC(t *testing.T) {
 	r := NewConnectionRegistry()
-	// Bare Connection (no Register): relies on Close() nil-guarding its `done`
-	// channel — Unregister() calls conn.Close() and closing a nil channel
-	// would panic. Verified safe in the Phase 0 audit (registry.go Close()).
+	// Bare Connection (no Register): Unregister() calls conn.Close(), which
+	// nil-guards its `done` channel, so this is safe without a write pump.
 	conn := &Connection{}
 	r.SubscribeConnectionToTopic(conn, "room/42")
 	r.SubscribeConnectionToTopic(conn, "room/*")
@@ -163,8 +178,8 @@ func TestUnsubscribeConnectionFromTopic_NoOpWhenNotSubscribed(t *testing.T) {
 
 // TestGetByTopicExcept_EmptyRegistry locks the zero-subscriber path: a publish
 // to a topic nobody is subscribed to (fresh registry, both indexes empty) must
-// return an empty slice and never nil-panic — the very first real publish in
-// Phase 1 hits exactly this.
+// return an empty slice and never nil-panic — the first publish to an
+// unsubscribed topic hits exactly this.
 func TestGetByTopicExcept_EmptyRegistry(t *testing.T) {
 	r := NewConnectionRegistry()
 
@@ -217,9 +232,9 @@ func TestUnsubscribeConnectionFromTopic_DifferentTopicKeepsOthers(t *testing.T) 
 // contention. Each worker owns disjoint (conn, topic) pairs so the final state
 // is deterministic (every subscribe is matched by an unsubscribe → empty
 // registry), while a reader hammers GetByTopicExcept concurrently. Run with
-// -race. This validates Phase 0's lock discipline; it does NOT exercise the
-// subscribe-after-Unregister race (that is Phase 1's deferred concern — there
-// is no Unregister caller here).
+// -race. This validates the registry's lock discipline; it does NOT exercise a
+// subscribe-after-Unregister race (no Unregister caller here — that needs a
+// connection-liveness guard this layer does not yet have).
 func TestConcurrentTopicSubscription(t *testing.T) {
 	r := NewConnectionRegistry()
 	const workers, iters = 8, 200
