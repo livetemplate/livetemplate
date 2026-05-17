@@ -1,7 +1,7 @@
 # BroadcastAction Redesign — Live Progress Tracker
 
 **Canonical plan:** the §"Phased implementation plan (tracker)" section of `docs/proposals/broadcast-action-redesign-proposal.md` (the converged Publish/Subscribe spec, #415; read-only baseline).
-**This file:** the writable companion. Each implementation session updates it as its **first and last action**. The proposal section never mutates; all execution drift lives here.
+**This file:** the writable companion. Each implementation session (one phase at a time — typically a Claude Code session, per the multi-session model this loop is built for) updates it as its **first and last action**. The proposal section never mutates; all execution drift lives here.
 
 ---
 
@@ -37,7 +37,7 @@ Status values: `not started` → `in progress` → `blocked` → `complete`.
 2. Roll every surfaced scope item into the Ledger below.
 3. Update the Phase Status row: status → `complete`, fill the completed date + learnings-file check.
 4. If you discovered work that changes a later phase's scope, note it in that phase's row so the next session sees it before reading the plan.
-5. Commit nothing on the user's behalf without an explicit ask — but DO save WIP files.
+5. Do not create commits for this work without an explicit request; save WIP files (`phase-N.md` drafts) but leave them uncommitted.
 
 **If you block:** set status `blocked`, record the blocker in the row, write `phase-N-partial.md` with what was attempted and why it stalled.
 
