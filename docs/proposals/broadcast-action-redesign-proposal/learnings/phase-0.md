@@ -153,10 +153,30 @@ exactly as the spec's contingency intends).
   other `lvt:` string. (2) else `validateDeveloperTopic(topic)` (segment
   grammar). (3) else the ACL (deny-all default; only `SelfTopic()` exempt). The
   grammar is **never** applied to `lvt:` topics (it excludes `:`).
+  **Layering (must hold):** validation runs **in `ctx.Subscribe`, before** the
+  `registry.SubscribeConnectionToTopic` call — the registry methods deliberately
+  do **not** validate (reserved identity topics like `UserTopic`/`SelfTopic`
+  legitimately bypass `validateDeveloperTopic`; validating inside the registry
+  would wrongly reject them and double-validate developer topics). The registry
+  is the index; `ctx.Subscribe` is the gate.
+- **Bare `*` is spec-permitted (confirmed against the proposal — not a gap).**
+  A single-segment `*` pattern passes `validateDeveloperTopic` and matches any
+  *single-segment* concrete topic. Proposal §2 "Grammar": segments may be `*`
+  "any number of times" — one `*` segment is valid. It is **bounded** (does not
+  match multi-segment topics — count mismatch) and **ACL-gated** (deny-all
+  default; a bare-`*` developer subscribe still needs `WithTopicACL`/
+  `WithOpenTopics`). Adding a validator rejection would *contradict the spec
+  grammar* and pre-empt Phase 3's valve (which narrows the validator only for
+  non-trailing/multiple `*`, never bare `*`). No change; recorded so Phase 1
+  and reviewers don't re-litigate.
 - **`dispatchToTopic` (Phase 1) must inject the matcher:**
   `registry.GetByTopicExcept(concrete, excludeConn, segmentMatch)`. The registry
   cannot reach `segmentMatch` itself (import cycle) — passing it is the caller's
-  responsibility; nil + pattern subscribers = panic by design.
+  responsibility; nil + pattern subscribers = panic by design. *Optional
+  (Phase 1's call):* a named wrapper `func topicMatch(p, c string) bool { return
+  segmentMatch(p, c) }` at the single call site gives audits a stable grep
+  anchor; passing `segmentMatch` directly is also fine (it is itself a named,
+  greppable symbol). Phase 1 decides — recorded so the option isn't lost.
 - **⚠ Latent race Phase 1 MUST resolve: subscribe-after-Unregister leak.**
   `Unregister()` sets `conn.subscribedTopics = nil` and drops the conn from all
   indexes. `SubscribeConnectionToTopic` has **no** connection-liveness guard

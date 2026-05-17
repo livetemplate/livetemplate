@@ -156,6 +156,41 @@ func TestUnsubscribeConnectionFromTopic_NoOpWhenNotSubscribed(t *testing.T) {
 	}
 }
 
+// TestGetByTopicExcept_EmptyRegistry locks the zero-subscriber path: a publish
+// to a topic nobody is subscribed to (fresh registry, both indexes empty) must
+// return an empty slice and never nil-panic — the very first real publish in
+// Phase 1 hits exactly this.
+func TestGetByTopicExcept_EmptyRegistry(t *testing.T) {
+	r := NewConnectionRegistry()
+
+	if got := r.GetByTopicExcept("room/42", nil, testSegmentMatch); len(got) != 0 {
+		t.Errorf("empty registry GetByTopicExcept = %d conns, want 0", len(got))
+	}
+	// Exact-only present, no pattern subscribers — and vice versa — still safe.
+	r.SubscribeConnectionToTopic(&Connection{}, "other/topic")
+	if got := r.GetByTopicExcept("room/42", nil, testSegmentMatch); len(got) != 0 {
+		t.Errorf("no matching subscriber GetByTopicExcept = %d conns, want 0", len(got))
+	}
+}
+
+// TestUnsubscribeConnectionFromTopic_DifferentTopicKeepsOthers covers the
+// non-nil-map path the no-op test does not: a connection subscribed to A,
+// unsubscribing a different topic B it never held, must still receive A.
+func TestUnsubscribeConnectionFromTopic_DifferentTopicKeepsOthers(t *testing.T) {
+	r := NewConnectionRegistry()
+	conn := &Connection{}
+	r.SubscribeConnectionToTopic(conn, "room/A")
+
+	r.UnsubscribeConnectionFromTopic(conn, "room/B") // never subscribed to B
+
+	if got := r.GetByTopicExcept("room/A", nil, testSegmentMatch); len(got) != 1 {
+		t.Errorf("unsubscribing a different topic dropped room/A: got %d, want 1", len(got))
+	}
+	if _, ok := conn.subscribedTopics["room/A"]; !ok {
+		t.Error("subscribedTopics lost room/A after unsubscribing an unrelated topic")
+	}
+}
+
 func equalStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
