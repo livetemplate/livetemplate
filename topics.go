@@ -90,29 +90,15 @@ func isValidSegmentChar(b byte) bool {
 }
 
 // segmentMatch reports whether a subscription pattern matches a concrete
-// (publishable, "*"-free) topic.
+// ("*"-free) topic. Two load-bearing invariants (proposal §2); TestSegmentMatch
+// is the exhaustive executable spec:
+//   - Equal segment count is required — this is what bounds "*" to exactly one
+//     segment, never zero, never across "/". It is a topic-isolation boundary.
+//   - "*" matches one NON-EMPTY segment; guarded explicitly so the matcher is
+//     total even if a degenerate concrete bypasses validateDeveloperTopic.
 //
-// CONTRACT (proposal §2 "Matcher" / "Grammar"):
-//   - Split both arguments on "/" into segments.
-//   - The pattern matches ONLY IF both have the SAME segment count. Unequal
-//     counts never match — this is what makes "*" mean "exactly one segment,
-//     never zero, never across '/'": e.g. "room/*" (2) matches "room/42" (2)
-//     but NOT "room/42/log" (3) and NOT "room" (1).
-//   - For equal counts, the pattern matches iff EVERY pattern segment either
-//     is the literal "*" or is byte-equal to the concrete segment at the same
-//     index. Multiple "*" segments are independent ("a/*/b/*", "*/alice").
-//   - "*" matches exactly one NON-EMPTY segment: "*" must NOT match an empty
-//     concrete segment (the upstream grammar validator already rejects empty
-//     segments, but this matcher must be total and stay correct if a degenerate
-//     concrete is ever passed directly — decide how defensive to be here).
-//   - An all-literal pattern (no "*") is just exact equality, segment-wise.
-//   - No regexp, no trie/radix — a flat O(P) segment scan, by design.
-//
-// This is the GENERAL-case matcher (multi-"*": "a/*/b/*", "*/alice"), never
-// trailing-"*"-only — Phase 3's risk valve narrows only validateDeveloperTopic,
-// never this function. Split-and-compare is chosen over a manual two-cursor
-// walk: topics are short, so the two-slice allocation is negligible against the
-// readability of an explicit positional scan in a topic-isolation boundary.
+// General-case (multi-"*"): Phase 3's risk valve narrows validateDeveloperTopic,
+// never this function.
 func segmentMatch(pattern, concrete string) bool {
 	patternSegs := strings.Split(pattern, "/")
 	concreteSegs := strings.Split(concrete, "/")

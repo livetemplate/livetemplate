@@ -173,6 +173,22 @@ func TestGetByTopicExcept_EmptyRegistry(t *testing.T) {
 	}
 }
 
+// TestGetByTopicExcept_NilMatchSafeWhenNoPatterns documents the contract: a nil
+// match is safe iff there are no pattern subscribers (the pattern loop is
+// skipped, so match is never invoked). With pattern subscribers present, a nil
+// match panics by design (a loud programmer error — never a silent exact-only
+// degradation); that path is intentionally not exercised here.
+func TestGetByTopicExcept_NilMatchSafeWhenNoPatterns(t *testing.T) {
+	r := NewConnectionRegistry()
+	conn := &Connection{}
+	r.SubscribeConnectionToTopic(conn, "exact/only") // exact, no patterns indexed
+
+	got := r.GetByTopicExcept("exact/only", nil, nil) // nil match — must not panic
+	if len(got) != 1 {
+		t.Errorf("nil match with no pattern subscribers = %d conns, want 1", len(got))
+	}
+}
+
 // TestUnsubscribeConnectionFromTopic_DifferentTopicKeepsOthers covers the
 // non-nil-map path the no-op test does not: a connection subscribed to A,
 // unsubscribing a different topic B it never held, must still receive A.

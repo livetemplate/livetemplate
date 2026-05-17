@@ -169,6 +169,15 @@ exactly as the spec's contingency intends).
   grammar* and pre-empt Phase 3's valve (which narrows the validator only for
   non-trailing/multiple `*`, never bare `*`). No change; recorded so Phase 1
   and reviewers don't re-litigate.
+- **⚠ Phase 1: guard empty-`UserID` reserved topics.** `UserTopic("")` →
+  `"lvt:user:"` (the constructor is intentionally pure — proposal §5; no Phase 0
+  change). Phase 1's `ctx.Subscribe`/`SelfTopic()` MUST reject an empty-`UserID`
+  reserved subscribe before it reaches the registry, or `"lvt:user:"` could
+  match across anonymous connections. The spec already has the adjacent
+  invariant (proposal §1: anonymous `SelfTopic()` is `lvt:session:<GroupID>`,
+  never empty; an empty `SelfTopic()` from a misimplemented Authenticator is
+  logged `slog.Error`) — Phase 1 must additionally cover the out-of-band
+  `UserTopic("")` vector at the `Subscribe` gate.
 - **`dispatchToTopic` (Phase 1) must inject the matcher:**
   `registry.GetByTopicExcept(concrete, excludeConn, segmentMatch)`. The registry
   cannot reach `segmentMatch` itself (import cycle) — passing it is the caller's

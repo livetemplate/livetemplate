@@ -58,14 +58,9 @@ type Connection struct {
 	// Actions enqueued here are processed by the connection's select-based event loop.
 	DispatchChan chan *DispatchRequest
 
-	// subscribedTopics is this connection's pub/sub topic membership set — the
-	// GC root for topic cleanup on Unregister(). Topics are many-to-many (unlike
-	// GroupID/UserID), so the connection must carry its own subscription set;
-	// Unregister() walks it to remove this conn from the registry's byTopic/
-	// byTopicPattern indexes in O(t). Set semantics (idempotent): a repeated
-	// subscribe is one membership; a single unsubscribe clears it. Always
-	// accessed under ConnectionRegistry.mu (same discipline as byGroup/byUser),
-	// so it needs no separate lock. Lazily allocated on first subscribe.
+	// subscribedTopics is the GC root Unregister() walks to evict this conn from
+	// byTopic/byTopicPattern (no reverse index — topics are many-to-many).
+	// Accessed only under ConnectionRegistry.mu, so it needs no separate lock.
 	subscribedTopics map[string]struct{}
 }
 
@@ -528,14 +523,10 @@ func isPatternTopic(topic string) bool {
 
 // SubscribeConnectionToTopic adds conn to the registry index for topic.
 //
-// Exact topics (no "*") are indexed in byTopic; wildcard patterns in
-// byTopicPattern. Idempotent set semantics: a repeat subscribe to the same
-// topic is a no-op, so the index slice holds conn at most once per topic. This
-// per-connection membership is deliberately NOT the Phase-2 Redis-side
-// subscribedChannels ref-count (that collapses many distinct connections on one
-// instance to one Redis SUBSCRIBE — a multiplexing concern, not membership).
-// conn.subscribedTopics is the GC root Unregister() walks; it is lazily
-// allocated here.
+// Exact topics (no "*") go in byTopic; wildcard patterns in byTopicPattern.
+// Idempotent set semantics: a repeat subscribe is a no-op (the index slice
+// holds conn at most once per topic) — deliberately not a ref-count; see
+// phase-0.md. conn.subscribedTopics is lazily allocated here.
 func (r *ConnectionRegistry) SubscribeConnectionToTopic(conn *Connection, topic string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -596,7 +587,9 @@ func (r *ConnectionRegistry) GetByTopicExcept(concrete string, excludeConn *Conn
 	defer r.mu.RUnlock()
 
 	seen := make(map[*Connection]struct{})
-	result := make([]*Connection, 0, len(r.byTopic[concrete]))
+	// Cap hint covers exact + pattern subscribers so a pattern-heavy publish
+	// (few/no exact subscribers) doesn't realloc on the first pattern hit.
+	result := make([]*Connection, 0, len(r.byTopic[concrete])+len(r.byTopicPattern))
 
 	add := func(conns []*Connection) {
 		for _, conn := range conns {
