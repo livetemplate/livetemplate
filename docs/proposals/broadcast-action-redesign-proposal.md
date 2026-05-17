@@ -83,11 +83,13 @@ func (c *ChatCtl) Send(s S, ctx *livetemplate.Context) (S, error) {
 // Out-of-band (webhook / cron) — handler-level, no Context.
 handler.Publish(livetemplate.UserTopic("alice"), "DM", map[string]any{"from": "bob"})
 handler.Publish("auction/42", "BidUpdate", bidData)
-handler.Publish(livetemplate.GlobalTopic(), "Maintenance", map[string]any{"at": deadline})
+handler.Publish("announcements", "Maintenance", map[string]any{"at": deadline}) // a plain developer topic — see §2 "Global announcements"
 ```
 
-One concern, one code shape. Identity targeting (`SelfTopic()`, `UserTopic`, `SessionTopic`,
-`GlobalTopic`) is just a topic-name helper.
+One concern, one code shape. Identity targeting (`SelfTopic()`, `UserTopic`, `SessionTopic`) is
+just a topic-name helper. There is **no** built-in all-users primitive — an app-wide
+announcement is an ordinary developer topic the app defines and gates (see §2 "Global
+announcements without a built-in primitive").
 
 ## The reconciler method
 
@@ -139,9 +141,11 @@ The `Authenticator` supplies two identity values for every request (see
 - **Anonymous** (`UserID == ""`) → `lvt:session:<GroupID>`. Spans the tabs of that one
   browser session (use case B).
 
-These identity helpers (`SelfTopic()`, `UserTopic`, `SessionTopic`, `GlobalTopic`) are pure
-string constructors in the reserved `lvt:` namespace (see §2), usable from a Context or
-out-of-band.
+These identity helpers (`SelfTopic()`, `UserTopic`, `SessionTopic`) are pure string
+constructors in the reserved `lvt:` namespace (see §2), usable from a Context or out-of-band.
+They target a *bounded* identity (one user, one session) — there is deliberately **no**
+`GlobalTopic()` / all-users primitive (see §2 "Global announcements without a built-in
+primitive" and Appendix B for why).
 
 ## Use cases (exhaustive enumeration)
 
@@ -154,7 +158,7 @@ out-of-band.
 | E | Anonymous-readable topic (auction bids, ticker) | Same + ACL allows / `WithOpenTopics()`. |
 | F | Server push to one user (webhook/cron) | `handler.Publish(livetemplate.UserTopic("alice"), "DM", data)`. |
 | G | Server push to one topic | `handler.Publish("auction/42", "BidUpdate", data)`. |
-| H | Global announcement | Subscribers `ctx.Subscribe(livetemplate.GlobalTopic())`; `handler.Publish(livetemplate.GlobalTopic(), "Maintenance", data)`. |
+| H | Global announcement (app-wide) | A plain developer topic, **not** a built-in primitive: define e.g. `"announcements"`, allow it in `WithTopicACL`, `ctx.Subscribe("announcements")` in Mount, `handler.Publish("announcements", "Maintenance", data)`. The app consciously constructs and gates the all-users channel — see §2 "Global announcements without a built-in primitive". |
 | I | Sender exclusion (originating tab updates via its own action response) | The calling connection is excluded from its own `Publish` by default. Preserved. |
 | J | HTTP POST mutating state, fan out to peer WS connections | After the action, `ctx.Publish(ctx.SelfTopic(), "Reload", …)` runs regardless of transport; WS subscribers reconcile, the POST gets its normal response. |
 | K | Per-connection state that should *not* sync (collapsed-panel flag, draft text) | **Default, correct by construction.** The reconciler writes only shared fields; per-connection fields in each receiver's *own* state are never written, so they survive. No tag, no merge, no API. |
@@ -298,21 +302,58 @@ payload exactly this way; the implementation inherits the behavior.
 
 **Out-of-band (webhook/cron):** `handler.Publish(topic, action, data)` — same primitive, no
 `Context`. Identity helpers are pure string constructors usable anywhere:
-`livetemplate.UserTopic(userID)`, `livetemplate.SessionTopic(groupID)`,
-`livetemplate.GlobalTopic()`.
+`livetemplate.UserTopic(userID)`, `livetemplate.SessionTopic(groupID)`. An app-wide
+announcement is a plain developer topic (`handler.Publish("announcements", …)`) — there is no
+`GlobalTopic()` helper (see "Global announcements without a built-in primitive" below).
 
 **Reserved `lvt:` namespace + anti-spoof (security, baked in — not optional).**
 Identity-derived topics live under the reserved `lvt:` prefix. `Subscribe` **rejects** any
-`lvt:`-prefixed topic that is not the caller's own `SelfTopic()` or `GlobalTopic()` — a
-connection cannot subscribe to another user's `lvt:user:<x>`. Developer topic names must not
-start with `lvt:`. **Exact-equality, not prefix-equality (security-critical):** the match
-against `SelfTopic()`/`GlobalTopic()` is *string-exact*. A wildcard or pattern form in the
-reserved namespace — e.g. `lvt:user:alice*` even when `alice` is the caller — is **rejected**:
-it is not the exact `SelfTopic()` string, and prefix-equality would let `lvt:user:alice*`
-capture `lvt:user:alice2`/`lvt:user:aliceXYZ` and expose other users whose IDs share a prefix.
-Wildcards (below) apply **only** to developer (non-`lvt:`) topics; the `lvt:` namespace admits
-exact self/global strings and nothing else. The anonymous self-topic is therefore the specific
-non-empty `GroupID`, never an empty key matching all anonymous connections.
+`lvt:`-prefixed topic that is not the caller's own `SelfTopic()` — a connection cannot
+subscribe to another user's `lvt:user:<x>`. Developer topic names must not start with `lvt:`.
+**Exact-equality, not prefix-equality (security-critical):** the match against `SelfTopic()` is
+*string-exact*. A wildcard or pattern form in the reserved namespace — e.g. `lvt:user:alice*`
+even when `alice` is the caller — is **rejected**: it is not the exact `SelfTopic()` string,
+and prefix-equality would let `lvt:user:alice*` capture `lvt:user:alice2`/`lvt:user:aliceXYZ`
+and expose other users whose IDs share a prefix. Wildcards (below) apply **only** to developer
+(non-`lvt:`) topics; the `lvt:` namespace admits exactly one string — the caller's own
+`SelfTopic()` — and nothing else. The anonymous self-topic is therefore the specific non-empty
+`GroupID`, never an empty key matching all anonymous connections.
+
+**Global announcements without a built-in primitive.** There is deliberately **no**
+`GlobalTopic()` / all-users helper (Appendix B records why: an ACL-exempt, all-users, ungated
+broadcast is the highest-blast-radius footgun). An app-wide channel is built explicitly from
+the ordinary primitives, which forces the developer to *consciously construct and gate* it:
+
+```go
+// 1. Gate it like any developer topic (deny-all default; this is the conscious opt-in).
+template := livetemplate.New("app",
+    livetemplate.WithTopicACL(func(topic, userID string, r *http.Request) (bool, error) {
+        if topic == "announcements" {
+            return true, nil   // anyone may *receive* announcements (read-only intent)
+        }
+        // … other topics …
+        return false, fmt.Errorf("unknown topic: %s", topic)
+    }))
+
+// 2. Subscribe in Mount (reconnect-durable).
+func (c *Ctl) Mount(s S, ctx *livetemplate.Context) (S, error) {
+    if err := ctx.Subscribe("announcements"); err != nil { return s, err }
+    return s, nil
+}
+
+// 3. Publish from trusted server code only (webhook/cron/admin path).
+handler.Publish("announcements", "Maintenance", map[string]any{"at": deadline})
+```
+
+This is intentionally a few more lines than a built-in `GlobalTopic()` call. The cost *is* the
+feature: the all-users reach now has an explicit ACL entry (who may subscribe), an explicit
+publish site you can grep for and scope (who may broadcast), and no special ACL-exemption
+carve-out. **Send-side discipline still applies:** `Publish` runs no ACL (§3), so the
+`handler.Publish("announcements", …)` call site must live in trusted/admin code — scope it the
+way you'd scope a "send to all users" capability. The deny-all ripple is normal here: under
+deny-all the `"announcements"` subscribe needs the `WithTopicACL` entry above (or
+`WithOpenTopics()`), exactly like every other developer topic — the docs maintenance-banner
+recipe must include that entry.
 
 **Subscription is server-driven.** `Subscribe` is called from controller code (`Mount`/
 actions); the client sends no subscribe message. On WS reconnect the server re-runs `Mount`,
@@ -343,12 +384,11 @@ func (c *Ctl) Mount(s S, ctx *livetemplate.Context) (S, error) {
     if err := ctx.Subscribe("room/" + s.RoomID); err != nil {
         return s, err
     }
-    // ACL-exempt subscription: SelfTopic()/GlobalTopic() never hit the ACL,
-    // so the return is ignored. The one non-ACL failure — an empty SelfTopic()
-    // from a misimplemented Authenticator (§1 invariant) — is logged loudly
-    // via slog.Error at the SelfTopic() site, so this ignored return is safe.
+    // ACL-exempt subscription: SelfTopic() never hits the ACL, so the return
+    // is ignored. The one non-ACL failure — an empty SelfTopic() from a
+    // misimplemented Authenticator (§1 invariant) — is logged loudly via
+    // slog.Error at the SelfTopic() site, so this ignored return is safe.
     _ = ctx.Subscribe(ctx.SelfTopic())
-    _ = ctx.Subscribe(livetemplate.GlobalTopic())
     return s, nil
 }
 ```
@@ -368,7 +408,7 @@ ctx.Subscribe("*/alice")                      // alice in any namespace
 ctx.Publish("room/42", "NewMessage", data)    // reaches room/* subscribers + room/42 subscribers
 ```
 
-- **Grammar (developer topics only).** Canonical separator `/` (HTTP-path convention). A topic is a non-empty sequence of segments; each segment is either a literal in `[a-zA-Z0-9_-]+` or the single character `*`. Concrete (publishable) topics contain no `*`; subscription patterns may use `*` for any whole segment, any number of times (`room/*`, `room/*/log`, `*/alice`, `a/*/b/*`). `*` matches **exactly one non-empty segment** — never zero, never a partial segment (`ro*m` is invalid), never across `/`. This grammar **excludes `:`**, so it does **not** describe `lvt:`-namespace topics (`lvt:user:<id>` contains `:`). The two are validated separately and order matters: `Subscribe` runs the **reserved-namespace validator first** — an `lvt:`-prefixed argument is admitted only by *exact* string equality to the caller's `SelfTopic()`/`GlobalTopic()` (every other `lvt:` string rejected); the segment grammar applies **only to non-`lvt:` developer topics**. So `Subscribe(ctx.SelfTopic())` passes the reserved-namespace check and is never measured against this grammar. The Redis transport keeps its `livetemplate:topic:` channel prefix; the slash stays literal in the channel suffix. **Minimum-viable subset (implementation risk valve):** of these shapes only a single trailing `*` (`room/*`) is *strictly required* by the documented v1 use cases (C/D/E room-chat — one wildcard segment avoids N concrete subscriptions per connection). The deeper shapes (`room/*/log`, `*/alice`, `a/*/b/*`) fall out of the same segment matcher at no extra implementation cost and are the v1 target; but if Phase 3 pressure mounts they can be deferred by tightening *only* this grammar validator to reject non-trailing or multiple `*` — no other spec change, no use-case impact. **This valve composes only because Phase 0 implements the general-case `segmentMatch`/`byTopicPattern`** (not a trailing-`*`-only matcher): with the general matcher already in place, restricting the *validator* is sufficient and self-contained. Matcher, registry, and cross-instance machinery are written for the general case regardless (see Phase 0) — do not narrow them to trailing-`*`.
+- **Grammar (developer topics only).** Canonical separator `/` (HTTP-path convention). A topic is a non-empty sequence of segments; each segment is either a literal in `[a-zA-Z0-9_-]+` or the single character `*`. Concrete (publishable) topics contain no `*`; subscription patterns may use `*` for any whole segment, any number of times (`room/*`, `room/*/log`, `*/alice`, `a/*/b/*`). `*` matches **exactly one non-empty segment** — never zero, never a partial segment (`ro*m` is invalid), never across `/`. This grammar **excludes `:`**, so it does **not** describe `lvt:`-namespace topics (`lvt:user:<id>` contains `:`). The two are validated separately and order matters: `Subscribe` runs the **reserved-namespace validator first** — an `lvt:`-prefixed argument is admitted only by *exact* string equality to the caller's `SelfTopic()` (every other `lvt:` string rejected); the segment grammar applies **only to non-`lvt:` developer topics**. So `Subscribe(ctx.SelfTopic())` passes the reserved-namespace check and is never measured against this grammar. The Redis transport keeps its `livetemplate:topic:` channel prefix; the slash stays literal in the channel suffix. **Minimum-viable subset (implementation risk valve):** of these shapes only a single trailing `*` (`room/*`) is *strictly required* by the documented v1 use cases (C/D/E room-chat — one wildcard segment avoids N concrete subscriptions per connection). The deeper shapes (`room/*/log`, `*/alice`, `a/*/b/*`) fall out of the same segment matcher at no extra implementation cost and are the v1 target; but if Phase 3 pressure mounts they can be deferred by tightening *only* this grammar validator to reject non-trailing or multiple `*` — no other spec change, no use-case impact. **This valve composes only because Phase 0 implements the general-case `segmentMatch`/`byTopicPattern`** (not a trailing-`*`-only matcher): with the general matcher already in place, restricting the *validator* is sufficient and self-contained. Matcher, registry, and cross-instance machinery are written for the general case regardless (see Phase 0) — do not narrow them to trailing-`*`.
 - **Matcher.** A flat segment matcher: split pattern and concrete topic on `/`; require **equal segment count**; each pattern segment matches iff it is `*` or string-equal to the concrete segment. No regex, **no trie/radix index** — a linear O(P) scan over distinct patterns (segment compare each) is the matcher, by design; it is adequate for the expected pattern counts (validated by §"Benchmarks"). Exact lookup stays O(1).
 - **No precedence rule needed.** Delivery is a **deduped union by connection identity**: a publish to concrete `room/42` reaches `union(byTopic["room/42"], { conns in byTopicPattern[p] : segmentMatch(p, "room/42") })`. A connection matching the publish via several of its *own* patterns (e.g. it holds both `room/*` and `*/42`) still receives **exactly one** dispatch. Because we union connections (not pick a pattern), there is no "most-specific pattern wins" rule to specify.
 - **Registry.** Add `byTopicPattern map[string][]*Connection` alongside the exact `byTopic` map. `GetByTopicExcept(concrete, excludeConn)` returns the deduped union above. Pattern scan is O(P) over distinct patterns; exact lookup stays O(1).
@@ -428,21 +468,15 @@ result is order-independent: `New("app", WithOpenTopics(), WithTopicACL(fn))` an
 added at `With*()`-time (that would make it order-dependent and surprising). Discovery path:
 `Subscribe` with no config → `ErrTopicForbidden` → you learn you must configure one.
 
-**Self/global topics are ACL-exempt — with different rationales.** `ctx.SelfTopic()` is exempt
-because you are inherently authorized for your own identity's topic, and the reserved-namespace
-rule already prevents subscribing to anyone else's. `livetemplate.GlobalTopic()` is exempt for
-a *different* reason: it is read-only-from-the-client (subscribing only means "I will receive
-global announcements" — benign) and exempting it keeps maintenance-banner recipes working under
-deny-all. The ACL only gates developer-named (non-`lvt:`) topics; deny-all never breaks
-self-sync. **Caution (must land in the docs):** `GlobalTopic()` is ACL-exempt **and** its
-fan-out is *every connected user* — only call `Subscribe(livetemplate.GlobalTopic())` in
-controllers genuinely designed to receive global announcements, and treat
-`handler.Publish(livetemplate.GlobalTopic(), …)` as the highest-blast-radius call in the API.
-It is not a convenient "broadcast to lots of people" shortcut. **Corollary:** because
-`handler.Publish` is ACL-exempt (trusted server code), *any* server-side code path holding a
-`handler` reference can fan out to **every connected user** via `GlobalTopic()` with zero
-gating. Treat `handler` access as equivalent to "may broadcast to all users" and scope who can
-call it accordingly (see §"Design constraints" → "Global fan-out").
+**The self topic is the only ACL-exempt topic.** `ctx.SelfTopic()` is exempt because you are
+inherently authorized for your own identity's topic, and the reserved-namespace rule already
+prevents subscribing to anyone else's. The ACL gates **every** developer-named (non-`lvt:`)
+topic, with no carve-out — including the `"announcements"`-style channel that replaces the
+removed `GlobalTopic()` (§2 "Global announcements without a built-in primitive"): an app-wide
+channel must be explicitly allowed in `WithTopicACL` like any other topic. Deny-all therefore
+never breaks self-sync, but it *does* (correctly) require a conscious ACL entry for any
+all-users channel — that gate is the point. There is no longer any topic whose subscribe side
+is ungated.
 
 **Wire-format note (client surface).** An ACL denial on the WS-connect path makes `Mount`
 return an error the current TS client cannot distinguish from a generic connection failure. The
@@ -512,13 +546,13 @@ dead code; ones that re-read shared data become the reconciler. Grep both `Refre
 ### 5. Final API surface
 
 **On `*Context`:**
-- `ctx.Subscribe(topic string) error` — wildcard segment `*` allowed; ACL deny-all default except self/global; no-op subscription on HTTP GET (ACL still runs).
+- `ctx.Subscribe(topic string) error` — wildcard segment `*` allowed; ACL deny-all default, exempt **only** for `ctx.SelfTopic()`; no-op subscription on HTTP GET (ACL still runs).
 - `ctx.Unsubscribe(topic string)`.
 - `ctx.Publish(topic string, action string, data map[string]any) error` — invoke `action(data)` on each subscriber; calling connection excluded by default.
 - `ctx.SelfTopic() string` — `lvt:user:<UserID>` if authenticated, else `lvt:session:<GroupID>`. ACL-exempt; reserved namespace.
 
 **Package-level (usable from anywhere, incl. webhook/cron):**
-- `livetemplate.UserTopic(userID) string`, `livetemplate.SessionTopic(groupID) string`, `livetemplate.GlobalTopic() string` — pure reserved-name constructors.
+- `livetemplate.UserTopic(userID) string`, `livetemplate.SessionTopic(groupID) string` — pure reserved-name constructors (bounded per-identity; no all-users `GlobalTopic()`, see "Removed").
 
 **On `LiveHandler`:**
 - `handler.Publish(topic, action, data)` — out-of-band, no `Context`.
@@ -528,8 +562,13 @@ dead code; ones that re-read shared data become the reconciler. Grep both `Refre
 - `WithOpenTopics()` — opt into permissive topics; mutually exclusive with `WithTopicACL`; required because the default is deny-all.
 
 **Removed:** `ctx.BroadcastAction`; `ctx.SkipPeerSync`; `WithImplicitSyncDisabled`;
-`handler.BroadcastToUser`; `handler.BroadcastGlobal` (now `Publish` to `UserTopic`/
-`GlobalTopic`); the `lvt:"local"` tag and its merge machinery; render-only dispatch mode;
+`handler.BroadcastToUser` (now `Publish` to `UserTopic`); `handler.BroadcastGlobal` **and the
+`livetemplate.GlobalTopic()` helper** — there is no built-in all-users primitive; an app-wide
+announcement is an explicit, ACL-gated developer topic (§2 "Global announcements without a
+built-in primitive", Appendix B). Rationale: an ACL-exempt + all-users + ungated broadcast is
+the highest-blast-radius footgun (it required a whole "severe" constraint to mitigate);
+explicit construction + gating is the only honest way to expose the capability. Also removed:
+the `lvt:"local"` tag and its merge machinery; render-only dispatch mode;
 `GetByUserExcept`; the `RenderInvalidation` message type and the
 `livetemplate:render:{groupID}` channel; the userID-vs-groupID fan-out scope rule; the
 render-fan-out coalescing-bounds design.
@@ -569,8 +608,8 @@ copy-pasted) → 4. `lvt` pin bump + `ReloadClients()` rename → 5. `examples` 
 
 ## Critical files to modify
 
-- `context.go` — add `Subscribe`, `Unsubscribe`, `Publish`, `SelfTopic`; reuse the existing `broadcasts []broadcastRequest` slice pattern for a `topicPublishes` queue (drained after the action like `processBroadcasts`). `Subscribe`'s validation order (must be exactly this): **(1)** reserved-namespace validator — if the argument is `lvt:`-prefixed, accept only on *exact* equality to the caller's `SelfTopic()`/`GlobalTopic()`, reject every other `lvt:` string (anti-spoof); **(2)** for non-`lvt:` (developer) topics only, the segment grammar (segments of `[a-zA-Z0-9_-]+` or `*`, `/`-separated); **(3)** the ACL (deny-by-default; self/global exempt) before recording. The developer grammar is **never** applied to `lvt:` topics (it excludes `:` — see §2 "Grammar").
-- package file (e.g. `topics.go`) — `UserTopic`/`SessionTopic`/`GlobalTopic` constructors + a shared reserved-namespace validator used by both `Subscribe` and the constructors; the segment-grammar validator; the segment matcher (`segmentMatch(pattern, concrete) bool` — split on `/`, equal count, per-segment `*`-or-equal).
+- `context.go` — add `Subscribe`, `Unsubscribe`, `Publish`, `SelfTopic`; reuse the existing `broadcasts []broadcastRequest` slice pattern for a `topicPublishes` queue (drained after the action like `processBroadcasts`). `Subscribe`'s validation order (must be exactly this): **(1)** reserved-namespace validator — if the argument is `lvt:`-prefixed, accept only on *exact* equality to the caller's `SelfTopic()`, reject every other `lvt:` string (anti-spoof); **(2)** for non-`lvt:` (developer) topics only, the segment grammar (segments of `[a-zA-Z0-9_-]+` or `*`, `/`-separated); **(3)** the ACL (deny-by-default; **only `SelfTopic()` exempt** — no global carve-out) before recording. The developer grammar is **never** applied to `lvt:` topics (it excludes `:` — see §2 "Grammar").
+- package file (e.g. `topics.go`) — `UserTopic`/`SessionTopic` constructors (**no `GlobalTopic`** — removed) + a shared reserved-namespace validator used by both `Subscribe` and the constructors; the segment-grammar validator; the segment matcher (`segmentMatch(pattern, concrete) bool` — split on `/`, equal count, per-segment `*`-or-equal).
 - `config.go` / builder — `WithTopicACL(fn)` and `WithOpenTopics()`; both-set is a hard error raised **at `New(...)`** (order-independent), not at `With*()`-call time; neither set = deny-all.
 - `mount.go` — add `dispatchToTopic` next to `dispatchBroadcastToGroup` (reuse the registry-lookup + `EnqueueDispatch` shape); wire the post-action drain of `topicPublishes`; reuse the existing recursion guard (grep `BroadcastAction calls inside a dispatched action are ignored`) so a `Publish` inside a dispatched action is logged-and-dropped. **No** `dispatchPeerSyncToUser`, **no** render-only handler, **no** `RenderInvalidation`.
 - `internal/parse/` (+ a read-only accessor on `*Template`/handler) — **new (small):** during parse, collect the set of action names **wired to a client element**, defined precisely as: a `name=` attribute on a `<form>`/`<button>`/submit `<input>`; an `lvt-on:<event>="Action"` handler; and any other `lvt-*` attribute whose value the parser routes to `DispatchWithState`. The implementation MUST pin this to the exact `internal/parse/` node types it walks (so the `V19` test asserts a fixed set, not a moving target); at minimum it covers form/button `name=` and `lvt-on:`, and the implementation PR enumerates the full `lvt-*` action-bearing set there. Expose the set read-only for the `Publish`-time symmetry-collision lookup (§"Design constraints" → "Dispatch symmetry"). No public API; an internal accessor only. The parser does not track this today, so this is a small new parse-layer pass — it is the one place the symmetry guard's cost lands.
@@ -616,9 +655,9 @@ each to its runnable test.
 3. **Per-connection field preserved (K).** Same as test 1; Tab 1 also mutates a per-connection field that the `Reload` reconciler does **not** write. Assert Tab 2's shared field updates while Tab 2's own per-connection field is unchanged. No tag involved — it works because `Reload` is selective.
 4. **Cross-user topic, public.** Two anon tabs `Subscribe("public/feed")` (under `WithOpenTopics()`); one `Publish`es; the other's handler runs. Confirms E.
 5. **Topic ACL, denied.** `WithTopicACL` returns `(false, nil)` for `"private/admin"`; `Subscribe("private/admin")` → `ErrTopicForbidden`. Confirms D.
-6. **Self/global ACL-exempt under deny-all.** No `WithTopicACL`, no `WithOpenTopics()`: `Subscribe(ctx.SelfTopic())` and `Subscribe(livetemplate.GlobalTopic())` succeed; `Subscribe("room/1")` → `ErrTopicForbidden`.
+6. **Self is the only ACL-exempt topic under deny-all.** No `WithTopicACL`, no `WithOpenTopics()`: `Subscribe(ctx.SelfTopic())` succeeds; **both** `Subscribe("announcements")` and `Subscribe("room/1")` → `ErrTopicForbidden` (no global carve-out — an all-users channel needs an explicit ACL allow).
 7. **Reserved-namespace anti-spoof.** Connection for user `bob` calling `Subscribe(livetemplate.UserTopic("alice"))` (i.e. `lvt:user:alice`) is rejected. Any non-self `lvt:`-prefixed `Subscribe` is rejected.
-8. **Out-of-band.** Goroutine without a Context: `handler.Publish(livetemplate.UserTopic("alice"), "DM", data)` runs alice's `DM`; `handler.Publish(livetemplate.GlobalTopic(), "Maint", data)` reaches global subscribers. Confirms F/H.
+8. **Out-of-band.** Goroutine without a Context: `handler.Publish(livetemplate.UserTopic("alice"), "DM", data)` runs alice's `DM`; `handler.Publish("announcements", "Maint", data)` reaches every connection that subscribed to the ACL-allowed `"announcements"` developer topic. Confirms F/H (H now via an explicit gated topic, not a built-in primitive).
 9. **Cross-instance.** Two `liveHandler`s behind a shared `RedisBroadcaster`. `Publish` on instance A reaches a subscriber on instance B over the single `livetemplate:topic:{name}` channel.
 10. **Sender exclusion.** The connection that calls `Publish` does not receive its own dispatch (use case I).
 11. **Recursion guard.** A handler invoked via `Publish` calls `Publish` again → logged-and-dropped.
@@ -646,7 +685,7 @@ pass on CI (§"Cross-cutting").
 - **Fan-out backpressure is drop-on-overflow (intentional, not new).** `Publish`'s local fan-out enqueues via `Connection.EnqueueDispatch`, which is non-blocking and **drops** on a full per-connection buffer. A single `Publish` to a high-cardinality topic (or a broad wildcard) can therefore silently drop the dispatch to a slow connection. This is the **identical** behavior `BroadcastAction` already has (not a regression) and is surfaced by the existing `wsBufferFull` / `wsSlowClientCloses` metrics; tuning is `WithWebSocketBufferSize` / `LVT_WS_BUFFER_SIZE`. Documented here so implementors treat it as the accepted, pre-existing model — not a new problem to solve in this work.
 - **Dispatch symmetry — naming hazard (severe).** Because topic dispatch and user-action dispatch share one resolver (§2), `Publish(topic, "Delete", …)` invokes the *same* `Delete` method a `<button name="Delete">` triggers — on **every subscribed peer**. A topic action accidentally named after a destructive user action means one server-side `Publish` mutates/deletes records for every connected viewer. v1 mitigations: name topic actions for the *receiver's* reaction (`Reload`, `NewMessage`, `PresenceChanged`), never after a sender-side mutation; the one-hop recursion guard bounds cascades but not the first hop. **Runtime countermeasure (v1 hard requirement — MUST, not advisory):** because naming conventions are violated eventually — especially in copy-pasted scaffolds — `Publish` **MUST** emit `slog.Warn("Publish action name collides with a client-wired action", "action", a, "topic", t)` when the `action` string matches a method the template parser also wired to a client element (precise definition — form/button `name=`, `lvt-on:`, other `lvt-*` action attributes — pinned to exact parse node types in §"Critical files"). A check against *any* controller method would be all-noise (every valid topic action — `Reload`, `NewMessage` — *is* a controller method); the warning is meaningful only against the set of names **wired to a client element**, which the parser does not track today, so it requires the small new parse-layer pass scoped in §"Critical files" (`internal/parse/`) and Phase 1, gated by `V19`. No public API change. Warn, not error — no false positives on intentional symmetric use; it stays a signal, not a block. This converts the highest-blast-radius footgun from "docs-only discipline" to "loud at runtime the first time it happens in dev"; the docs rewrite must surface it as a named warning, not a buried paragraph.
 - **Cross-instance exactly-once.** A dual-subscribed connection (exact `room/42` + pattern `room/*`) must receive exactly one dispatch per `Publish` even though Redis fires the `SUBSCRIBE` and `PSUBSCRIBE` deliveries separately. The mechanism: dedup by the envelope's collision-free `(instanceID, seq)` message id (per-instance monotonic `seq`; `timestamp` is **not** the key — it is not unique for same-instance same-tick publishes) inside the existing single `processMessages` pump (deliveries are serialized there — no goroutine coordination needed in this codebase), *before* registry resolution/enqueue — never by trusting Redis or `DispatchChan` to dedupe. The `PSUBSCRIBE` MUST be on the same `*redis.PubSub` instance the pump reads (§2 "Cross-instance"). Gated by `V17`.
-- **Global fan-out is ungated server-side (severe).** `livetemplate.GlobalTopic()` is ACL-exempt for `Subscribe` (benign — opt-in to announcements) *and* `handler.Publish` is ACL-exempt (trusted server code). The combination: **any** code path holding a `handler` reference can fan out to **every connected user** via `handler.Publish(livetemplate.GlobalTopic(), …)` with zero topic-layer gating. Concrete failure mode: an admin-only webhook whose `handler` leaks into a non-admin code path can trigger an app-wide broadcast. **`ctx.Publish` is equally capable:** it runs no ACL either (§3), and it is available to *any* controller action — a regular authenticated user invoking an action that calls `ctx.Publish(livetemplate.GlobalTopic(), …)` fans out to **every connected user**. Treat *both* `handler` access **and** any `ctx.Publish(GlobalTopic()/UserTopic(other), …)` in an action as a "broadcast to all/that user" capability: send-side gating (a role/permission check **inside the action, before the `Publish` call**) is required — the topic layer provides no brake. Scope who can reach such code paths like a "send to all" admin capability.
+- **Publish is send-side ungated — gate it in the caller (bounded, no longer "severe").** Neither `ctx.Publish` nor `handler.Publish` runs the ACL (§3): the Subscribe-time ACL gates *who reads* a topic, not who sends. Removing `GlobalTopic()` (see §2 / Appendix B) eliminated the all-users variant of this — there is no built-in topic that reaches every connected user. The residue is bounded: `ctx.Publish(livetemplate.UserTopic(other), …)` or a publish to an app-wide `"announcements"`-style topic reaches, respectively, one other identity or exactly the connections the app's own ACL admitted to that topic — not the whole user base by construction. Still, a publish to a cross-identity/announcement topic is a privileged action: put the role/permission check **inside the action, before the `Publish` call**, and keep the `handler.Publish("announcements", …)` site in trusted/admin code. The blast radius is now whatever the app's ACL deliberately allowed onto that topic — which is the design intent: the gate is explicit and owned by the app, not an ungated framework primitive.
 
 ## Benchmarks required before implementation finalizes
 
@@ -669,13 +708,13 @@ the *engineering* sequence. They agree — Phases 0–5 are the `livetemplate`/`
 
 ### Phase 0 — Foundations (pure additions, no behavior wired)
 - [ ] `internal/session/registry.go`: add `byTopic` + `byTopicPattern map[string][]*Connection`; `SubscribeConnectionToTopic` / `UnsubscribeConnectionFromTopic` / `GetByTopicExcept` (deduped exact∪pattern union); wire both maps into the existing `Unregister()` cleanup path.
-- [ ] New `topics.go`: `UserTopic`/`SessionTopic`/`GlobalTopic` constructors; shared reserved-`lvt:` namespace validator; segment-grammar validator (segments of `[a-zA-Z0-9_-]+` or `*`, `/`-separated; multi-`*` allowed); `segmentMatch(pattern, concrete)` matcher (split on `/`, equal count, per-segment `*`-or-equal — no regex, no trie).
+- [ ] New `topics.go`: `UserTopic`/`SessionTopic` constructors (**no `GlobalTopic`** — there is no all-users primitive); shared reserved-`lvt:` namespace validator; segment-grammar validator (segments of `[a-zA-Z0-9_-]+` or `*`, `/`-separated; multi-`*` allowed); `segmentMatch(pattern, concrete)` matcher (split on `/`, equal count, per-segment `*`-or-equal — no regex, no trie).
 - [ ] Optional forward-compat `DispatchRequest.Kind` placeholder (single `KindAction`, zero-valued).
 - **Gate:** registry + helper **unit** tests green (subscribe/unsubscribe, dedup union, `Unregister` cleanup, grammar/namespace edge cases, segment matcher incl. multi-segment, segment-count mismatch, `*/x` and `a/*/b/*`). No e2e yet.
 
 ### Phase 1 — Context API + ACL (single instance, no Redis)
 - [ ] `context.go`: `Subscribe`/`Unsubscribe`/`Publish`/`SelfTopic`; `topicPublishes` queue (reuse the `broadcasts []broadcastRequest` slice pattern).
-- [ ] `config.go`/builder: `WithTopicACL(fn)` + `WithOpenTopics()`; both-set = hard error at `New(...)`; neither = deny-all; self/global ACL-exempt.
+- [ ] `config.go`/builder: `WithTopicACL(fn)` + `WithOpenTopics()`; both-set = hard error at `New(...)`; neither = deny-all; **only `SelfTopic()` ACL-exempt** (no global carve-out).
 - [ ] `mount.go`: `dispatchToTopic` (local fan-out via `EnqueueDispatch`, reusing `dispatchBroadcastToGroup`'s shape); drain `topicPublishes` at the `processBroadcasts` post-action site (preserves persist-before-publish ordering); reuse the existing recursion guard; `Subscribe`-on-HTTP-GET no-op with ACL still eager.
 - [ ] `internal/parse/` + accessor: collect client-wired action names; `Publish` emits the `slog.Warn` symmetry-collision log on a wired-name match (§"Design constraints"). Required in Phase 1 because the guard is part of `Publish`.
 - **Gate:** `V1`–`V7`, `V10`–`V12`, `V16`, `V19` green. Single-instance only.
@@ -740,6 +779,7 @@ to implement the spec.
 - **Single trailing `*` only.** Superseded: multi-segment wildcards (`room/*/log`, `*/alice`, `a/*/b/*`) are in v1 (body §2). The matcher remains a flat O(P) segment scan — no trie/radix index, no glob engine.
 - **`Publish` debounce/coalesce helper.** Rejected: fan-out is always explicit; debouncing is the developer's call at the call site.
 - **`GroupID` field reuse for the topic envelope.** Rejected in favor of a new `Topic` field: repurposing `GroupID` to carry a topic leaves a permanently misnamed wire field.
+- **A built-in `GlobalTopic()` / all-users primitive.** Rejected (maintainer call, 2026-05-17). An ACL-exempt, all-users, send-ungated broadcast is the highest-blast-radius footgun in the API — it accreted a "severe" Design constraint, repeated cautions, and (round 4) a `ctx.Publish` extension; a feature that needs that much warning is the wrong shape. The capability is preserved but made *explicit and gated*: an app-wide announcement is an ordinary developer topic (`"announcements"`) the app must allow in `WithTopicACL` and publish from trusted code (§2 "Global announcements without a built-in primitive"). The extra lines are the feature — conscious construction + an explicit ACL entry + a greppable publish site, instead of an ungated framework primitive. Self-sync keeps its single, defensible exemption (`SelfTopic()` — your own identity); there is no longer any ungated-subscribe topic.
 
 ### C. Pre-implementation audit (2026-05-15)
 
