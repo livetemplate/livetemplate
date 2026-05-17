@@ -575,7 +575,21 @@ render-fan-out coalescing-bounds design.
 
 **Unchanged:** `Session` interface and `Session.TriggerAction` (still valid for goroutines
 holding a captured Session; orthogonal to topics — it dispatches to one session, not a topic);
-`Authenticator`; all base PubSub interfaces.
+`Authenticator`; all base PubSub interfaces — including `pubsub.Broadcaster.PublishGlobal`.
+
+**`pubsub.Broadcaster.PublishGlobal` is *not* the removed `GlobalTopic()` (different layer).**
+`PublishGlobal(payload []byte) error` is **internal cross-instance transport plumbing** on the
+`pubsub.Broadcaster` interface — a raw `[]byte` fan-out used by framework internals, not an
+app-facing API, not a topic, not ACL-governed, and not reachable ergonomically from a controller
+or `handler` the way `livetemplate.GlobalTopic()` was. Removing `GlobalTopic()` removed the
+*public, ergonomic, ACL-exempt all-users topic* (the footgun); it does **not** touch this
+transport method, which is why "all base PubSub interfaces" stays Unchanged. Topics do not even
+use it — they add the new `livetemplate:topic:{name}` channel scheme (§"Critical files"). One
+implementation-PR note (not a spec change): with `ctx.BroadcastAction` / `handler.Broadcast*`
+removed, the impl PR should check whether `PublishGlobal`/`PublishToUser`/`PublishToGroup` still
+have in-tree callers and treat any now-unused method as a separate cleanup decision — "Unchanged"
+here means *this design does not modify the base interface*, not a guarantee those methods remain
+wired to anything.
 
 ## Impacted repositories
 
