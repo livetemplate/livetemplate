@@ -7,15 +7,15 @@
 
 ## Phase Status
 
-| Phase | Status | Owner / session | Started | Completed | Learnings file |
-|---|---|---|---|---|---|
-| 0 — Foundations (registry + topics.go) | not started | — | — | — | `phase-0.md` |
-| 1 — Context API + ACL (single instance) | not started | — | — | — | `phase-1.md` |
-| 2 — Cross-instance (Redis) | not started | — | — | — | `phase-2.md` |
-| 3 — Wildcards (multi-segment) | not started | — | — | — | `phase-3.md` |
-| 4 — Client error envelope (parallelizable 1–3) | not started | — | — | — | `phase-4.md` |
-| 5 — Removal + in-repo/lvt migration | not started | — | — | — | `phase-5.md` |
-| 6 — Docs + examples + ecosystem | not started | — | — | — | `phase-6.md` |
+| Phase | Status | Owner / session | Started | Completed | Learnings file | Notes |
+|---|---|---|---|---|---|---|
+| 0 — Foundations (registry + topics.go) | not started | — | — | — | `phase-0.md` | — |
+| 1 — Context API + ACL (single instance) | not started | — | — | — | `phase-1.md` | — |
+| 2 — Cross-instance (Redis) | not started | — | — | — | `phase-2.md` | — |
+| 3 — Wildcards (multi-segment) | not started | — | — | — | `phase-3.md` | — |
+| 4 — Client error envelope (parallelizable 1–3) | not started | — | — | — | `phase-4.md` | — |
+| 5 — Removal + in-repo/lvt migration | not started | — | — | — | `phase-5.md` | — |
+| 6 — Docs + examples + ecosystem | not started | — | — | — | `phase-6.md` | — |
 
 Status values: `not started` → `in progress` → `blocked` → `complete`.
 
@@ -39,13 +39,13 @@ Status values: `not started` → `in progress` → `blocked` → `complete`.
 4. If you discovered work that changes a later phase's scope, note it in that phase's row so the next session sees it before reading the plan.
 5. Do not create mid-session WIP commits without an explicit request. `phase-N.md` is **not** ephemeral: it is committed as that phase's close-out record, in the phase's own implementation PR alongside its code, and stays in git history (it is the durable handoff the next phase's Audit reads). "Leave uncommitted" applies only to in-session drafts before the phase closes.
 
-**If you block:** set status `blocked`, record the blocker in the row, write `phase-N-partial.md` with what was attempted and why it stalled.
+**If you block:** set status `blocked`, record the blocker in the row, write `phase-N-partial.md` with what was attempted and why it stalled. Once unblocked, set status back to `in progress`, clear/annotate the blocker note, and record the resumption date in the row.
 
 ---
 
 ## Surfaced-Scope & Deferral Ledger
 
-The analog of a running budget: every phase rolls (a) scope surfaced mid-phase and (b) anything proposed for reconciliation into Appendix B "Alternatives considered" into one visible place. There is **no `Deferred (post-v1)` section** in this spec — items either ship in v1 or are reconciled into Appendix B with a maintainer decision logged in the journal. Phase 6's exit performs the final reconciliation.
+The analog of a running budget: every phase rolls (a) scope surfaced mid-phase and (b) anything that maps onto an Appendix B "Alternatives considered" entry into one visible place. There is **no `Deferred (post-v1)` section** in this spec, and the proposal (including Appendix B) is the read-only baseline — so an item is never "written into Appendix B." It either ships in v1 or is **logged here as reconciled-with-Appendix-B**: Appendix B's text stays frozen; the journal entry below IS the record. Phase 6's exit performs the final pass.
 
 ### Known at design time (pre-seeded from the converged spec)
 
@@ -53,7 +53,7 @@ The analog of a running budget: every phase rolls (a) scope surfaced mid-phase a
 - **Bounded (not severe) — `Publish` is send-side ungated; gate at the caller.** Neither `ctx.Publish` nor `handler.Publish` runs the ACL; the Subscribe-time ACL gates *who reads*. There is **no built-in all-users topic** (`GlobalTopic()` was removed — Appendix B), so no topic reaches the whole user base by construction. The residue is bounded to one identity (`UserTopic`) or exactly the connections the app's own ACL admitted. Design intent: an app-wide announcement is an ordinary developer topic the app must allow in `WithTopicACL` and publish from trusted code. Docs (Phase 6) must surface this as named guidance, not a buried paragraph.
 - **Intentional, not new — fan-out backpressure is drop-on-overflow.** `Publish` local fan-out enqueues via `Connection.EnqueueDispatch` (non-blocking, drops on a full per-connection buffer). Identical to existing `BroadcastAction` behavior (not a regression); surfaced by `wsBufferFull` / `wsSlowClientCloses`; tuned via `WithWebSocketBufferSize` / `LVT_WS_BUFFER_SIZE`. Treat as the accepted pre-existing model, not a new problem to solve in this work.
 - **Explicitly rejected in Appendix B — do not reintroduce without a logged maintainer decision:** a built-in `GlobalTopic()`/all-users primitive; a `SessionTopic(groupID)` constructor; a `Publish` debounce/coalesce helper; a trie/radix pattern index or glob engine; `GroupID`-field reuse for the topic envelope (a new `Topic` field is used instead).
-- **Multi-segment wildcards are IN v1** (Phase 3; Appendix B "single trailing `*` only" was superseded). The matcher is a flat O(P) segment scan by design. The open contingency is whether multi-segment **holds** under implementation pressure — Phase 3's Learnings makes the explicit call; if it is reduced, log the decision + rationale here and reconcile the body into Appendix B.
+- **Multi-segment wildcards are IN v1** (Phase 3; Appendix B "single trailing `*` only" was superseded). The matcher is a flat O(P) segment scan by design. The open contingency is whether multi-segment **holds** under implementation pressure — Phase 3's Learnings makes the explicit call; if it is reduced, log the decision + rationale in the journal below (Appendix B stays frozen — the journal entry is the record).
 
 ### Surfaced during Phase N (fill in as discovered)
 
@@ -63,7 +63,7 @@ The analog of a running budget: every phase rolls (a) scope surfaced mid-phase a
 - _Phase 3:_ TBD
 - _Phase 4:_ TBD
 - _Phase 5:_ TBD
-- _Phase 6:_ TBD — final reconciliation into Appendix B goes here.
+- _Phase 6:_ TBD — final reconciliation logged here (Appendix B stays frozen; this is the record).
 
 ---
 
