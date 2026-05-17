@@ -749,6 +749,7 @@ This plan is sized for several implementation sessions executing one phase at a 
 
 `learnings/phase-N.md` skeleton (intentionally duplicated in `learnings/progress.md` §"Per-Phase Learnings File Template" so this proposal stays self-contained — the two copies are an invariant; change both together):
 
+<!-- INVARIANT: keep this skeleton byte-identical to the copy in learnings/progress.md §"Per-Phase Learnings File Template" — change both together -->
 ```markdown
 # Phase N — Learnings
 

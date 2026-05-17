@@ -39,7 +39,7 @@ Status values: `not started` → `in progress` → `blocked` → `complete`.
 4. If you discovered work that changes a later phase's scope, note it in that phase's row so the next session sees it before reading the plan.
 5. Do not create mid-session WIP commits without an explicit request. `phase-N.md` is **not** ephemeral: it is committed as that phase's close-out record, in the phase's own implementation PR alongside its code, and stays in git history (it is the durable handoff the next phase's Audit reads). "Leave uncommitted" applies only to in-session drafts before the phase closes.
 
-**If you block:** set status `blocked`, record the blocker in the row, write `phase-N-partial.md` with what was attempted and why it stalled. Once unblocked, set status back to `in progress`, clear/annotate the blocker note, and record the resumption date in the row.
+**If you block:** set status `blocked`, record the blocker in the row, write `phase-N-partial.md` with what was attempted and why it stalled. Once unblocked, set status back to `in progress`, clear/annotate the blocker note, and record the resumption date in the `Notes` column.
 
 ---
 
@@ -81,6 +81,7 @@ The proposal body + Appendix B "Alternatives considered" is the immutable baseli
 
 Create each `phase-N.md` from this skeleton (kept identical to the §"Per-phase audit + learnings protocol" copy in the proposal — if you change one, change both):
 
+<!-- INVARIANT: keep this skeleton byte-identical to the copy in the proposal §"Per-phase audit + learnings protocol" — change both together -->
 ```markdown
 # Phase N — Learnings
 
