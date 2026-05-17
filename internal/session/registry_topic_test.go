@@ -193,6 +193,20 @@ func TestGetByTopicExcept_EmptyRegistry(t *testing.T) {
 	}
 }
 
+// TestGetByTopicExcept_PanicsOnWildcardConcrete pins the other half of the
+// contract: GetByTopicExcept publishes to a concrete topic, so a "*" in
+// concrete is a programmer error and must panic loudly rather than
+// silently mis-resolve.
+func TestGetByTopicExcept_PanicsOnWildcardConcrete(t *testing.T) {
+	r := NewConnectionRegistry()
+	defer func() {
+		if recover() == nil {
+			t.Error("GetByTopicExcept with a wildcard concrete must panic")
+		}
+	}()
+	r.GetByTopicExcept("room/*", nil, testSegmentMatch)
+}
+
 // TestGetByTopicExcept_NilMatchSafeWhenNoPatterns documents the contract: a nil
 // match is safe iff there are no pattern subscribers (the pattern loop is
 // skipped, so match is never invoked). With pattern subscribers present, a nil

@@ -579,6 +579,14 @@ func (r *ConnectionRegistry) UnsubscribeConnectionFromTopic(conn *Connection, to
 // always pass a non-nil matcher; passing nil with patterns present panics by
 // design (a loud programmer error, never a silent exact-only degradation).
 func (r *ConnectionRegistry) GetByTopicExcept(concrete string, excludeConn *Connection, match func(pattern, concrete string) bool) []*Connection {
+	if isPatternTopic(concrete) {
+		// concrete must be a publishable topic; a "*" here would silently
+		// mis-resolve (pattern-keyed exact lookup + self-match against every
+		// indexed pattern). Loud over silent-wrong, symmetric with the
+		// nil-match guard below.
+		panic("session: GetByTopicExcept concrete topic must not contain \"*\" (publish to exact topics only)")
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
