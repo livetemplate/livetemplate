@@ -9,7 +9,7 @@
 
 | Phase | Status | Owner / session | Started | Completed | Learnings file | Notes |
 |---|---|---|---|---|---|---|
-| 0 — Foundations (registry + topics.go) | not started | — | — | — | `phase-0.md` | — |
+| 0 — Foundations (registry + topics.go) | complete | claude-code / 2026-05-17 | 2026-05-17 | 2026-05-17 | `phase-0.md` ✔ | Additive only; gate (non-race + lint) green. ⚠ Phase 1 must resolve the flagged subscribe-after-Unregister race (see `phase-0.md`). |
 | 1 — Context API + ACL (single instance) | not started | — | — | — | `phase-1.md` | — |
 | 2 — Cross-instance (Redis) | not started | — | — | — | `phase-2.md` | — |
 | 3 — Wildcards (multi-segment) | not started | — | — | — | `phase-3.md` | — |
@@ -57,7 +57,7 @@ The analog of a running budget: every phase rolls (a) scope surfaced mid-phase a
 
 ### Surfaced during Phase N (fill in as discovered)
 
-- _Phase 0:_ TBD
+- _Phase 0:_ (1) **⚠ Latent subscribe-after-`Unregister` leak** — `SubscribeConnectionToTopic` has no connection-liveness guard (none needed in Phase 0: no caller). Phase 1's `ctx.Subscribe` exposes it; Phase 1 **must** choose policy (a) registry `<-conn.done` short-circuit (matches `EnqueueDispatch`) or (b) `ctx.Subscribe` error return. See `phase-0.md`. (2) **`GOWORK=off` invariant** for manual go cmds in the nested worktree (pre-commit hook self-handles it — verified `scripts/pre-commit.sh:18,35,154`). (3) **`GetByTopicExcept` gained an injected `match` param** (forced by the `internal/session`→root import-cycle boundary; Phase 1 `dispatchToTopic` passes `segmentMatch`). (4) **Pre-existing `-race` flake `TestRangeBuildLatency_PostPhase7`** — hard wall-clock ceilings, no `-race`/`-short` guard; reproduced identically on clean `main`; unrelated to Phase 0; gate is non-race so unaffected; later phases must scope `-race` to relevant pkgs, not full `./...`. None map onto an Appendix-B alternative (multi-segment wildcards remain IN v1 as the spec intends).
 - _Phase 1:_ TBD
 - _Phase 2:_ TBD
 - _Phase 3:_ TBD
