@@ -180,6 +180,26 @@ is not a no-op"); test-race lock; app-global collision-warn dedup
 `processBroadcasts`-absent-on-upload-complete gap was **declined** (out of
 scope — `BroadcastAction` is untouched until Phase 5).
 
+**⚠ Pre-existing flaky `-race` data race in `pubsub` (Phase 2 MUST address).**
+The cross-repo CI job "Test LVT against Core Changes" runs `go test -race
+./...`, which on one PR #419 run flagged `WARNING: DATA RACE` →
+`--- FAIL: TestReconnect_DoesNotBlockConcurrentPublish`
+(`pubsub/redis_test.go:1156`). **Not introduced by this PR:** `git diff
+main...HEAD` changes **0** `pubsub/` files; the test was last touched by
+unrelated #389/#394/#398; reproduced **green 3× locally** under `-race`
+(intermittent — a timing/interleaving-dependent catch). Directly analogous to
+the `TestRangeBuildLatency_PostPhase7` pre-existing `-race` flake Phase 0
+documented (handled upstream by #418's skip-under-race). Handled here by
+**re-running the flaky job** (pass) — not by modifying `pubsub`, which is
+Phase 2's package and out of Phase 1's registry/topics/context scope (matches
+Phase 0's accepted "scope `-race` per phase-touched packages; don't gate on
+full `-race ./...`" guidance). **Phase 2 adjustment:** Phase 2 owns `pubsub`
+and its `-race` gate — fix or `t.Skip`-guard
+`TestReconnect_DoesNotBlockConcurrentPublish` there (it is a real, if rare,
+race in the reconnect-vs-concurrent-publish path), and scope the Redis-leg
+`-race` to `pubsub`/`session` rather than relying on the cross-repo
+`-race ./...`.
+
 ## Open questions for the user
 
 - **None blocking.** One decision was surfaced and pinned without asking

@@ -148,7 +148,11 @@ func (c *Context) GroupID() string {
 	return c.groupID
 }
 
-// WithGroupID returns a new Context with the given session-group ID.
+// WithGroupID returns a new Context with the given session-group ID. It is a
+// framework-internal wiring point (injected at every WithUserID site, and by
+// custom-Authenticator extensions) — controller code should not call it; it
+// reads identity via ctx.GroupID() / ctx.SelfTopic(). A wrong groupID here
+// yields a subtly wrong SelfTopic().
 func (c *Context) WithGroupID(groupID string) *Context {
 	newCtx := *c
 	newCtx.groupID = groupID

@@ -1632,6 +1632,8 @@ func (h *liveHandler) processTopicPublishes(excludeConn *session.Connection, pub
 func (h *liveHandler) dispatchToTopic(topic string, excludeConn *session.Connection, action string, data map[string]interface{}) {
 	conns := h.registry.GetByTopicExcept(topic, excludeConn, segmentMatch)
 	for _, conn := range conns {
+		// Kind is KindAction (zero value) in v1 — set explicitly so Phase 2,
+		// which branches on Kind here for the cross-instance leg, has the seam.
 		conn.EnqueueDispatch(&session.DispatchRequest{Action: action, Data: data, Kind: session.KindAction})
 	}
 

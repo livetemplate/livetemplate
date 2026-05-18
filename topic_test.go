@@ -417,6 +417,9 @@ func TestTopic_V16_DenyAllDefaultAndOpenTopicsAndBothSet(t *testing.T) {
 type roomController struct{}
 
 func (c *roomController) Mount(s probeState, ctx *Context) (probeState, error) {
+	// Intentional ignore: this controller is only used under WithOpenTopics
+	// (V4) or a permissive ACL hook (V12), where the developer topic always
+	// passes. Real apps must propagate this error (see ctx.Subscribe godoc).
 	_ = ctx.Subscribe("public/feed")
 	return s, nil
 }
