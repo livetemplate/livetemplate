@@ -1180,15 +1180,14 @@ func TestReconnect_DoesNotBlockConcurrentPublish(t *testing.T) {
 	// to enter the sleep window. Use it to deterministically time the publish
 	// rather than guessing with time.Sleep.
 	hookEntered := make(chan struct{})
-	prevHook := reconnectHook
-	reconnectHook = func() {
-		select {
-		case <-hookEntered:
-		default:
-			close(hookEntered)
-		}
-	}
-	defer func() { reconnectHook = prevHook }()
+	var hookOnce sync.Once
+	prevHook := setReconnectHook(func() {
+		// reconnect() can run concurrently from the processMessages loop and
+		// the test's explicit goroutine, so the close must be exactly-once
+		// (a select/default guard is not atomic across goroutines).
+		hookOnce.Do(func() { close(hookEntered) })
+	})
+	defer setReconnectHook(prevHook)
 
 	// Trigger a reconnect from a goroutine.
 	reconnectDone := make(chan error, 1)
@@ -1247,15 +1246,14 @@ func TestReconnect_InterruptibleByContextCancel(t *testing.T) {
 	}
 
 	hookEntered := make(chan struct{})
-	prevHook := reconnectHook
-	reconnectHook = func() {
-		select {
-		case <-hookEntered:
-		default:
-			close(hookEntered)
-		}
-	}
-	defer func() { reconnectHook = prevHook }()
+	var hookOnce sync.Once
+	prevHook := setReconnectHook(func() {
+		// reconnect() can run concurrently from the processMessages loop and
+		// the test's explicit goroutine, so the close must be exactly-once
+		// (a select/default guard is not atomic across goroutines).
+		hookOnce.Do(func() { close(hookEntered) })
+	})
+	defer setReconnectHook(prevHook)
 
 	reconnectDone := make(chan error, 1)
 	go func() {
@@ -1322,15 +1320,14 @@ func TestSubscribeTo_SucceedsDuringReconnectWindow(t *testing.T) {
 	}
 
 	hookEntered := make(chan struct{})
-	prevHook := reconnectHook
-	reconnectHook = func() {
-		select {
-		case <-hookEntered:
-		default:
-			close(hookEntered)
-		}
-	}
-	defer func() { reconnectHook = prevHook }()
+	var hookOnce sync.Once
+	prevHook := setReconnectHook(func() {
+		// reconnect() can run concurrently from the processMessages loop and
+		// the test's explicit goroutine, so the close must be exactly-once
+		// (a select/default guard is not atomic across goroutines).
+		hookOnce.Do(func() { close(hookEntered) })
+	})
+	defer setReconnectHook(prevHook)
 
 	// Start reconnect; pubsub is nilled inside the lock then released before
 	// the hook fires.

@@ -361,7 +361,32 @@ var subscribeHook func()
 // It allows tests to deterministically wait for reconnect() to enter its
 // no-lock window without relying on time-based synchronization.
 // Production code leaves this nil.
-var reconnectHook func()
+//
+// Access is mutex-guarded: reconnect() (running on the processMessages
+// goroutine) reads it while a test installs/restores it from the test
+// goroutine, so a bare package global would data-race under -race. Use
+// currentReconnectHook / setReconnectHook, never the variable directly.
+var (
+	reconnectHookMu sync.Mutex
+	reconnectHook   func()
+)
+
+// currentReconnectHook returns the installed test hook (nil in production).
+func currentReconnectHook() func() {
+	reconnectHookMu.Lock()
+	defer reconnectHookMu.Unlock()
+	return reconnectHook
+}
+
+// setReconnectHook installs h and returns the previously installed hook, so a
+// test can restore it: prev := setReconnectHook(fn); defer setReconnectHook(prev).
+func setReconnectHook(h func()) (prev func()) {
+	reconnectHookMu.Lock()
+	defer reconnectHookMu.Unlock()
+	prev = reconnectHook
+	reconnectHook = h
+	return prev
+}
 
 // errPubsubNotReady is a sentinel signaling that pubsub is currently nil
 // because reconnect() is in progress. It's distinct from "broadcaster is
@@ -824,8 +849,8 @@ func (b *RedisBroadcaster) reconnect() error {
 		b.mu.Unlock()
 	}()
 
-	if reconnectHook != nil {
-		reconnectHook()
+	if h := currentReconnectHook(); h != nil {
+		h()
 	}
 
 	// Wait before reconnecting (interruptible so Close() doesn't block for delay)
