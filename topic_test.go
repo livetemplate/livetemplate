@@ -105,6 +105,15 @@ func (c *aclProbeController) err() error {
 	return c.lastErr
 }
 
+// setErr writes lastErr under the same lock the action methods hold, so the
+// test-goroutine resets/sentinels have a formal happens-before with the
+// handler-goroutine writes (no -race flag under any interleaving).
+func (c *aclProbeController) setErr(e error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lastErr = e
+}
+
 type probeState struct{ N int }
 
 // selfSyncController: Mount subscribes SelfTopic(); Add mutates the shared
@@ -313,7 +322,7 @@ func TestTopic_V5_ACLDenied(t *testing.T) {
 		t.Errorf("V5: expected *TopicForbiddenError carrying the topic, got %v", ctrl.err())
 	}
 
-	ctrl.lastErr = errors.New("sentinel")
+	ctrl.setErr(errors.New("sentinel"))
 	subProbe(t, wsURL, "public/feed")
 	if ctrl.err() != nil {
 		t.Errorf("V5: allowed topic should subscribe cleanly, got %v", ctrl.err())
@@ -338,7 +347,7 @@ func TestTopic_V6_OnlySelfACLExemptUnderDenyAll(t *testing.T) {
 
 	// A developer / all-users channel needs an explicit allow — no carve-out.
 	for _, topic := range []string{"announcements", "room/1"} {
-		ctrl.lastErr = nil
+		ctrl.setErr(nil)
 		wsAction(t, ws, "sub", map[string]interface{}{"topic": topic})
 		_ = readWSUpdate(t, ws, 3*time.Second)
 		if !errors.Is(ctrl.err(), ErrTopicForbidden) {
@@ -364,7 +373,7 @@ func TestTopic_V7_ReservedNamespaceAntiSpoof(t *testing.T) {
 	}
 
 	// A non-self lvt: string in general is rejected.
-	ctrl.lastErr = nil
+	ctrl.setErr(nil)
 	subProbe(t, wsURL+"?device=1", "lvt:user:bob-but-not-self")
 	if ctrl.err() == nil {
 		t.Errorf("V7: any non-self lvt: subscribe must be rejected")

@@ -112,9 +112,9 @@ func (s *liveTopicSubscriber) unregisterTopic(topic string) {
 	s.h.registry.UnsubscribeConnectionFromTopic(s.conn, topic)
 }
 
-func (s *liveTopicSubscriber) isClientWiredAction(action string) bool {
+func (s *liveTopicSubscriber) shouldWarnWiredCollision(action string) bool {
 	if s.h.config.Template == nil {
 		return false
 	}
-	return s.h.config.Template.isClientWiredAction(action)
+	return s.h.config.Template.shouldWarnWiredCollision(action)
 }

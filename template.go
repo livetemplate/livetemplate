@@ -241,6 +241,7 @@ type Template struct {
 	cachedBodyContentValid bool                // Whether cachedBodyContent has been computed (empty string is valid)
 	formSchema             *FormSchema         // Cached schema extracted from templateStr; nil if no rules
 	wiredActions           map[string]struct{} // Cached set of client-wired action names (form/button name=, lvt-on:) extracted from templateStr; immutable after parse; drives the Publish symmetry-collision warning
+	wiredCollisionWarned   *sync.Map           // action -> struct{}: dedups the Publish symmetry-collision slog.Warn to once per action name; shared by pointer across per-session clones so the warning is app-global, not per-connection
 }
 
 // Funcs registers a template.FuncMap that will be applied to all template parsing and execution.
@@ -293,6 +294,13 @@ type Option func(*Config)
 // return would silently disable the ACL on the real WS connection).
 //
 // Returning (false, _) rejects the subscription with ErrTopicForbidden.
+//
+// Because Subscribe runs the ACL eagerly even on a plain HTTP GET, returning
+// false for a topic a controller subscribes in Mount causes that GET to
+// surface the error as an HTTP 500 to the browser (Mount errors map to 500),
+// not a WS-time rejection. If that is undesirable, gate the Mount Subscribe
+// with ctx.IsInitialMount() / defer to WS connect via the Upgrade-header
+// check above.
 type TopicACLFunc func(topic string, userID string, r *http.Request) (allowed bool, err error)
 
 // WithTopicACL sets the topic-subscription ACL hook (proposal §3). Called once
@@ -969,6 +977,7 @@ func (t *Template) Clone() (*Template, error) {
 	bodyContentValid := t.cachedBodyContentValid
 	formSchema := t.formSchema
 	wiredActions := t.wiredActions
+	wiredCollisionWarned := t.wiredCollisionWarned
 	t.mu.RUnlock()
 
 	// Share immutable data from master instead of re-creating per clone.
@@ -985,8 +994,9 @@ func (t *Template) Clone() (*Template, error) {
 		cachedParseTemplate:    cachedParse, // Share parsed AST + builtins
 		cachedBodyContent:      bodyContent, // Share extracted body content
 		cachedBodyContentValid: bodyContentValid,
-		formSchema:             formSchema,   // Share extracted form schema (immutable)
-		wiredActions:           wiredActions, // Share extracted wired-action set (immutable)
+		formSchema:             formSchema,           // Share extracted form schema (immutable)
+		wiredActions:           wiredActions,         // Share extracted wired-action set (immutable)
+		wiredCollisionWarned:   wiredCollisionWarned, // Share dedup store by pointer (app-global once-per-action warn)
 		// Don't copy lastData, lastHTML, lastTree, etc. - start fresh per session
 	}
 
@@ -1096,6 +1106,7 @@ func (t *Template) parseInternal(text string, baseTemplate *template.Template, i
 	t.cachedBodyContent = ""    // Invalidate cached body content
 	t.cachedBodyContentValid = false
 	t.formSchema = extractFormSchemaFromTemplateStr(text)
+	t.wiredCollisionWarned = &sync.Map{}
 	t.wiredActions = extractWiredActionNames(text)
 
 	// Validate that tree generation works with this template

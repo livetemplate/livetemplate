@@ -83,3 +83,21 @@ func (t *Template) isClientWiredAction(action string) bool {
 	_, ok := t.wiredActions[action]
 	return ok
 }
+
+// shouldWarnWiredCollision reports whether ctx.Publish should emit the
+// symmetry-collision warning for action: true iff action is client-wired AND
+// this is the first Publish of it (per template, app-global — the dedup store
+// is shared by pointer across per-session clones). Without the dedup the warn
+// fires on every Publish, so a per-second feed publishing a wired action name
+// would flood the log; once-per-action matches the "first time it happens in
+// dev" signal the spec intends (proposal §"Design constraints").
+func (t *Template) shouldWarnWiredCollision(action string) bool {
+	if !t.isClientWiredAction(action) {
+		return false
+	}
+	if t.wiredCollisionWarned == nil {
+		return true // no dedup store (e.g. hand-built Template) — fail loud
+	}
+	_, loaded := t.wiredCollisionWarned.LoadOrStore(action, struct{}{})
+	return !loaded
+}

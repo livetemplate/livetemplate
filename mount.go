@@ -666,6 +666,13 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		connSt.state = newState
 	}
 
+	// Drain ctx.Publish issued from Mount/OnConnect (post-persistState, so a
+	// reconciler re-reading shared state sees committed data). Per the spec
+	// (§"Publish on the GET-phase Mount is not a no-op"), Publish in Mount IS
+	// processed and fans out on every connect/load — the documented footgun
+	// callers guard with ctx.IsInitialMount() / ctx.IsReconnect().
+	h.processTopicPublishes(connection, lifecycleCtx.pendingTopicPublishes())
+
 	// Schedule OnDisconnect call when WebSocket closes
 	defer callOnDisconnect(h.config.Controller)
 
@@ -1140,6 +1147,11 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		if isNewSession || isHTTPGet {
 			h.persistState(ctx, groupID, connSt.state)
 		}
+		// Drain ctx.Publish issued from Mount on the HTTP path. Per the spec,
+		// Publish in Mount is NOT a no-op (unlike Subscribe) — it is
+		// transport-agnostic and fans out to existing subscribers on every
+		// GET/POST (excludeConn nil: the HTTP responder is not a WS subscriber).
+		h.processTopicPublishes(nil, lifecycleCtx.pendingTopicPublishes())
 		// Commit path after successful Mount (not before, to allow retries).
 		// Skip when no persist fields — pathChanged is never checked.
 		if isHTTPGet && h.persistable != nil {
@@ -2589,6 +2601,12 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, rawData []byte, 
 			response.Error = actionErr.Error()
 		} else if actionErr == nil {
 			state.state = newState
+			// Drain ctx.Publish from an upload-complete handler — consistent
+			// with the WS-action and HTTP-POST action paths. (processBroadcasts
+			// is also absent on this path, but that is a pre-existing gap not
+			// in this design's scope — BroadcastAction is untouched until
+			// Phase 5.)
+			h.processTopicPublishes(connection, actionCtx.pendingTopicPublishes())
 		}
 	}
 

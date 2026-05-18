@@ -27,11 +27,12 @@ type topicSubscriber interface {
 	// unregisterTopic removes this Context's connection from the topic index
 	// (no-op when no Connection exists).
 	unregisterTopic(topic string)
-	// isClientWiredAction reports whether action is the name of an action
-	// wired to a client element in the template (form/button name=, lvt-on:,
-	// other lvt-* action attributes). Drives the Publish symmetry-collision
-	// warning (proposal §"Design constraints" — Dispatch symmetry).
-	isClientWiredAction(action string) bool
+	// shouldWarnWiredCollision reports whether ctx.Publish should emit the
+	// symmetry-collision warning for action — true iff action is wired to a
+	// client element (form/button name=, lvt-on:) AND this is its first
+	// Publish (deduped app-global per template, so a repeated Publish does
+	// not flood the log). Proposal §"Design constraints" — Dispatch symmetry.
+	shouldWarnWiredCollision(action string) bool
 }
 
 // topicPublish is a deferred Publish, drained after the action like
@@ -150,6 +151,11 @@ func (c *Context) Unsubscribe(topic string) {
 //
 // A Publish issued from inside a dispatched/server-initiated action is
 // logged-and-dropped (one-hop recursion guard) to prevent fan-out storms.
+//
+// Ordering caveat (same shallow-copy footgun as ctx.BroadcastAction, per
+// CLAUDE.md): ctx.With*() returns a shallow copy and the topicPubs slice
+// diverges once it reallocates, so call Publish AFTER all With*() calls or a
+// publish queued before the copy won't be drained.
 func (c *Context) Publish(topic, action string, data map[string]interface{}) error {
 	if topic == "" {
 		return fmt.Errorf("livetemplate: cannot Publish to an empty topic")
@@ -175,7 +181,7 @@ func (c *Context) Publish(topic, action string, data map[string]interface{}) err
 	// resolver, Publish(topic,"Delete",…) runs the SAME Delete a
 	// <button name="Delete"> triggers — on every subscribed peer. Warn (not
 	// error: intentional symmetric use is valid) the first time it happens.
-	if c.topicSub != nil && c.topicSub.isClientWiredAction(action) {
+	if c.topicSub != nil && c.topicSub.shouldWarnWiredCollision(action) {
 		slog.Warn("Publish action name collides with a client-wired action",
 			slog.String("action", action),
 			slog.String("topic", topic))
