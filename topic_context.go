@@ -81,6 +81,8 @@ func (c *Context) WithTopicSubscriber(ts topicSubscriber) *Context {
 //	// Self-sync: SelfTopic() is ACL-exempt, so the return is safe to ignore;
 //	// the one non-ACL failure (empty SelfTopic() from a misimplemented
 //	// Authenticator) is logged loudly via slog.Error at the SelfTopic() site.
+//	// That empty-topic error is NOT ErrTopicForbidden — an
+//	// errors.Is(err, ErrTopicForbidden) check will not catch it.
 //	_ = ctx.Subscribe(ctx.SelfTopic())
 //
 // Ignoring a *gated* topic's error silently drops the subscription (the
@@ -176,11 +178,9 @@ func (c *Context) Publish(topic, action string, data map[string]interface{}) err
 		return fmt.Errorf("livetemplate: Publish cap (%d) reached for this action", MaxBroadcastsPerAction)
 	}
 
-	// Symmetry-collision guard (proposal §"Design constraints" — Dispatch
-	// symmetry). Because topic dispatch and user-action dispatch share one
-	// resolver, Publish(topic,"Delete",…) runs the SAME Delete a
-	// <button name="Delete"> triggers — on every subscribed peer. Warn (not
-	// error: intentional symmetric use is valid) the first time it happens.
+	// Topic and user-action dispatch share one resolver, so Publishing an
+	// action name a client element is wired to runs that handler on every
+	// peer — warn, don't block (proposal §"Design constraints").
 	if c.topicSub != nil && c.topicSub.shouldWarnWiredCollision(action) {
 		slog.Warn("Publish action name collides with a client-wired action",
 			slog.String("action", action),

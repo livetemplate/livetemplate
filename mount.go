@@ -1623,18 +1623,12 @@ func (h *liveHandler) processTopicPublishes(excludeConn *session.Connection, pub
 	}
 }
 
-// dispatchToTopic dispatches a named action to every connection subscribed to
-// topic — the deduped union of exact subscribers and matching wildcard-pattern
-// subscribers — with the publishing connection excluded by default (use case
-// I). Structural twin of dispatchBroadcastToGroup: registry lookup →
-// EnqueueDispatch loop → (cross-instance publish). Each receiver runs the
-// action against its OWN state via handleDispatchedAction, which is what makes
-// the reconciler / per-connection-state guarantee free (no merge machinery).
-//
-// segmentMatch is injected into GetByTopicExcept because internal/session
-// cannot import the root package (import cycle) — passing the matcher is the
-// caller's responsibility (Phase 0 contract; nil + pattern subscribers panics
-// by design, never a silent exact-only degradation).
+// dispatchToTopic is the structural twin of dispatchBroadcastToGroup. Each
+// receiver runs the action against its OWN state via handleDispatchedAction —
+// that is what makes the per-connection-state/reconciler guarantee free (no
+// merge machinery). segmentMatch must be passed in: internal/session cannot
+// import the root package (import cycle), and nil + pattern subscribers panics
+// by design (Phase 0 contract — never a silent exact-only degradation).
 func (h *liveHandler) dispatchToTopic(topic string, excludeConn *session.Connection, action string, data map[string]interface{}) {
 	conns := h.registry.GetByTopicExcept(topic, excludeConn, segmentMatch)
 	for _, conn := range conns {

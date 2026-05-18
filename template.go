@@ -1106,8 +1106,12 @@ func (t *Template) parseInternal(text string, baseTemplate *template.Template, i
 	t.cachedBodyContent = ""    // Invalidate cached body content
 	t.cachedBodyContentValid = false
 	t.formSchema = extractFormSchemaFromTemplateStr(text)
-	t.wiredCollisionWarned = &sync.Map{}
 	t.wiredActions = extractWiredActionNames(text)
+	if t.wiredActions != nil {
+		t.wiredCollisionWarned = &sync.Map{}
+	} else {
+		t.wiredCollisionWarned = nil
+	}
 
 	// Validate that tree generation works with this template
 	// This ensures templates with {{define}}/{{block}} are caught during initialization
