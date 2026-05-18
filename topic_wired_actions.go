@@ -17,6 +17,17 @@ import (
 // <input type=submit|image>, and the action token of an lvt-on:<event>="X"
 // attribute. Widening this set is a deliberate, reviewable change to this one
 // function (and its test), not a moving target.
+//
+// Known limitation (best-effort warning, NOT a correctness gate): names are
+// stored as the literal client-wired strings. ctx.Publish compares its raw
+// action argument against that set by exact string match, but the dispatcher
+// maps a client name to a method via several normalized forms (camelCase +
+// snake_case — see dispatch.go methodNameToActions). So a collision can be
+// MISSED when the styles differ, e.g. <button name="save"> vs
+// ctx.Publish(t, "Save", …) — both resolve to Save(), but "save" != "Save".
+// False negatives only (never a spurious warning). Normalizing both sides
+// through methodNameToActions is the accurate fix and is tracked for Phase 2
+// (phase-1.md / deferred coverage) rather than approximated here.
 
 var (
 	buttonElemRegex = regexp.MustCompile(`(?is)<button\b([^>]*)>`)

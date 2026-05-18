@@ -307,6 +307,12 @@ type TopicACLFunc func(topic string, userID string, r *http.Request) (allowed bo
 // per ctx.Subscribe with the literal subscribed name. ctx.SelfTopic() is the
 // only ACL-exempt topic. Mutually exclusive with WithOpenTopics — setting both
 // is a hard error returned from New(), order-independent.
+//
+// Footgun: the ACL runs eagerly even on a plain HTTP GET, so if a controller
+// calls ctx.Subscribe in Mount and this hook can deny it, the GET surfaces an
+// HTTP 500 (Mount errors map to 500), not a 403. If your ACL may deny during
+// Mount, gate the Subscribe with ctx.IsInitialMount() / defer the real check
+// to WS connect via the Upgrade-header pattern (see TopicACLFunc).
 func WithTopicACL(fn TopicACLFunc) Option {
 	return func(c *Config) {
 		c.TopicACL = fn

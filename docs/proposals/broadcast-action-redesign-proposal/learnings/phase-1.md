@@ -200,6 +200,26 @@ race in the reconnect-vs-concurrent-publish path), and scope the Redis-leg
 `-race` to `pubsub`/`session` rather than relying on the cross-repo
 `-race ./...`.
 
+**Round 4 (post-rebase onto the #421-fixed `main`) — converged.** `pubsub`
+race resolved upstream (#421 merged → `main` `1bca9aef`); #419 rebased clean
+(`502e221d`, zero file overlap) and **all CI green incl. `Test LVT -race
+./...`**. Bot re-review surfaced no new functional bug; addressed in the final
+commit: (2) `WithTopicACL` godoc now carries the GET→500 nudge (mirrors the
+`TopicACLFunc` one); (3) the nil-`r` `TopicForbiddenError` now has
+`Cause: ErrNoRequestContext` (debuggable + `errors.Is`-distinguishable); (4)
+the `wsAction` test helper was a real duplicate of `sendWSAction`
+(`ws_test_helpers_test.go`) — removed, all 16 sites now use `sendWSAction`
+(DRY for shared test infra, my earlier "no dup" check missed it). **Phase 2
+adjustment (item 1, accepted-defer):** the symmetry-collision warning matches
+*literal* client-wired strings; `ctx.Publish`'s raw action arg is compared by
+exact match while the dispatcher normalizes names via
+`dispatch.go methodNameToActions` (camelCase + snake_case) — so a
+style-mismatched collision (`name="save"` vs `Publish(…, "Save")`) is **missed**
+(false-negative only; best-effort warning, never a gate). Limitation is now
+documented at `extractWiredActionNames`; the accurate fix (normalize both sides
+through `methodNameToActions`) is Phase 2 scope, added to the deferred-coverage
+list above.
+
 ## Open questions for the user
 
 - **None blocking.** One decision was surfaced and pinned without asking

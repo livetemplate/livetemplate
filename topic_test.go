@@ -2,7 +2,6 @@ package livetemplate
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -183,14 +182,6 @@ func setupTopicServer(t *testing.T, ctrl interface{}, st State, tmplStr string, 
 	return server, wsURL
 }
 
-func wsAction(t *testing.T, ws *websocket.Conn, action string, data map[string]interface{}) {
-	t.Helper()
-	b, _ := json.Marshal(map[string]interface{}{"action": action, "data": data})
-	if err := ws.WriteMessage(websocket.TextMessage, b); err != nil {
-		t.Fatalf("WS write %q failed: %v", action, err)
-	}
-}
-
 // expectNoMessage asserts ws receives nothing within d (sender exclusion / not
 // reconnect-durable / recursion-guard drop).
 func expectNoMessage(t *testing.T, ws *websocket.Conn, d time.Duration, msg string) {
@@ -222,11 +213,11 @@ func TestTopic_V1_V3_V10_SelfSyncTwoDevices(t *testing.T) {
 	defer func() { _ = dev2.Close() }()
 
 	// dev2 sets a per-connection field (V3): the reconciler must never write it.
-	wsAction(t, dev2, "set_panel", map[string]interface{}{"v": "PANEL2"})
+	sendWSAction(t, dev2, "set_panel", map[string]interface{}{"v": "PANEL2"})
 	_ = readWSUpdate(t, dev2, 3*time.Second) // dev2 action response
 
 	// dev1 mutates the shared store and Publishes Reload to SelfTopic().
-	wsAction(t, dev1, "add", map[string]interface{}{"text": "hello"})
+	sendWSAction(t, dev1, "add", map[string]interface{}{"text": "hello"})
 	_ = readWSUpdate(t, dev1, 3*time.Second) // dev1's own action response
 
 	// V1: dev2 (different groupID, SAME user) runs the Reload reconciler and
@@ -244,7 +235,7 @@ func TestTopic_V1_V3_V10_SelfSyncTwoDevices(t *testing.T) {
 	// reconciler writes only Items). Read it back through a value-changing
 	// action — if Reload had wrongly written Panel it would be "!" not
 	// "PANEL2!". This observes dev2's OWN connState post-reconcile.
-	wsAction(t, dev2, "bump", nil)
+	sendWSAction(t, dev2, "bump", nil)
 	bumped := rawWSUpdate(t, dev2, 3*time.Second)
 	if !strings.Contains(bumped, "PANEL2!") {
 		t.Errorf("V3: dev2 per-connection Panel not preserved through reconcile (want \"PANEL2!\"): %s", bumped)
@@ -281,7 +272,7 @@ func TestTopic_V2_SelfSyncAnonymous(t *testing.T) {
 	tab2 := connectWS(t, wsURL)
 	defer func() { _ = tab2.Close() }()
 
-	wsAction(t, tab1, "add", map[string]interface{}{"text": "anon-item"})
+	sendWSAction(t, tab1, "add", map[string]interface{}{"text": "anon-item"})
 	_ = readWSUpdate(t, tab1, 3*time.Second)
 
 	if u := readWSUpdate(t, tab2, 3*time.Second); u["meta"] == nil {
@@ -300,7 +291,7 @@ func subProbe(t *testing.T, wsURL, topic string) {
 	t.Helper()
 	ws := connectWS(t, wsURL)
 	defer func() { _ = ws.Close() }()
-	wsAction(t, ws, "sub", map[string]interface{}{"topic": topic})
+	sendWSAction(t, ws, "sub", map[string]interface{}{"topic": topic})
 	_ = readWSUpdate(t, ws, 3*time.Second) // barrier: action ran
 }
 
@@ -339,7 +330,7 @@ func TestTopic_V6_OnlySelfACLExemptUnderDenyAll(t *testing.T) {
 	// SelfTopic() is the only ACL-exempt topic → succeeds under deny-all.
 	ws := connectWS(t, wsURL)
 	defer func() { _ = ws.Close() }()
-	wsAction(t, ws, "subself", nil)
+	sendWSAction(t, ws, "subself", nil)
 	_ = readWSUpdate(t, ws, 3*time.Second)
 	if ctrl.err() != nil {
 		t.Errorf("V6: Subscribe(SelfTopic()) must be ACL-exempt under deny-all, got %v", ctrl.err())
@@ -348,7 +339,7 @@ func TestTopic_V6_OnlySelfACLExemptUnderDenyAll(t *testing.T) {
 	// A developer / all-users channel needs an explicit allow — no carve-out.
 	for _, topic := range []string{"announcements", "room/1"} {
 		ctrl.setErr(nil)
-		wsAction(t, ws, "sub", map[string]interface{}{"topic": topic})
+		sendWSAction(t, ws, "sub", map[string]interface{}{"topic": topic})
 		_ = readWSUpdate(t, ws, 3*time.Second)
 		if !errors.Is(ctrl.err(), ErrTopicForbidden) {
 			t.Errorf("V6: %q must be denied under deny-all (no global carve-out), got %v", topic, ctrl.err())
@@ -442,7 +433,7 @@ func TestTopic_V4_CrossUserPublicTopic(t *testing.T) {
 	b := connectWS(t, wsURL)
 	defer func() { _ = b.Close() }()
 
-	wsAction(t, a, "ping", nil)
+	sendWSAction(t, a, "ping", nil)
 	_ = readWSUpdate(t, a, 3*time.Second) // a's own response
 	if u := readWSUpdate(t, b, 3*time.Second); u["meta"] == nil {
 		t.Fatalf("V4: peer b expected Pong dispatch on public/feed, got %v", u)
@@ -491,7 +482,7 @@ func TestTopic_V11_RecursionGuard(t *testing.T) {
 	peer := connectWS(t, wsURL)
 	defer func() { _ = peer.Close() }()
 
-	wsAction(t, sender, "kick", nil)
+	sendWSAction(t, sender, "kick", nil)
 	_ = readWSUpdate(t, sender, 3*time.Second) // sender's own response
 	_ = readWSUpdate(t, peer, 3*time.Second)   // peer runs Reload once
 
@@ -534,7 +525,7 @@ func TestTopic_V19_SymmetryCollisionWarning(t *testing.T) {
 	defer func() { _ = ws.Close() }()
 
 	// "Delete" IS wired (<button name="Delete">) → collision warning.
-	wsAction(t, ws, "pub_delete", nil)
+	sendWSAction(t, ws, "pub_delete", nil)
 	_ = readWSUpdate(t, ws, 3*time.Second)
 	if !strings.Contains(sb.String(), "Publish action name collides with a client-wired action") {
 		t.Errorf("V19: expected collision warning for wired \"Delete\", not in:\n%s", sb.String())
@@ -542,7 +533,7 @@ func TestTopic_V19_SymmetryCollisionWarning(t *testing.T) {
 
 	// "Reload" is topic-only (not wired) → NO warning (no false positive).
 	sb2 := captureSlog(t)
-	wsAction(t, ws, "pub_reload", nil)
+	sendWSAction(t, ws, "pub_reload", nil)
 	_ = readWSUpdate(t, ws, 3*time.Second)
 	if strings.Contains(sb2.String(), "collides with a client-wired action") {
 		t.Errorf("V19: false-positive collision warning for topic-only \"Reload\":\n%s", sb2.String())
@@ -593,7 +584,7 @@ func TestTopic_V12_SubscribeOnHTTPGet(t *testing.T) {
 	defer func() { _ = a.Close() }()
 	b := connectWS(t, wsURL)
 	defer func() { _ = b.Close() }()
-	wsAction(t, b, "ping", nil)
+	sendWSAction(t, b, "ping", nil)
 	_ = readWSUpdate(t, b, 3*time.Second)
 	if u := readWSUpdate(t, a, 3*time.Second); u["meta"] == nil {
 		t.Fatalf("V12: WS subscription did not materialize (peer Publish not delivered): %v", u)
@@ -637,12 +628,12 @@ func TestTopic_V21_InActionSubscribeNotReconnectDurable(t *testing.T) {
 	defer server.Close()
 
 	sub := connectWS(t, wsURL)
-	wsAction(t, sub, "arm", nil) // subscribe "t" inside an action
+	sendWSAction(t, sub, "arm", nil) // subscribe "t" inside an action
 	_ = readWSUpdate(t, sub, 3*time.Second)
 
 	pub := connectWS(t, wsURL)
 	defer func() { _ = pub.Close() }()
-	wsAction(t, pub, "fire", nil)
+	sendWSAction(t, pub, "fire", nil)
 	_ = readWSUpdate(t, pub, 3*time.Second)
 	if u := readWSUpdate(t, sub, 3*time.Second); u["meta"] == nil {
 		t.Fatalf("V21 precondition: in-action subscriber should receive the pre-drop Publish")
@@ -653,7 +644,7 @@ func TestTopic_V21_InActionSubscribeNotReconnectDurable(t *testing.T) {
 	_ = sub.Close()
 	sub2 := connectWS(t, wsURL)
 	defer func() { _ = sub2.Close() }()
-	wsAction(t, pub, "fire", nil)
+	sendWSAction(t, pub, "fire", nil)
 	_ = readWSUpdate(t, pub, 3*time.Second)
 	expectNoMessage(t, sub2, 500*time.Millisecond,
 		"V21: in-action subscription wrongly survived reconnect (must be Mount-durable only)")
@@ -669,7 +660,7 @@ func TestTopic_V21_InActionSubscribeNotReconnectDurable(t *testing.T) {
 	defer func() { _ = m2.Close() }()
 	pubM := connectWS(t, wsURLM)
 	defer func() { _ = pubM.Close() }()
-	wsAction(t, pubM, "fire", nil)
+	sendWSAction(t, pubM, "fire", nil)
 	_ = readWSUpdate(t, pubM, 3*time.Second)
 	if u := readWSUpdate(t, m2, 3*time.Second); u["meta"] == nil {
 		t.Errorf("V21: Mount-established subscription must survive reconnect")

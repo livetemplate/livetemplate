@@ -19,6 +19,15 @@ import (
 // pattern is unaffected.
 var ErrTopicForbidden = errors.New("livetemplate: topic subscription forbidden")
 
+// ErrNoRequestContext is the Cause of a TopicForbiddenError when a developer
+// topic Subscribe is attempted from a server-originated Context (dispatched /
+// server-initiated / upload-complete — there is no HTTP request to authorize
+// against). The ACL hook is not consulted (invoking it with a nil request
+// would panic any reasonable hook); the subscribe is denied by default.
+// ctx.SelfTopic() is ACL-exempt and unaffected. errors.Is(err,
+// ErrNoRequestContext) distinguishes this from a hook-driven denial.
+var ErrNoRequestContext = errors.New("livetemplate: topic ACL not consulted — server-originated context has no HTTP request")
+
 // TopicForbiddenError is the concrete error ctx.Subscribe returns when the ACL
 // denies a subscription. Topic carries the offending topic so the WS-connect
 // path can emit the {"type":"error","code":"topic_forbidden","topic":…}

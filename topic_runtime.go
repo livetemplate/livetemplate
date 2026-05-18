@@ -86,7 +86,7 @@ func (s *liveTopicSubscriber) checkTopicACL(topic, userID string) error {
 		// Phase 1 use case (SelfTopic() is ACL-exempt and never reaches here);
 		// deny honestly — there is no request to authorize against.
 		if s.r == nil {
-			return &TopicForbiddenError{Topic: topic}
+			return &TopicForbiddenError{Topic: topic, Cause: ErrNoRequestContext}
 		}
 		allowed, err := cfg.TopicACL(topic, userID, s.r)
 		if allowed {
