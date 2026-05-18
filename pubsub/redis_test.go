@@ -1081,16 +1081,16 @@ func TestSubscribeTo_DoesNotBlockConcurrentOperations(t *testing.T) {
 	// the Redis network call) until we explicitly release it.
 	release := make(chan struct{})
 	hookEntered := make(chan struct{})
-	prevHook := subscribeHook
-	subscribeHook = func() {
-		select {
-		case <-hookEntered:
-		default:
-			close(hookEntered)
-		}
+	var hookOnce sync.Once
+	prevHook := setSubscribeHook(func() {
+		// trySubscribe can run concurrently from reconnect()'s channel
+		// replay on the processMessages loop and the test's explicit
+		// goroutine, so the close must be exactly-once (a select/default
+		// guard is not atomic across goroutines).
+		hookOnce.Do(func() { close(hookEntered) })
 		<-release
-	}
-	defer func() { subscribeHook = prevHook }()
+	})
+	defer setSubscribeHook(prevHook)
 
 	// Start the slow subscribe in a goroutine.
 	slowDone := make(chan error, 1)

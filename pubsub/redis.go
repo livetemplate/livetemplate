@@ -354,7 +354,34 @@ func (b *RedisBroadcaster) SubscribeToGroupAction(groupID string) error {
 // before the Redis SUBSCRIBE network call (and outside any lock). It allows
 // tests to inject delay or block to verify that mu is not held across the
 // network call. Production code leaves this nil.
-var subscribeHook func()
+//
+// Access is mutex-guarded: trySubscribe runs on whatever goroutine called
+// SubscribeToGroup (a test or background goroutine) and is also reached from
+// reconnect()'s channel replay on the processMessages goroutine, while a test
+// installs/restores it from the test goroutine, so a bare package global would
+// data-race under -race. Use currentSubscribeHook / setSubscribeHook, never the
+// variable directly.
+var (
+	subscribeHookMu sync.Mutex
+	subscribeHook   func()
+)
+
+// currentSubscribeHook returns the installed test hook (nil in production).
+func currentSubscribeHook() func() {
+	subscribeHookMu.Lock()
+	defer subscribeHookMu.Unlock()
+	return subscribeHook
+}
+
+// setSubscribeHook installs h and returns the previously installed hook, so a
+// test can restore it: prev := setSubscribeHook(fn); defer setSubscribeHook(prev).
+func setSubscribeHook(h func()) (prev func()) {
+	subscribeHookMu.Lock()
+	defer subscribeHookMu.Unlock()
+	prev = subscribeHook
+	subscribeHook = h
+	return prev
+}
 
 // reconnectHook is a test-only hook invoked from reconnect() immediately
 // after the lock has been released and before the reconnect-delay sleep.
@@ -521,8 +548,8 @@ func (b *RedisBroadcaster) trySubscribe(channel, label string) error {
 	pubsub := b.pubsub
 	b.mu.Unlock()
 
-	if subscribeHook != nil {
-		subscribeHook()
+	if h := currentSubscribeHook(); h != nil {
+		h()
 	}
 
 	if err := pubsub.Subscribe(b.ctx, channel); err != nil {
