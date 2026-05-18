@@ -34,16 +34,20 @@ const latencyTemplate = `<table><tbody>{{range .Items}}<tr data-key="{{.ID}}"><t
 // regression that would silently undo the work if a future change reverted
 // the parallel dispatch or re-introduced JSON-marshal in the hash path.
 //
-// Skipped under -short and on CI runners (the wall-clock ceilings are
-// calibrated for an 8-core linux/arm64 dev box; shared CI runners have
-// variable performance and cause spurious failures). Run locally to
-// validate Phase 7+8 didn't regress.
+// Skipped under -short, on CI runners, and under -race (the wall-clock
+// ceilings are calibrated for an 8-core linux/arm64 dev box; shared CI runners
+// and the race detector's 2-10x instrumentation overhead both inflate the
+// medians and cause spurious failures). Run locally without -race to validate
+// Phase 7+8 didn't regress.
 func TestRangeBuildLatency_PostPhase7(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipped under -short; allocates ~90MB at N=10000")
 	}
 	if os.Getenv("CI") != "" {
 		t.Skip("skipped on CI; wall-clock ceilings are calibrated for 8-core dev hardware. Run locally to validate.")
+	}
+	if raceEnabled {
+		t.Skip("skipped under -race; the detector's instrumentation overhead inflates wall-clock medians past the latency ceilings (spurious failure). Run without -race to validate.")
 	}
 
 	cases := []struct {
