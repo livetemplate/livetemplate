@@ -70,11 +70,26 @@ type wsMessage struct {
 	data        []byte
 }
 
+// DispatchKind classifies a DispatchRequest. It is a forward-compatible
+// placeholder: v1 has exactly one kind, KindAction, which is the zero value so
+// every existing DispatchRequest literal (which never sets Kind) keeps its
+// current named-action semantics with no change. Future dispatch shapes add
+// non-zero kinds here without breaking the wire or callers.
+type DispatchKind int
+
+const (
+	// KindAction is a named-action dispatch resolved to a controller method by
+	// name (the only kind in v1; the zero value, so it is backward-compatible).
+	KindAction DispatchKind = iota
+)
+
 // DispatchRequest represents an action to dispatch on a connection's event loop.
-// Used by BroadcastAction to fan out actions to other connections in the same group.
+// Used by BroadcastAction and topic Publish to fan out actions to other
+// connections (same group, or any topic subscriber).
 type DispatchRequest struct {
 	Action string
 	Data   map[string]interface{}
+	Kind   DispatchKind
 }
 
 // Done returns a channel that is closed when the connection is shutting down.
@@ -521,9 +536,24 @@ func isPatternTopic(topic string) bool {
 // Idempotent set semantics: a repeat subscribe is a no-op (the index slice
 // holds conn at most once per topic) — membership, deliberately not a
 // ref-count. conn.subscribedTopics is lazily allocated here.
+//
+// Liveness short-circuit: if conn is already shutting down, drop the subscribe
+// silently (mirrors EnqueueDispatch). Unregister() closes conn.done via
+// conn.Close() *while holding r.mu*, so a closed done observed under this same
+// lock means Unregister has run (or is committed) for conn — re-inserting here
+// would resurrect a dead connection into byTopic/byTopicPattern that
+// Unregister's topic-GC can never reclaim (the conn never Unregisters again).
+// The subscription is re-established on WS reconnect via Mount, so silent-drop
+// is the correct, lower-surprise policy (proposal Phase 1 decision).
 func (r *ConnectionRegistry) SubscribeConnectionToTopic(conn *Connection, topic string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	select {
+	case <-conn.done:
+		return // connection shutting down — see Liveness short-circuit above
+	default:
+	}
 
 	if conn.subscribedTopics == nil {
 		conn.subscribedTopics = make(map[string]struct{})

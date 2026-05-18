@@ -1,9 +1,56 @@
 package livetemplate
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
+
+// ErrTopicForbidden is the sentinel a denied ctx.Subscribe matches under
+// errors.Is. Under the deny-all default (no WithTopicACL and no
+// WithOpenTopics) every developer topic is denied; only ctx.SelfTopic() is
+// ACL-exempt. Because the ACL runs eagerly even on an HTTP GET, an
+// unconfigured ACL surfaces this on the initial page render, not the WS
+// upgrade.
+//
+// ctx.Subscribe returns a *TopicForbiddenError (which carries the offending
+// topic for the WS error envelope) — `errors.Is(err, ErrTopicForbidden)` still
+// holds, so the canonical `if err := ctx.Subscribe(t); err != nil { … }`
+// pattern is unaffected.
+var ErrTopicForbidden = errors.New("livetemplate: topic subscription forbidden")
+
+// ErrNoRequestContext is the Cause of a TopicForbiddenError when a developer
+// topic Subscribe is attempted from a server-originated Context (dispatched /
+// server-initiated / upload-complete — there is no HTTP request to authorize
+// against). The ACL hook is not consulted (invoking it with a nil request
+// would panic any reasonable hook); the subscribe is denied by default.
+// ctx.SelfTopic() is ACL-exempt and unaffected. errors.Is(err,
+// ErrNoRequestContext) distinguishes this from a hook-driven denial.
+var ErrNoRequestContext = errors.New("livetemplate: topic ACL not consulted — server-originated context has no HTTP request")
+
+// TopicForbiddenError is the concrete error ctx.Subscribe returns when the ACL
+// denies a subscription. Topic carries the offending topic so the WS-connect
+// path can emit the {"type":"error","code":"topic_forbidden","topic":…}
+// envelope (proposal §3 wire-format note) the TS client surfaces as an
+// lvt:error CustomEvent. Cause is the ACL hook's explanatory error, if any.
+type TopicForbiddenError struct {
+	Topic string
+	Cause error
+}
+
+func (e *TopicForbiddenError) Error() string {
+	if e.Cause != nil {
+		return fmt.Sprintf("livetemplate: subscription to topic %q forbidden: %v", e.Topic, e.Cause)
+	}
+	return fmt.Sprintf("livetemplate: subscription to topic %q forbidden", e.Topic)
+}
+
+// Is makes errors.Is(err, ErrTopicForbidden) hold for any *TopicForbiddenError,
+// preserving the documented sentinel contract regardless of Topic/Cause.
+func (e *TopicForbiddenError) Is(target error) bool { return target == ErrTopicForbidden }
+
+// Unwrap exposes the ACL hook's explanatory error to errors.Is/As chains.
+func (e *TopicForbiddenError) Unwrap() error { return e.Cause }
 
 // topicReservedPrefix is the reserved namespace for identity-derived topics
 // (SelfTopic / UserTopic). Developer topic names must never start with it; a
@@ -21,6 +68,17 @@ const topicReservedPrefix = "lvt:"
 // an ACL-exempt all-users primitive is the highest-blast-radius footgun).
 func UserTopic(userID string) string {
 	return topicReservedPrefix + "user:" + userID
+}
+
+// sessionTopic returns the reserved topic addressing every connection of one
+// anonymous browser session (the SelfTopic() anonymous path). It is
+// deliberately unexported: there is no public SessionTopic() constructor
+// (proposal §5 / Appendix B — out-of-band addressing of an anonymous session
+// by group id has no concrete use case). Kept here, beside UserTopic, so the
+// reserved-namespace vocabulary lives in one place and the "session:" segment
+// cannot drift from "user:".
+func sessionTopic(groupID string) string {
+	return topicReservedPrefix + "session:" + groupID
 }
 
 // isReservedTopic reports whether topic is in the reserved lvt: namespace. It

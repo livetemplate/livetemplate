@@ -97,11 +97,14 @@ type Context struct {
 	action      string
 	data        *ActionData
 	userID      string
+	groupID     string
 	session     Session
 	uploads     UploadAccessor
 	flashSetter FlashSetter
 	formSchema  *FormSchema
 	broadcasts  []broadcastRequest
+	topicSub    topicSubscriber
+	topicPubs   []topicPublish
 	connectKind ConnectKind
 
 	// HTTP context (nil for WebSocket actions)
@@ -136,6 +139,58 @@ func (c *Context) WithUserID(userID string) *Context {
 	newCtx := *c
 	newCtx.userID = userID
 	return &newCtx
+}
+
+// GroupID returns the session-group key for this connection's identity. The
+// Authenticator (GetSessionGroup) always sets it for a real connection; it is
+// "" only for genuinely empty identity (a misimplemented custom Authenticator).
+func (c *Context) GroupID() string {
+	return c.groupID
+}
+
+// WithGroupID returns a new Context with the given session-group ID. It is a
+// framework-internal wiring point (injected at every WithUserID site, and by
+// custom-Authenticator extensions) — controller code should not call it; it
+// reads identity via ctx.GroupID() / ctx.SelfTopic(). A wrong groupID here
+// yields a subtly wrong SelfTopic().
+func (c *Context) WithGroupID(groupID string) *Context {
+	newCtx := *c
+	newCtx.groupID = groupID
+	return &newCtx
+}
+
+// SelfTopic returns this connection's identity-derived reserved topic, picking
+// the most-specific available identity scope (proposal §1):
+//
+//   - Authenticated (UserID != "") → lvt:user:<UserID>. Spans every device and
+//     tab of that user regardless of the Authenticator's groupID strategy —
+//     this is what makes phone→desktop self-sync work where BroadcastAction
+//     cannot.
+//   - Anonymous (UserID == "", GroupID != "") → lvt:session:<GroupID>. Spans
+//     the tabs of that one browser session. A custom Authenticator that
+//     authenticates a session but leaves UserID empty silently degrades
+//     multi-device to multi-tab; that is a valid anonymous-shaped topic, not an
+//     error, so it is slog.Debug (not Warn) — legitimate for anonymous traffic.
+//
+// Invariant: both identity fields empty is a programmer error (a misimplemented
+// custom Authenticator). It is fail-closed + loud — slog.Error and return ""
+// (Subscribe("")/Publish("") are then rejected) — but logged, never a panic
+// (a bad Authenticator must not crash the server). BasicAuthenticator /
+// AnonymousAuthenticator never hit this.
+//
+// SelfTopic() is ACL-exempt and reserved-namespace; the canonical idiom is
+// `_ = ctx.Subscribe(ctx.SelfTopic())` so the empty-identity case MUST be loud
+// here, independent of whether the caller inspects the returned error.
+func (c *Context) SelfTopic() string {
+	if c.userID != "" {
+		return UserTopic(c.userID)
+	}
+	if c.groupID != "" {
+		slog.Debug("SelfTopic resolved to session scope; UserID empty", slog.String("groupID", c.groupID))
+		return sessionTopic(c.groupID)
+	}
+	slog.Error("SelfTopic called with empty UserID and GroupID")
+	return ""
 }
 
 // Session returns the Session for server-initiated actions.

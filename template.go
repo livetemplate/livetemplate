@@ -163,6 +163,15 @@ type Config struct {
 	ProgressiveEnhancement bool                                // Enable non-JS form submission support with PRG pattern (default: true)
 	TrustForwardedHeaders  bool                                // Trust X-Forwarded-Proto header for scheme detection (default: true)
 	DispatchBufferSize     int                                 // Broadcast dispatch channel buffer per connection (default: 16)
+
+	// TopicACL gates every developer (non-lvt:) topic Subscribe. nil unless
+	// WithTopicACL is set. Mutually exclusive with OpenTopics (enforced at New()).
+	TopicACL TopicACLFunc
+	// OpenTopics (WithOpenTopics()) permits every topic Subscribe. Mutually
+	// exclusive with TopicACL (enforced at New()). Neither set = deny-all:
+	// every developer-topic Subscribe returns ErrTopicForbidden; only
+	// ctx.SelfTopic() is ACL-exempt.
+	OpenTopics bool
 }
 
 // =============================================================================
@@ -225,12 +234,14 @@ type Template struct {
 	lastHTML               string
 	lastTree               *treeNode // Store previous tree segments for comparison
 	hasInitialTree         bool
-	config                 Config          // Template configuration
-	uploadRegistry         interface{}     // Upload registry for this connection (*upload.Registry)
-	cachedParseTemplate    *parse.Template // Cached AST to avoid re-parsing on every render
-	cachedBodyContent      string          // Cached result of ExtractTemplateBodyContent(t.templateStr)
-	cachedBodyContentValid bool            // Whether cachedBodyContent has been computed (empty string is valid)
-	formSchema             *FormSchema     // Cached schema extracted from templateStr; nil if no rules
+	config                 Config              // Template configuration
+	uploadRegistry         interface{}         // Upload registry for this connection (*upload.Registry)
+	cachedParseTemplate    *parse.Template     // Cached AST to avoid re-parsing on every render
+	cachedBodyContent      string              // Cached result of ExtractTemplateBodyContent(t.templateStr)
+	cachedBodyContentValid bool                // Whether cachedBodyContent has been computed (empty string is valid)
+	formSchema             *FormSchema         // Cached schema extracted from templateStr; nil if no rules
+	wiredActions           map[string]struct{} // Cached set of client-wired action names (form/button name=, lvt-on:) extracted from templateStr; immutable after parse; drives the Publish symmetry-collision warning
+	wiredCollisionWarned   *sync.Map           // action -> struct{}: dedups the Publish symmetry-collision slog.Warn to once per action name; shared by pointer across per-session clones so the warning is app-global, not per-connection
 }
 
 // Funcs registers a template.FuncMap that will be applied to all template parsing and execution.
@@ -269,6 +280,55 @@ type ResponseMetadata = send.ResponseMetadata
 
 // Option is a functional option for configuring a Template
 type Option func(*Config)
+
+// TopicACLFunc decides whether a connection may subscribe to a topic. It is
+// called once per ctx.Subscribe with the literal subscribed name — the
+// wildcard pattern "room/*", never a concrete match like "room/42" (proposal
+// §2/§3) — the resolved userID ("" for anonymous), and the request that
+// established the connection.
+//
+// The request is the WS upgrade request on the WebSocket path and a plain GET
+// on the HTTP page-render path; because ctx.Subscribe runs the ACL eagerly
+// even on a plain GET, distinguish the two by the Upgrade header, NOT r.Method
+// (a WebSocket handshake is itself an HTTP GET — an r.Method=="GET" early
+// return would silently disable the ACL on the real WS connection).
+//
+// Returning (false, _) rejects the subscription with ErrTopicForbidden.
+//
+// Because Subscribe runs the ACL eagerly even on a plain HTTP GET, returning
+// false for a topic a controller subscribes in Mount causes that GET to
+// surface the error as an HTTP 500 to the browser (Mount errors map to 500),
+// not a WS-time rejection. If that is undesirable, gate the Mount Subscribe
+// with ctx.IsInitialMount() / defer to WS connect via the Upgrade-header
+// check above.
+type TopicACLFunc func(topic string, userID string, r *http.Request) (allowed bool, err error)
+
+// WithTopicACL sets the topic-subscription ACL hook (proposal §3). Called once
+// per ctx.Subscribe with the literal subscribed name. ctx.SelfTopic() is the
+// only ACL-exempt topic. Mutually exclusive with WithOpenTopics — setting both
+// is a hard error returned from New(), order-independent.
+//
+// Footgun: the ACL runs eagerly even on a plain HTTP GET, so if a controller
+// calls ctx.Subscribe in Mount and this hook can deny it, the GET surfaces an
+// HTTP 500 (Mount errors map to 500), not a 403. If your ACL may deny during
+// Mount, gate the Subscribe with ctx.IsInitialMount() / defer the real check
+// to WS connect via the Upgrade-header pattern (see TopicACLFunc).
+func WithTopicACL(fn TopicACLFunc) Option {
+	return func(c *Config) {
+		c.TopicACL = fn
+	}
+}
+
+// WithOpenTopics opts every topic into being publicly subscribable, disabling
+// the deny-all default. It is deliberately explicit and self-documenting: the
+// docs-site scaffolds are copy-pasted into user projects, so an allow-all
+// default would teach an insecure idiom. Mutually exclusive with WithTopicACL
+// — setting both is a hard error returned from New(), order-independent.
+func WithOpenTopics() Option {
+	return func(c *Config) {
+		c.OpenTopics = true
+	}
+}
 
 // WithParseFiles specifies template files to parse, overriding auto-discovery
 func WithParseFiles(files ...string) Option {
@@ -843,6 +903,15 @@ func New(name string, opts ...Option) (*Template, error) {
 		opt(&config)
 	}
 
+	// WithTopicACL and WithOpenTopics are mutually exclusive. Detected here at
+	// New() — not inside the With*() calls — so the result is order-independent:
+	// New("app", WithOpenTopics(), WithTopicACL(fn)) and the reverse both fail
+	// identically. Returned as an error (not a panic): option values may come
+	// from runtime config and New() already returns error.
+	if config.TopicACL != nil && config.OpenTopics {
+		return nil, fmt.Errorf("livetemplate: WithTopicACL and WithOpenTopics are mutually exclusive (set exactly one, or neither for deny-all)")
+	}
+
 	// Set secure CheckOrigin on the default gorilla upgrader (after options are applied)
 	if gu, ok := config.Upgrader.(*GorillaUpgrader); ok {
 		if gu.inner.CheckOrigin == nil {
@@ -913,6 +982,8 @@ func (t *Template) Clone() (*Template, error) {
 	bodyContent := t.cachedBodyContent
 	bodyContentValid := t.cachedBodyContentValid
 	formSchema := t.formSchema
+	wiredActions := t.wiredActions
+	wiredCollisionWarned := t.wiredCollisionWarned
 	t.mu.RUnlock()
 
 	// Share immutable data from master instead of re-creating per clone.
@@ -929,7 +1000,9 @@ func (t *Template) Clone() (*Template, error) {
 		cachedParseTemplate:    cachedParse, // Share parsed AST + builtins
 		cachedBodyContent:      bodyContent, // Share extracted body content
 		cachedBodyContentValid: bodyContentValid,
-		formSchema:             formSchema, // Share extracted form schema (immutable)
+		formSchema:             formSchema,           // Share extracted form schema (immutable)
+		wiredActions:           wiredActions,         // Share extracted wired-action set (immutable)
+		wiredCollisionWarned:   wiredCollisionWarned, // Share dedup store by pointer (app-global once-per-action warn)
 		// Don't copy lastData, lastHTML, lastTree, etc. - start fresh per session
 	}
 
@@ -1039,6 +1112,12 @@ func (t *Template) parseInternal(text string, baseTemplate *template.Template, i
 	t.cachedBodyContent = ""    // Invalidate cached body content
 	t.cachedBodyContentValid = false
 	t.formSchema = extractFormSchemaFromTemplateStr(text)
+	t.wiredActions = extractWiredActionNames(text)
+	if t.wiredActions != nil {
+		t.wiredCollisionWarned = &sync.Map{}
+	} else {
+		t.wiredCollisionWarned = nil
+	}
 
 	// Validate that tree generation works with this template
 	// This ensures templates with {{define}}/{{block}} are caught during initialization
@@ -1509,6 +1588,8 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 		UploadConfigs:          t.config.UploadConfigs,
 		wsBufferSize:           t.config.WebSocketBufferSize,
 		ProgressiveEnhancement: t.config.ProgressiveEnhancement,
+		TopicACL:               t.config.TopicACL,
+		OpenTopics:             t.config.OpenTopics,
 	}
 
 	mountCfg.Capabilities = detectCapabilities(controller, state.Inner(), &mountCfg)

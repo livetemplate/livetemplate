@@ -135,6 +135,8 @@ type mountConfig struct {
 	wsBufferSize           int                                 // WebSocket send buffer size per connection (default: 50)
 	ProgressiveEnhancement bool                                // Enable non-JS form submission support with PRG pattern (default: true)
 	Capabilities           []string                            // Controller capabilities detected at setup (e.g., ["change"])
+	TopicACL               TopicACLFunc                        // Topic-subscription ACL hook (nil unless WithTopicACL); deny-all default when nil and !OpenTopics
+	OpenTopics             bool                                // WithOpenTopics(): permit every topic Subscribe (mutually exclusive with TopicACL)
 }
 
 // liveHandler handles both WebSocket and HTTP requests
@@ -627,6 +629,8 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	lifecycleCtx := NewContext(ctx, "", wsQueryData)
 	lifecycleCtx = lifecycleCtx.WithUserID(userID)
+	lifecycleCtx = lifecycleCtx.WithGroupID(groupID)
+	lifecycleCtx = lifecycleCtx.WithTopicSubscriber(h.topicSubscriberFor(connection, r))
 	lifecycleCtx = lifecycleCtx.WithFlashSetter(connSt)
 	lifecycleCtx = lifecycleCtx.WithSession(newLocalSession(h, groupID))
 	lifecycleCtx = lifecycleCtx.WithConnectKind(connectKind)
@@ -636,6 +640,13 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// work with fresh data. Keep Mount cheap — it runs on every connect.
 	newState, err := callMount(h.config.Controller, connSt.state, lifecycleCtx)
 	if err != nil {
+		// An ACL-denied ctx.Subscribe in Mount surfaces here on the WS-connect
+		// path. Emit the structured topic_forbidden envelope so the TS client
+		// can distinguish it from a generic connection failure (proposal §3).
+		var tfe *TopicForbiddenError
+		if errors.As(err, &tfe) {
+			h.sendTopicForbiddenEnvelope(connection, tfe.Topic)
+		}
 		slog.Error("Mount failed",
 			slog.String("component", "live_handler"),
 			slog.Any("error", err))
@@ -654,6 +665,13 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	} else {
 		connSt.state = newState
 	}
+
+	// Drain ctx.Publish issued from Mount/OnConnect (post-persistState, so a
+	// reconciler re-reading shared state sees committed data). Per the spec
+	// (§"Publish on the GET-phase Mount is not a no-op"), Publish in Mount IS
+	// processed and fans out on every connect/load — the documented footgun
+	// callers guard with ctx.IsInitialMount() / ctx.IsReconnect().
+	h.processTopicPublishes(connection, lifecycleCtx.pendingTopicPublishes())
 
 	// Schedule OnDisconnect call when WebSocket closes
 	defer callOnDisconnect(h.config.Controller)
@@ -803,6 +821,8 @@ eventLoop:
 			// WebSocket actions use only msg.Data from the client message.
 			actionCtx := NewContext(r.Context(), msg.Action, msg.Data)
 			actionCtx = actionCtx.WithUserID(userID)
+			actionCtx = actionCtx.WithGroupID(groupID)
+			actionCtx = actionCtx.WithTopicSubscriber(h.topicSubscriberFor(connection, r))
 			actionCtx = actionCtx.WithUploads(uploadRegistry)
 			actionCtx = actionCtx.WithFlashSetter(connSt)
 			actionCtx = actionCtx.WithSession(newLocalSession(h, groupID))
@@ -843,6 +863,7 @@ eventLoop:
 				h.persistState(r.Context(), groupID, connSt.state)
 				connection.Stores = connSt.state
 				h.processBroadcasts(groupID, connection, actionCtx.pendingBroadcasts())
+				h.processTopicPublishes(connection, actionCtx.pendingTopicPublishes())
 			}
 
 			// Generate tree update
@@ -1083,6 +1104,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	lifecycleCtx := NewContext(ctx, "", queryData)
 	lifecycleCtx = lifecycleCtx.WithUserID(userID)
+	lifecycleCtx = lifecycleCtx.WithGroupID(groupID)
+	lifecycleCtx = lifecycleCtx.WithTopicSubscriber(h.topicSubscriberFor(nil, r))
 	lifecycleCtx = lifecycleCtx.WithFlashSetter(connSt)
 	lifecycleCtx = lifecycleCtx.WithSession(newLocalSession(h, groupID))
 	lifecycleCtx = lifecycleCtx.WithConnectKind(connectKind)
@@ -1124,6 +1147,11 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		if isNewSession || isHTTPGet {
 			h.persistState(ctx, groupID, connSt.state)
 		}
+		// Drain ctx.Publish issued from Mount on the HTTP path. Per the spec,
+		// Publish in Mount is NOT a no-op (unlike Subscribe) — it is
+		// transport-agnostic and fans out to existing subscribers on every
+		// GET/POST (excludeConn nil: the HTTP responder is not a WS subscriber).
+		h.processTopicPublishes(nil, lifecycleCtx.pendingTopicPublishes())
 		// Commit path after successful Mount (not before, to allow retries).
 		// Skip when no persist fields — pathChanged is never checked.
 		if isHTTPGet && h.persistable != nil {
@@ -1299,6 +1327,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// Create Context for action dispatch (with HTTP context for SetCookie, Redirect)
 	actionCtx := NewContext(r.Context(), msg.Action, mergedData)
 	actionCtx = actionCtx.WithUserID(userID)
+	actionCtx = actionCtx.WithGroupID(groupID)
+	actionCtx = actionCtx.WithTopicSubscriber(h.topicSubscriberFor(nil, r))
 	actionCtx = actionCtx.WithHTTP(w, r)
 	actionCtx = actionCtx.WithUploads(uploadRegistry)
 	actionCtx = actionCtx.WithFlashSetter(connSt)
@@ -1363,6 +1393,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if actionErr == nil {
 		h.processBroadcasts(groupID, nil, actionCtx.pendingBroadcasts())
+		h.processTopicPublishes(nil, actionCtx.pendingTopicPublishes())
 	}
 
 	// Check if we should return HTML for progressive enhancement
@@ -1581,6 +1612,43 @@ func (h *liveHandler) dispatchBroadcastToGroup(groupID string, excludeConn *sess
 		slog.Int("local_connections", len(conns)))
 }
 
+// processTopicPublishes drains pending ctx.Publish requests to topic
+// subscribers. Mirrors processBroadcasts and is called at the same
+// post-action, post-persistState site, so a reconciler that re-reads the
+// group-keyed session store sees the originator's committed write
+// (persist-before-publish ordering — a hard requirement).
+func (h *liveHandler) processTopicPublishes(excludeConn *session.Connection, pubs []topicPublish) {
+	for _, p := range pubs {
+		h.dispatchToTopic(p.Topic, excludeConn, p.Action, p.Data)
+	}
+}
+
+// dispatchToTopic is the structural twin of dispatchBroadcastToGroup. Each
+// receiver runs the action against its OWN state via handleDispatchedAction —
+// that is what makes the per-connection-state/reconciler guarantee free (no
+// merge machinery). segmentMatch must be passed in: internal/session cannot
+// import the root package (import cycle), and nil + pattern subscribers panics
+// by design (Phase 0 contract — never a silent exact-only degradation).
+func (h *liveHandler) dispatchToTopic(topic string, excludeConn *session.Connection, action string, data map[string]interface{}) {
+	conns := h.registry.GetByTopicExcept(topic, excludeConn, segmentMatch)
+	for _, conn := range conns {
+		// Kind is KindAction (zero value) in v1 — set explicitly so Phase 2,
+		// which branches on Kind here for the cross-instance leg, has the seam.
+		conn.EnqueueDispatch(&session.DispatchRequest{Action: action, Data: data, Kind: session.KindAction})
+	}
+
+	// Cross-instance fan-out over the livetemplate:topic:{name} channel is
+	// Phase 2 (Redis), modeled on PublishGroupAction. Single-instance Phase 1
+	// deliberately has no remote leg — and intentionally no no-op stub call,
+	// which would imply a wired path that does not yet exist.
+
+	slog.Debug("Dispatched publish to topic",
+		slog.String("component", "live_handler"),
+		slog.String("topic", topic),
+		slog.String("action", action),
+		slog.Int("local_connections", len(conns)))
+}
+
 // handleDispatchedAction processes a broadcast action received via DispatchChan.
 // Called from the connection's event loop goroutine, so all state access is serialized.
 // Rate limiting is intentionally not applied — these are server-originated dispatches.
@@ -1589,6 +1657,8 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 
 	ctx := NewContext(context.Background(), req.Action, req.Data)
 	ctx = ctx.WithUserID(userID)
+	ctx = ctx.WithGroupID(connSt.groupID)
+	ctx = ctx.WithTopicSubscriber(h.topicSubscriberFor(connection, nil))
 	ctx = ctx.WithFlashSetter(connSt)
 	// Wire Session so dispatched actions (from BroadcastAction or
 	// Session.TriggerAction) can also call ctx.Session().TriggerAction
@@ -1625,6 +1695,17 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 	// not processed to prevent infinite broadcast storms.
 	if dropped := ctx.pendingBroadcasts(); len(dropped) > 0 {
 		slog.Error("BroadcastAction calls inside a dispatched action are ignored (prevents broadcast storms)",
+			slog.String("component", "live_handler"),
+			slog.String("action", req.Action),
+			slog.Int("dropped_count", len(dropped)))
+	}
+
+	// Chained Publish calls from dispatched actions are likewise dropped: the
+	// shared resolver means a topic action could re-Publish on every peer.
+	// The one-hop guard bounds the cascade (not the first hop) — same shape
+	// as the BroadcastAction guard above, not a flag.
+	if dropped := ctx.pendingTopicPublishes(); len(dropped) > 0 {
+		slog.Error("Publish calls inside a dispatched action are ignored (prevents broadcast storms)",
 			slog.String("component", "live_handler"),
 			slog.String("action", req.Action),
 			slog.Int("dropped_count", len(dropped)))
@@ -1950,6 +2031,8 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 		// observability log on chained TriggerAction (#337).
 		actionCtx := NewContext(ctx, msg.Action, msg.Data)
 		actionCtx = actionCtx.WithUserID(msg.UserID)
+		actionCtx = actionCtx.WithGroupID(conn.GroupID)
+		actionCtx = actionCtx.WithTopicSubscriber(h.topicSubscriberFor(conn, nil))
 		actionCtx = actionCtx.WithFlashSetter(state)
 		actionCtx = actionCtx.WithSession(newLocalSessionFromDispatched(h, conn.GroupID))
 
@@ -1991,6 +2074,14 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 		// failure is observable instead of silent (the pre-fix behavior).
 		if dropped := actionCtx.pendingBroadcasts(); len(dropped) > 0 {
 			slog.Error("BroadcastAction calls inside a server-initiated action are ignored (prevents fan-out amplification and broadcast storms)",
+				slog.String("component", "pubsub_handler"),
+				slog.String("action", msg.Action),
+				slog.String("user_id", msg.UserID),
+				slog.Int("dropped_count", len(dropped)))
+		}
+
+		if dropped := actionCtx.pendingTopicPublishes(); len(dropped) > 0 {
+			slog.Error("Publish calls inside a server-initiated action are ignored (prevents fan-out amplification and broadcast storms)",
 				slog.String("component", "pubsub_handler"),
 				slog.String("action", msg.Action),
 				slog.String("user_id", msg.UserID),
@@ -2490,6 +2581,8 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, rawData []byte, 
 		actionCtx := NewContext(ctx, uploadAction, make(map[string]interface{}))
 		actionCtx = actionCtx.WithUploads(uploadRegistry)
 		actionCtx = actionCtx.WithUserID(connection.UserID)
+		actionCtx = actionCtx.WithGroupID(connection.GroupID)
+		actionCtx = actionCtx.WithTopicSubscriber(h.topicSubscriberFor(connection, nil))
 		actionCtx = actionCtx.WithFlashSetter(state)
 		actionCtx = actionCtx.WithSession(newLocalSession(h, connection.GroupID))
 
@@ -2504,6 +2597,12 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, rawData []byte, 
 			response.Error = actionErr.Error()
 		} else if actionErr == nil {
 			state.state = newState
+			// Drain ctx.Publish from an upload-complete handler — consistent
+			// with the WS-action and HTTP-POST action paths. (processBroadcasts
+			// is also absent on this path, but that is a pre-existing gap not
+			// in this design's scope — BroadcastAction is untouched until
+			// Phase 5.)
+			h.processTopicPublishes(connection, actionCtx.pendingTopicPublishes())
 		}
 	}
 
