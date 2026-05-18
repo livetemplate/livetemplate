@@ -159,6 +159,27 @@ Phase 2 (Cross-instance / Redis) inherits a clean single-instance seam:
   cross-instance relay is handler-side (`liveTopicSubscriber`/`dispatchToTopic`)
   and needs no Context-API change.
 
+**Deferred Phase 2 test coverage (from the PR #419 Claude-bot review, accepted
+as Phase-2-scoped — the bot itself framed these "not blockers for Phase 1"):**
+Phase 1's gate is the V-item set (all green); the following are tracked here
+rather than expanded in Phase 1:
+- `ctx.Publish` with an invalid topic (grammar-rejection path)
+- `ctx.Publish` at the `MaxBroadcastsPerAction` cap
+- `ctx.Unsubscribe` (no direct test yet)
+- the WS `{"type":"error","code":"topic_forbidden"}` envelope end-to-end
+  (server emission shipped Phase 1; client consumption is Phase 4 / V14)
+- server-originated Subscribe with nil `r` hitting the deny-by-default
+  hardening
+- `ctx.Publish` from an upload-complete handler (the drain fixed in
+  `28b8f6cb`; an upload-machinery e2e is Phase 2 scope)
+
+The post-review functional fixes (`28b8f6cb`): upload-complete Publish
+drain; Mount/OnConnect Publish drains (spec §"Publish on the GET-phase Mount
+is not a no-op"); test-race lock; app-global collision-warn dedup
+(`Template.wiredCollisionWarned`); two doc caveats. The pre-existing
+`processBroadcasts`-absent-on-upload-complete gap was **declined** (out of
+scope — `BroadcastAction` is untouched until Phase 5).
+
 ## Open questions for the user
 
 - **None blocking.** One decision was surfaced and pinned without asking
