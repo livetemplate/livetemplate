@@ -216,6 +216,72 @@ func TestTopic_V18_ACLLiteralPattern_AndV17FirstEverNoReACL(t *testing.T) {
 	}
 }
 
+// patternPubController captures the error ctx.Publish returns so a test can
+// assert on the real value (the suite's error-V-item convention), not a
+// WS-frame shape.
+type patternPubController struct {
+	mu  sync.Mutex
+	err error
+}
+
+func (c *patternPubController) Mount(s wcState, _ *Context) (wcState, error) { return s, nil }
+func (c *patternPubController) Pub(s wcState, ctx *Context) (wcState, error) {
+	err := ctx.Publish(ctx.GetString("topic"), "Reload", nil)
+	c.mu.Lock()
+	c.err = err
+	c.mu.Unlock()
+	return s, err
+}
+func (c *patternPubController) lastErr() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.err
+}
+
+// TestTopic_PublishToWildcardPatternRejected pins the crash-prevention guard:
+// publishing to a "*" pattern (which would otherwise panic GetByTopicExcept)
+// is a clean error from BOTH ctx.Publish and handler.Publish. Without this the
+// guard could be removed and only an indirect cross-instance test would notice.
+func TestTopic_PublishToWildcardPatternRejected(t *testing.T) {
+	ctrl := &patternPubController{}
+	_, wsURL, h := setupTopicServerH(t, ctrl, AsState(&wcState{}), wcTmpl,
+		WithAuthenticator(&fixedGroupAuth{groupID: "g"}), WithOpenTopics())
+
+	ws := connectWS(t, wsURL)
+	defer func() { _ = ws.Close() }()
+
+	// ctx.Publish path — assert the real returned error, for several pattern shapes.
+	for _, pat := range []string{"room/*", "*/alice", "org/*/room/*", "*"} {
+		ctrl.mu.Lock()
+		ctrl.err = nil
+		ctrl.mu.Unlock()
+		sendWSAction(t, ws, "pub", map[string]interface{}{"topic": pat})
+		_ = rawWSUpdate(t, ws, 2*time.Second) // drain the action response
+		err := ctrl.lastErr()
+		if err == nil || !strings.Contains(err.Error(), "Subscribe-only") {
+			t.Fatalf("ctx.Publish(%q) must return the Subscribe-only error, got: %v", pat, err)
+		}
+	}
+
+	// A concrete topic is still accepted (guard is pattern-only, not a regression).
+	ctrl.mu.Lock()
+	ctrl.err = nil
+	ctrl.mu.Unlock()
+	sendWSAction(t, ws, "pub", map[string]interface{}{"topic": "room/42"})
+	_ = rawWSUpdate(t, ws, 2*time.Second)
+	if err := ctrl.lastErr(); err != nil {
+		t.Fatalf("ctx.Publish(\"room/42\") (concrete) must succeed, got: %v", err)
+	}
+
+	// handler.Publish path — direct call on the LiveHandler, no Context.
+	if err := h.Publish("room/*", "Reload", nil); err == nil || !strings.Contains(err.Error(), "Subscribe-only") {
+		t.Fatalf("handler.Publish(\"room/*\") must return the Subscribe-only error, got: %v", err)
+	}
+	if err := h.Publish("org/42", "Reload", nil); err != nil {
+		t.Fatalf("handler.Publish(\"org/42\") (concrete) must succeed, got: %v", err)
+	}
+}
+
 // ============================================================================
 // Cross-instance V17 (Redis testcontainers — skips if Docker absent).
 // ============================================================================
