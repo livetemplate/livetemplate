@@ -682,9 +682,11 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		// surfaces it as lvt:error, then keep the connection open — closing
 		// trips the client's auto-reconnect into a re-Mount → re-deny → storm
 		// (V14 / phase-4.md). Fall through with the controller's returned
-		// newState (callMount returns it even on error; for `return s, err`
-		// that is the pre-Subscribe state — see Phase 6 docs for the
-		// partial-mutation caveat).
+		// newState: for the canonical `return s, err`, that is the pre-Subscribe
+		// state and is correct; if the controller mutates `s` before the denied
+		// Subscribe, that partially-modified state is silently adopted (no
+		// rollback, consistent with Go error-handling conventions — callers
+		// who need a clean rollback must not mutate before a may-deny Subscribe).
 		h.sendTopicForbiddenEnvelope(connection, tfe.Topic)
 		slog.Warn("Mount Subscribe denied by topic ACL; surfaced to client, connection kept open",
 			slog.String("component", "live_handler"),
