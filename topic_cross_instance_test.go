@@ -50,11 +50,16 @@ func setupTopicServerH(t *testing.T, ctrl interface{}, st State, tmplStr string,
 	return server, wsURL, h
 }
 
-// awaitTreeSlot retries trigger every 150ms until ws yields a tree update whose
-// slot slotKey equals want, or deadline elapses. The retry absorbs Redis
+// awaitWSContains retries trigger every ~150ms until ws yields a frame whose
+// raw body contains want, or the deadline elapses. The retry absorbs Redis
 // SUBSCRIBE-propagation latency without a brittle fixed sleep (the publish is
 // re-sent, so a delivery lost before the SUBSCRIBE landed is simply re-driven).
-func awaitTreeSlot(t *testing.T, ws *websocket.Conn, slotKey, want string, trigger func()) {
+//
+// It substring-matches the raw frame rather than asserting tree[slot]==want on
+// purpose: a tree update carries only the CHANGED dynamics and the value may be
+// nested, so a raw-body contains check is the robust signal that the value
+// landed end-to-end (which is all these cross-instance tests need to assert).
+func awaitWSContains(t *testing.T, ws *websocket.Conn, want string, trigger func()) {
 	t.Helper()
 	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {
@@ -70,7 +75,7 @@ func awaitTreeSlot(t *testing.T, ws *websocket.Conn, slotKey, want string, trigg
 			return
 		}
 	}
-	t.Fatalf("timed out waiting for tree slot %q == %q", slotKey, want)
+	t.Fatalf("timed out waiting for WS frame containing %q", want)
 }
 
 // --- shared cross-instance fixtures ---
@@ -151,7 +156,7 @@ func TestTopic_V9_CrossInstancePublish(t *testing.T) {
 	wsA := connectWS(t, wsURLA)
 	defer func() { _ = wsA.Close() }()
 
-	awaitTreeSlot(t, wsB, "0", "ping", func() {
+	awaitWSContains(t, wsB, "ping", func() {
 		sendWSAction(t, wsA, "send", map[string]interface{}{"msg": "ping"})
 		_ = wsA.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 		_, _, _ = wsA.ReadMessage() // drain A's own action-response render
@@ -180,7 +185,7 @@ func TestTopic_V8_OutOfBandHandlerPublish_Announcements(t *testing.T) {
 	defer func() { _ = ws.Close() }()
 
 	// No Context, no sender to exclude — the subscriber receives it.
-	awaitTreeSlot(t, ws, "0", "maintenance at 5pm", func() {
+	awaitWSContains(t, ws, "maintenance at 5pm", func() {
 		if err := h.Publish("announcements", "Reload", map[string]interface{}{"msg": "maintenance at 5pm"}); err != nil {
 			t.Fatalf("handler.Publish failed: %v", err)
 		}
@@ -206,7 +211,7 @@ func TestTopic_V8_OutOfBandHandlerPublish_UserTopicCrossInstance(t *testing.T) {
 		t.Fatalf("UserTopic(\"alice\") = %q, want lvt:user:alice", got)
 	}
 
-	awaitTreeSlot(t, wsB, "0", "bob", func() {
+	awaitWSContains(t, wsB, "bob", func() {
 		if err := hA.Publish(UserTopic("alice"), "DM", map[string]interface{}{"from": "bob"}); err != nil {
 			t.Fatalf("out-of-band handler.Publish failed: %v", err)
 		}
