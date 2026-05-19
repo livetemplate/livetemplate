@@ -50,15 +50,22 @@ type RedisBroadcaster struct {
 	serverActionHandler ServerActionHandler
 	groupActionHandler  GroupActionHandler
 	topicActionHandler  GroupActionHandler // topic messages reuse the GroupActionMessage envelope + handler signature
-	seq                 atomic.Uint64      // per-instance monotonic dedup counter; incremented on every GroupActionMessage emitted (group-action AND topic) — see GroupActionMessage doc
-	ctx                 context.Context
-	cancel              context.CancelFunc
-	wg                  sync.WaitGroup
-	mu                  sync.RWMutex
-	closed              bool
-	reconnecting        bool           // True while reconnect() is in its sleep/SUBSCRIBE window (pubsub is nil)
-	reconnectDelay      time.Duration  // Delay before reconnecting after subscription failure (default: 1s)
-	subscribedChannels  map[string]int // Reference counts for dynamic channel subscriptions (used for reconnect replay and 0→1 / 1→0 SUBSCRIBE/UNSUBSCRIBE gating)
+	// seq is the per-instance monotonic dedup counter, incremented on every
+	// GroupActionMessage emitted (group-action AND topic — see the
+	// GroupActionMessage doc). CONSTRAINT for Phase 3's (instanceID, seq) dedup
+	// ring: values are monotonic PER-INSTANCE only, never per-Type — group and
+	// topic emits interleave and consume from this one counter, so a topic
+	// stream sees gaps. The ring must key on (instanceID, seq) and must not
+	// assume contiguous or per-stream-monotonic seq.
+	seq                atomic.Uint64
+	ctx                context.Context
+	cancel             context.CancelFunc
+	wg                 sync.WaitGroup
+	mu                 sync.RWMutex
+	closed             bool
+	reconnecting       bool           // True while reconnect() is in its sleep/SUBSCRIBE window (pubsub is nil)
+	reconnectDelay     time.Duration  // Delay before reconnecting after subscription failure (default: 1s)
+	subscribedChannels map[string]int // Reference counts for dynamic channel subscriptions (used for reconnect replay and 0→1 / 1→0 SUBSCRIBE/UNSUBSCRIBE gating)
 }
 
 // RedisBroadcasterOption configures RedisBroadcaster.
@@ -858,8 +865,16 @@ func (b *RedisBroadcaster) handleServerActionMessage(redisMsg *redis.Message) er
 }
 
 // handleGroupActionMessage processes a group action message.
-// Note: handleMessage already filters own-instance messages before calling this.
-// The instanceID check here is a redundant safety guard (single parse, no extra unmarshal).
+//
+// handleMessage already did a partial parse (Type + InstanceID) to route and
+// dropped own-instance messages. This does a fresh FULL unmarshal of the same
+// payload — the established route-then-decode pattern shared by the
+// server/broadcast/topic handlers (a small, deliberate cost on the
+// cross-instance path; not refactored to a single decode here because that
+// would alter the long-standing BroadcastAction group-action dispatch path,
+// which the pub/sub-topic rollout keeps untouched through Phases 0–4). The
+// msg.InstanceID re-check is a cheap redundant guard against the
+// already-decoded struct (no separate unmarshal for the guard itself).
 func (b *RedisBroadcaster) handleGroupActionMessage(redisMsg *redis.Message) error {
 	var msg GroupActionMessage
 	if err := json.Unmarshal([]byte(redisMsg.Payload), &msg); err != nil {
@@ -883,15 +898,16 @@ func (b *RedisBroadcaster) handleGroupActionMessage(redisMsg *redis.Message) err
 }
 
 // handleTopicActionMessage processes a topic action message. Mirrors
-// handleGroupActionMessage (same envelope, same handler signature). The
-// receiving handler resolves the connection set by msg.Topic.
+// handleGroupActionMessage (same envelope, same handler signature, same
+// route-then-decode pattern: handleMessage partial-parsed Type+InstanceID and
+// dropped own-instance messages; this does a fresh full unmarshal, and the
+// msg.InstanceID re-check is a cheap redundant guard against the decoded
+// struct — no separate unmarshal for the guard). The receiving handler
+// resolves the connection set by msg.Topic.
 //
 // Phase 2 has exact SUBSCRIBE only, so a given PUBLISH delivers once to a
 // subscribed instance; the (instanceID, seq) double-fire dedup is not yet
-// needed and lands in Phase 3 with PSUBSCRIBE (gated by V17). Own-instance
-// messages are already dropped by handleMessage (the local fan-out in
-// dispatchToTopic already delivered them); the redundant guard here is a
-// single-parse safety net, identical to handleGroupActionMessage.
+// needed and lands in Phase 3 with PSUBSCRIBE (gated by V17).
 func (b *RedisBroadcaster) handleTopicActionMessage(redisMsg *redis.Message) error {
 	var msg GroupActionMessage
 	if err := json.Unmarshal([]byte(redisMsg.Payload), &msg); err != nil {

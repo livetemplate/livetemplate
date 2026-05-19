@@ -226,6 +226,13 @@ type ServerActionHandler func(msg *ServerActionMessage) error
 // benign. If wildcard group-action broadcasts are ever added, the
 // (instanceID, seq) dedup scope MUST be revisited (e.g. a per-stream counter or
 // a type-tagged key) before that change ships.
+//
+// This envelope is a tagged union, not a product type — fields populated by Type:
+//   - "group_action": GroupID set, Topic empty (BroadcastAction cross-instance).
+//   - "topic_action":  Topic set, GroupID empty (ctx.Publish / handler.Publish).
+//
+// Action/Data/Seq/Timestamp/InstanceID are always set; the receiver routes on
+// Type and reads only the field valid for that Type.
 type GroupActionMessage struct {
 	Type       string                 `json:"type"`
 	GroupID    string                 `json:"groupID"`

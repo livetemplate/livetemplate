@@ -42,10 +42,12 @@ func BenchmarkTopicFanoutByN(b *testing.B) {
 			reg.SetDispatchBufferSize(1 << 16)
 			h := &liveHandler{registry: reg, config: mountConfig{}}
 			stop := make(chan struct{})
+			conns := make([]*session.Connection, 0, n)
 			for i := 0; i < n; i++ {
 				conn := &session.Connection{GroupID: fmt.Sprintf("g%d", i), UserID: fmt.Sprintf("u%d", i)}
 				reg.Register(conn, 8)
 				reg.SubscribeConnectionToTopic(conn, "bench/topic")
+				conns = append(conns, conn)
 				go func(c *session.Connection) {
 					for {
 						select {
@@ -56,13 +58,20 @@ func BenchmarkTopicFanoutByN(b *testing.B) {
 					}
 				}(conn)
 			}
+			// Explicit teardown, panic-safe (a failed iteration would otherwise
+			// leak the drain goroutines + registry entries).
+			b.Cleanup(func() {
+				close(stop)
+				for _, c := range conns {
+					reg.Unregister(c)
+				}
+			})
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				h.dispatchToTopic("bench/topic", nil, "Reload", nil)
 			}
 			b.StopTimer()
-			close(stop)
 		})
 	}
 }
@@ -103,21 +112,38 @@ func TestTopic_Phase2_CrossInstanceRoundTripVsGroupAction(t *testing.T) {
 	if err := bB.SubscribeToGroupAction("lat-grp"); err != nil {
 		t.Fatalf("SubscribeToGroupAction: %v", err)
 	}
-	time.Sleep(300 * time.Millisecond) // let both SUBSCRIBEs propagate
 
 	const iters = 50
 	measure := func(publish func() error, hits <-chan struct{}) time.Duration {
-		// Warm up + drain any stragglers.
+		// Warmup makes the SUBSCRIBE-propagation wait non-load-bearing: retry
+		// publish until the first round-trip actually completes (or a generous
+		// deadline), instead of a fixed sleep that flakes on a slow CI Redis.
+		// Topic pub/sub has no replay, so re-publishing is the correct probe.
+		warmDeadline := time.Now().Add(15 * time.Second)
+		for {
+			if err := publish(); err != nil {
+				t.Fatalf("warmup publish failed: %v", err)
+			}
+			select {
+			case <-hits:
+				goto timed // SUBSCRIBE confirmed live end-to-end
+			case <-time.After(200 * time.Millisecond):
+				if time.Now().After(warmDeadline) {
+					t.Fatal("warmup: no round-trip within 15s (Redis SUBSCRIBE never propagated)")
+				}
+			}
+		}
+	timed:
+		// Drain any warmup stragglers so they don't count toward a timed iter.
 		for {
 			select {
 			case <-hits:
 			default:
-				goto warm
+				goto run
 			}
 		}
-	warm:
+	run:
 		var total time.Duration
-		got := 0
 		for i := 0; i < iters; i++ {
 			start := time.Now()
 			if err := publish(); err != nil {
@@ -126,12 +152,11 @@ func TestTopic_Phase2_CrossInstanceRoundTripVsGroupAction(t *testing.T) {
 			select {
 			case <-hits:
 				total += time.Since(start)
-				got++
 			case <-time.After(3 * time.Second):
 				t.Fatalf("round-trip %d timed out", i)
 			}
 		}
-		return total / time.Duration(got)
+		return total / time.Duration(iters)
 	}
 
 	topicMean := measure(func() error {
