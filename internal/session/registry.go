@@ -545,13 +545,19 @@ func isPatternTopic(topic string) bool {
 // Unregister's topic-GC can never reclaim (the conn never Unregisters again).
 // The subscription is re-established on WS reconnect via Mount, so silent-drop
 // is the correct, lower-surprise policy (proposal Phase 1 decision).
-func (r *ConnectionRegistry) SubscribeConnectionToTopic(conn *Connection, topic string) {
+//
+// Returns true exactly on the per-connection 0→1 transition (this conn was not
+// already subscribed and is now). Callers relaying to a cross-instance
+// transport (Phase 2 Redis) act only on a true return so the instance-wide
+// channel refcount is incremented exactly once per connection-topic — a
+// liveness short-circuit or an idempotent repeat returns false.
+func (r *ConnectionRegistry) SubscribeConnectionToTopic(conn *Connection, topic string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	select {
 	case <-conn.done:
-		return // connection shutting down — see Liveness short-circuit above
+		return false // connection shutting down — see Liveness short-circuit above
 	default:
 	}
 
@@ -559,7 +565,7 @@ func (r *ConnectionRegistry) SubscribeConnectionToTopic(conn *Connection, topic 
 		conn.subscribedTopics = make(map[string]struct{})
 	}
 	if _, already := conn.subscribedTopics[topic]; already {
-		return // idempotent: already subscribed
+		return false // idempotent: already subscribed
 	}
 	conn.subscribedTopics[topic] = struct{}{}
 
@@ -568,18 +574,25 @@ func (r *ConnectionRegistry) SubscribeConnectionToTopic(conn *Connection, topic 
 		index = r.byTopicPattern
 	}
 	index[topic] = append(index[topic], conn)
+	return true
 }
 
 // UnsubscribeConnectionFromTopic removes conn from the registry index for topic.
 //
 // No-op if conn was not subscribed to topic. Emptied index entries are deleted
 // to prevent map-key leaks (same discipline as byGroup/byUser in Unregister).
-func (r *ConnectionRegistry) UnsubscribeConnectionFromTopic(conn *Connection, topic string) {
+//
+// Returns true exactly on the per-connection 1→0 transition (this conn was
+// subscribed and is now removed). Callers relaying to a cross-instance
+// transport act only on a true return, pairing it one-to-one with the true
+// returned by SubscribeConnectionToTopic so the instance-wide channel refcount
+// stays balanced. A not-subscribed no-op returns false.
+func (r *ConnectionRegistry) UnsubscribeConnectionFromTopic(conn *Connection, topic string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if _, subscribed := conn.subscribedTopics[topic]; !subscribed {
-		return
+		return false
 	}
 	delete(conn.subscribedTopics, topic)
 
@@ -591,6 +604,26 @@ func (r *ConnectionRegistry) UnsubscribeConnectionFromTopic(conn *Connection, to
 	if len(index[topic]) == 0 {
 		delete(index, topic)
 	}
+	return true
+}
+
+// SubscribedTopics returns a snapshot of the topics conn is currently
+// subscribed to. Used by the cross-instance relay teardown on disconnect to
+// release exactly the channels still held (any explicitly Unsubscribed earlier
+// were already removed from the set and relay-released then). Safe to call
+// before Unregister (which nils the set); the returned slice is a copy.
+func (r *ConnectionRegistry) SubscribedTopics(conn *Connection) []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if len(conn.subscribedTopics) == 0 {
+		return nil
+	}
+	topics := make([]string, 0, len(conn.subscribedTopics))
+	for topic := range conn.subscribedTopics {
+		topics = append(topics, topic)
+	}
+	return topics
 }
 
 // GetByTopicExcept returns the deduped union of connections subscribed to a

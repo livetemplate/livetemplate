@@ -128,6 +128,47 @@ type GroupActionSubscriber interface {
 	UnsubscribeFromGroupAction(groupID string) error
 }
 
+// TopicActionBroadcaster extends Broadcaster with Publish/Subscribe topic
+// dispatch (the pub/sub topic model). It mirrors GroupActionBroadcaster: the
+// handler layer type-asserts and calls these during ctx.Publish /
+// handler.Publish fan-out and at handler init. Implementations that do not
+// implement it stay single-instance for topics (local registry fan-out only) —
+// backward compatible by construction.
+//
+// Topic messages reuse the GroupActionMessage envelope (Type "topic_action",
+// routed by Topic) and the GroupActionHandler signature, so receiving instances
+// run the action through the one shared dispatch path.
+type TopicActionBroadcaster interface {
+	// PublishToTopic publishes a topic-scoped action to all instances over the
+	// single exact channel livetemplate:topic:{name}. Publishers always
+	// PUBLISH to the exact channel — never to a pattern (Phase 3 wildcard
+	// delivery works because Redis pattern-matching connects the exact PUBLISH
+	// to a PSUBSCRIBE, not because publishers expand patterns).
+	PublishToTopic(topic string, action string, data map[string]interface{}) error
+
+	// SubscribeToTopicActions registers the handler invoked for every received
+	// topic action message (from other instances). Mirrors SubscribeGroupActions.
+	SubscribeToTopicActions(handler GroupActionHandler) error
+}
+
+// TopicChannelSubscriber allows subscribing to per-topic channels at runtime.
+// Checked via type assertion when ctx.Subscribe materializes a Connection's
+// topic subscription, so a topic published on another instance round-trips
+// through Redis to this one.
+//
+// SubscribeToTopicChannel / UnsubscribeFromTopicChannel are reference-counted
+// per the same contract as DynamicSubscriber: every successful subscribe pairs
+// with exactly one unsubscribe (multiple local connections subscribing the same
+// topic share one underlying Redis SUBSCRIBE; the channel is torn down on the
+// 1→0 transition).
+//
+// Phase 2 issues only exact SUBSCRIBE (concrete topics). Wildcard PSUBSCRIBE is
+// Phase 3.
+type TopicChannelSubscriber interface {
+	SubscribeToTopicChannel(topic string) error
+	UnsubscribeFromTopicChannel(topic string) error
+}
+
 // MessageHandler is called when a broadcast message is received.
 // It should fan out the message to relevant local connections.
 type MessageHandler func(msg *BroadcastMessage) error
@@ -164,13 +205,44 @@ type ServerActionHandler func(msg *ServerActionMessage) error
 // Unlike ServerActionMessage (user-scoped), this targets all connections in a
 // specific session group across all instances. Used by BroadcastAction to deliver
 // explicit cross-connection broadcasts in per-connection state mode.
+//
+// The same envelope also carries Publish/Subscribe topic actions (Type
+// "topic_action", routed by Topic instead of GroupID) — reusing one struct keeps
+// a single wire format, a single processMessages pump, and a single handleMessage
+// type-switch (the design's "adds zero new machinery" property).
+//
+// Seq is a per-instance monotonic counter, atomically incremented on EVERY
+// GroupActionMessage the instance emits (group-action AND topic). Together with
+// InstanceID it forms the collision-free dedup id (instanceID, seq). Timestamp
+// stays for observability but is NOT the dedup key: same-instance publishes
+// within one clock tick share a timestamp, so timestamp-keyed dedup would
+// wrongly drop the second.
+//
+// LOAD-BEARING INVARIANT: sharing one Seq counter across group-action and topic
+// messages is safe ONLY while group-action broadcasts stay exact-SUBSCRIBE-only
+// (no PSUBSCRIBE). The (instanceID, seq) double-fire dedup fires solely on the
+// topic SUBSCRIBE+PSUBSCRIBE double-delivery path (topic subscriptions only),
+// so a non-topic message's seq is never compared — making the shared counter
+// benign. If wildcard group-action broadcasts are ever added, the
+// (instanceID, seq) dedup scope MUST be revisited (e.g. a per-stream counter or
+// a type-tagged key) before that change ships.
+//
+// This envelope is a tagged union, not a product type — fields populated by Type:
+//   - "group_action": GroupID set, Topic empty (BroadcastAction cross-instance).
+//   - "topic_action":  Topic set, GroupID empty (ctx.Publish / handler.Publish).
+//
+// Action/Data/Seq/Timestamp/InstanceID are always set; the receiver routes on
+// Type and reads only the field valid for that Type.
 type GroupActionMessage struct {
-	Type       string                 `json:"type"`
-	GroupID    string                 `json:"groupID"`
-	Action     string                 `json:"action"`
-	Data       map[string]interface{} `json:"data,omitempty"`
-	Timestamp  time.Time              `json:"timestamp"`
-	InstanceID string                 `json:"instanceID"`
+	Type    string                 `json:"type"`
+	GroupID string                 `json:"groupID"`
+	Topic   string                 `json:"topic,omitempty"`
+	Action  string                 `json:"action"`
+	Data    map[string]interface{} `json:"data,omitempty"`
+	Seq     uint64                 `json:"seq"` // intentionally NOT omitempty: seq==0 must mean "pre-upgrade sender", not "absent" — see the rolling-upgrade note above; do not add omitempty
+
+	Timestamp  time.Time `json:"timestamp"`
+	InstanceID string    `json:"instanceID"`
 }
 
 // GroupActionHandler is called when a group action message is received.

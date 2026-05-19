@@ -109,6 +109,30 @@ type LiveHandler interface {
 	//   r.Handle("/live", handler)
 	//   r.Handle("/metrics", handler.MetricsHandler())
 	MetricsHandler() http.Handler
+
+	// Publish fans a topic action out to every subscribed connection (local +
+	// cross-instance), the same primitive as ctx.Publish but with no Context —
+	// for out-of-band callers (webhook, cron, admin path). Use case F/G/H.
+	//
+	//   handler.Publish(livetemplate.UserTopic("alice"), "DM", data)
+	//   handler.Publish("announcements", "Maintenance", map[string]any{"at": t})
+	//
+	// Each receiver runs action against its OWN state via the shared dispatch
+	// path (the reconciler model). There is no sender to exclude (no Context),
+	// so every subscriber — including all of the addressed identity's
+	// connections — receives it.
+	//
+	// Send is ungated (proposal §3): Publish runs NO ACL — the Subscribe-time
+	// ACL gates who reads. Reserved lvt: topics are permitted on the send side
+	// without a SelfTopic()-equality check (anti-spoof is a Subscribe-side
+	// rule). Developer (non-lvt:) topics must satisfy the segment grammar.
+	// Scope out-of-band Publish call sites the way you would scope a
+	// "send to these users" capability — keep them in trusted code.
+	//
+	// Returns an error only for an invalid topic/action argument (empty, or a
+	// malformed developer topic); a transport failure to a remote instance is
+	// logged, not returned (local fan-out still succeeds).
+	Publish(topic, action string, data map[string]interface{}) error
 }
 
 // ephemeralSweepTTL is how long idle HTTP template cache entries survive in ephemeral
@@ -509,6 +533,10 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	h.registry.Register(connection, h.config.wsBufferSize)
 	defer h.registry.Unregister(connection)
+	// Registered after the Unregister defer so LIFO runs this first, while
+	// conn.subscribedTopics is still live (Unregister nils it). Balances the
+	// cross-instance topic SUBSCRIBEs relayed during this connection's life.
+	defer h.releaseRelayedTopics(connection)
 	defer func() {
 		if h.tempFileManager == nil {
 			return
@@ -1630,23 +1658,71 @@ func (h *liveHandler) processTopicPublishes(excludeConn *session.Connection, pub
 // import the root package (import cycle), and nil + pattern subscribers panics
 // by design (Phase 0 contract — never a silent exact-only degradation).
 func (h *liveHandler) dispatchToTopic(topic string, excludeConn *session.Connection, action string, data map[string]interface{}) {
+	// Local fan-out: every local subscriber runs the action against its OWN
+	// state via handleDispatchedAction. Kind is KindAction (the only v1 value),
+	// set explicitly as a forward-compat placeholder.
 	conns := h.registry.GetByTopicExcept(topic, excludeConn, segmentMatch)
 	for _, conn := range conns {
-		// Kind is KindAction (zero value) in v1 — set explicitly so Phase 2,
-		// which branches on Kind here for the cross-instance leg, has the seam.
 		conn.EnqueueDispatch(&session.DispatchRequest{Action: action, Data: data, Kind: session.KindAction})
 	}
 
-	// Cross-instance fan-out over the livetemplate:topic:{name} channel is
-	// Phase 2 (Redis), modeled on PublishGroupAction. Single-instance Phase 1
-	// deliberately has no remote leg — and intentionally no no-op stub call,
-	// which would imply a wired path that does not yet exist.
+	// Remote fan-out: publish to Redis over the single exact channel
+	// livetemplate:topic:{name} for other instances. Mirrors the
+	// GroupActionBroadcaster block in dispatchBroadcastToGroup. The publishing
+	// instance's own SUBSCRIBE round-trips its message back, but
+	// RedisBroadcaster.handleMessage drops same-instance messages (InstanceID
+	// filter) so local connections are not double-dispatched.
+	if tab, ok := h.config.PubSubBroadcaster.(pubsub.TopicActionBroadcaster); ok {
+		if err := tab.PublishToTopic(topic, action, data); err != nil {
+			slog.Warn("Failed to publish topic action to PubSub",
+				slog.String("component", "live_handler"),
+				slog.String("topic", topic),
+				slog.String("action", action),
+				slog.Any("error", err))
+		}
+	}
 
 	slog.Debug("Dispatched publish to topic",
 		slog.String("component", "live_handler"),
 		slog.String("topic", topic),
 		slog.String("action", action),
 		slog.Int("local_connections", len(conns)))
+}
+
+// Publish is the out-of-band entry point (LiveHandler.Publish): same topic
+// fan-out as ctx.Publish but with no Context. Validation mirrors ctx.Publish
+// (empty checks; developer-grammar for non-lvt: topics; lvt: permitted on the
+// send side without a SelfTopic()-equality check — anti-spoof is Subscribe-side
+// only, §3). It runs NO ACL (send-side ungated, §3) and NO recursion guard
+// (not inside a dispatched action — there is no Context to have one). There is
+// no sender connection, so excludeConn is nil (every subscriber receives it).
+//
+// The symmetry-collision slog.Warn (the ctx.Publish footgun guard for
+// copy-pasted client scaffolds reusing a wired action name) is intentionally
+// NOT emitted here: out-of-band Publish is deliberate trusted server code, not
+// a scaffold, and there is no per-Context template binding to resolve a
+// client-wired name set against. (Recorded in learnings/phase-2.md.)
+//
+// Unlike ctx.Publish there is no action/persistState cycle to order against:
+// an out-of-band caller is responsible for committing any state mutation
+// before calling Publish (the same contract any external mutation has), so the
+// dispatch happens immediately rather than being queued for a post-action
+// drain.
+func (h *liveHandler) Publish(topic, action string, data map[string]interface{}) error {
+	if topic == "" {
+		return fmt.Errorf("livetemplate: cannot Publish to an empty topic")
+	}
+	if action == "" {
+		return fmt.Errorf("livetemplate: cannot Publish with an empty action")
+	}
+	if !isReservedTopic(topic) {
+		if err := validateDeveloperTopic(topic); err != nil {
+			return err
+		}
+	}
+
+	h.dispatchToTopic(topic, nil, action, data)
+	return nil
 }
 
 // handleDispatchedAction processes a broadcast action received via DispatchChan.
@@ -1973,6 +2049,46 @@ func (h *liveHandler) handleGroupActionMessage(msg *pubsub.GroupActionMessage) e
 	slog.Debug("Enqueued group action for local connections",
 		slog.String("component", "pubsub_handler"),
 		slog.String("group_id", msg.GroupID),
+		slog.String("action", msg.Action),
+		slog.Int("connection_count", len(connections)))
+
+	return nil
+}
+
+// handleTopicActionMessage handles incoming topic action messages from other
+// instances. Called by the RedisBroadcaster when a "topic_action" message is
+// received from a remote instance: it resolves the concrete topic to the local
+// deduped subscriber set (exact ∪ matching patterns) and enqueues the action on
+// each connection's DispatchChan, so each receiver runs it against its OWN
+// state via handleDispatchedAction (the reconciler guarantee, cross-instance).
+//
+// excludeConn is nil: the publisher's sender-exclusion (use case I) is applied
+// on the ORIGINATING instance's local fan-out (dispatchToTopic); the sending
+// connection does not exist on this receiving instance. Own-instance messages
+// are already dropped by RedisBroadcaster.handleMessage (InstanceID filter)
+// before routing here, so the publisher's own subscribers are not
+// double-dispatched.
+func (h *liveHandler) handleTopicActionMessage(msg *pubsub.GroupActionMessage) error {
+	connections := h.registry.GetByTopicExcept(msg.Topic, nil, segmentMatch)
+	if len(connections) == 0 {
+		slog.Debug("No local connections for topic action",
+			slog.String("component", "pubsub_handler"),
+			slog.String("topic", msg.Topic),
+			slog.String("action", msg.Action))
+		return nil
+	}
+
+	for _, conn := range connections {
+		conn.EnqueueDispatch(&session.DispatchRequest{
+			Action: msg.Action,
+			Data:   msg.Data,
+			Kind:   session.KindAction,
+		})
+	}
+
+	slog.Debug("Enqueued topic action for local connections",
+		slog.String("component", "pubsub_handler"),
+		slog.String("topic", msg.Topic),
 		slog.String("action", msg.Action),
 		slog.Int("connection_count", len(connections)))
 

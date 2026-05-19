@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/livetemplate/livetemplate/internal/session"
+	"github.com/livetemplate/livetemplate/pubsub"
 )
 
 // topicErrorEnvelope is the WS message emitted when a Subscribe is ACL-denied
@@ -98,18 +99,69 @@ func (s *liveTopicSubscriber) checkTopicACL(topic, userID string) error {
 	}
 }
 
+// registerTopic adds the connection to the local topic index and, on the
+// per-connection 0→1 transition, relays an exact Redis SUBSCRIBE so a publish
+// from another instance round-trips here. The broadcaster ref-counts the
+// channel instance-wide (multiple local connections on one topic share one
+// SUBSCRIBE); acting only on the transition keeps that refcount balanced
+// one-to-one with unregisterTopic. Reconnect-replay of the channel is free —
+// it lives in the broadcaster's subscribedChannels map.
 func (s *liveTopicSubscriber) registerTopic(topic string) {
 	if s.conn == nil {
 		return // HTTP GET/POST / server-originated: only materializes with a Connection
 	}
-	s.h.registry.SubscribeConnectionToTopic(s.conn, topic)
+	if s.h.registry.SubscribeConnectionToTopic(s.conn, topic) {
+		s.relayTopicSubscribe(topic)
+	}
 }
 
+// unregisterTopic is the explicit ctx.Unsubscribe path: remove from the local
+// index and, on the 1→0 transition, relay the Redis UNSUBSCRIBE. Disconnect
+// teardown is handled separately (releaseRelayedTopics), so a topic explicitly
+// Unsubscribed here is already gone from the connection's set and is not
+// double-released at disconnect.
 func (s *liveTopicSubscriber) unregisterTopic(topic string) {
 	if s.conn == nil {
 		return
 	}
-	s.h.registry.UnsubscribeConnectionFromTopic(s.conn, topic)
+	if s.h.registry.UnsubscribeConnectionFromTopic(s.conn, topic) {
+		s.relayTopicUnsubscribe(topic)
+	}
+}
+
+// relayTopicSubscribe issues the cross-instance exact SUBSCRIBE when the
+// configured broadcaster supports topic channels. A broadcaster that does not
+// implement TopicChannelSubscriber stays single-instance for topics (local
+// registry fan-out only) — backward compatible by construction.
+func (s *liveTopicSubscriber) relayTopicSubscribe(topic string) {
+	tcs, ok := s.h.config.PubSubBroadcaster.(pubsub.TopicChannelSubscriber)
+	if !ok {
+		return
+	}
+	if err := tcs.SubscribeToTopicChannel(topic); err != nil {
+		// Error (vs Warn for unsubscribe below): a failed subscribe SILENTLY
+		// breaks cross-instance delivery for this topic — the connection looks
+		// subscribed locally but never receives remote publishes. A failed
+		// unsubscribe only leaks a refcount (recoverable, no missed messages),
+		// hence the lower level there. The asymmetry is intentional.
+		slog.Error("Failed to relay topic subscribe to PubSub",
+			slog.String("component", "live_handler"),
+			slog.String("topic", topic),
+			slog.Any("error", err))
+	}
+}
+
+func (s *liveTopicSubscriber) relayTopicUnsubscribe(topic string) {
+	tcs, ok := s.h.config.PubSubBroadcaster.(pubsub.TopicChannelSubscriber)
+	if !ok {
+		return
+	}
+	if err := tcs.UnsubscribeFromTopicChannel(topic); err != nil {
+		slog.Warn("Failed to relay topic unsubscribe from PubSub",
+			slog.String("component", "live_handler"),
+			slog.String("topic", topic),
+			slog.Any("error", err))
+	}
 }
 
 func (s *liveTopicSubscriber) shouldWarnWiredCollision(action string) bool {
@@ -117,4 +169,28 @@ func (s *liveTopicSubscriber) shouldWarnWiredCollision(action string) bool {
 		return false
 	}
 	return s.h.config.Template.shouldWarnWiredCollision(action)
+}
+
+// releaseRelayedTopics relays a Redis UNSUBSCRIBE for every topic the
+// connection still holds, balancing the SUBSCRIBEs registerTopic relayed.
+// It MUST run before registry.Unregister nils conn.subscribedTopics — the
+// deferred call site is registered after the Unregister defer so LIFO ordering
+// runs it first (registry.SubscribedTopics still sees the live set). Topics
+// explicitly ctx.Unsubscribed earlier were already removed from the set and
+// relay-released by unregisterTopic, so they are not double-released here.
+// internal/session cannot import pubsub (import cycle), so this teardown is
+// driven from the root package, not from Unregister itself.
+func (h *liveHandler) releaseRelayedTopics(conn *session.Connection) {
+	tcs, ok := h.config.PubSubBroadcaster.(pubsub.TopicChannelSubscriber)
+	if !ok {
+		return
+	}
+	for _, topic := range h.registry.SubscribedTopics(conn) {
+		if err := tcs.UnsubscribeFromTopicChannel(topic); err != nil {
+			slog.Warn("Failed to relay topic unsubscribe on disconnect",
+				slog.String("component", "live_handler"),
+				slog.String("topic", topic),
+				slog.Any("error", err))
+		}
+	}
 }
