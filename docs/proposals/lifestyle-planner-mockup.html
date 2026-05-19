@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sparfuchs — Your weekly plan</title>
+<style>
+  :root {
+    --bg: #fafaf9;
+    --card: #ffffff;
+    --text: #1c1917;
+    --muted: #78716c;
+    --accent: #16a34a;
+    --accent-light: #dcfce7;
+    --border: #e7e5e4;
+    --blue: #2563eb;
+    --blue-light: #dbeafe;
+    --orange: #ea580c;
+    --orange-light: #fff7ed;
+    --purple: #7c3aed;
+    --purple-light: #f3e8ff;
+    --radius: 12px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    max-width: 480px;
+    margin: 0 auto;
+    padding-bottom: 80px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Top bar ── */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .topbar-left { display: flex; align-items: center; gap: 8px; }
+  .topbar-logo { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; }
+  .topbar-loc {
+    font-size: 13px;
+    color: var(--muted);
+    background: var(--bg);
+    padding: 4px 10px;
+    border-radius: 20px;
+    cursor: pointer;
+  }
+  .topbar-loc::before { content: "📍 "; }
+  .topbar-lang {
+    font-size: 13px;
+    color: var(--muted);
+    background: var(--bg);
+    border: none;
+    padding: 4px 10px;
+    border-radius: 20px;
+    cursor: pointer;
+  }
+
+  /* ── Persona strip ── */
+  .persona-strip {
+    display: flex;
+    gap: 10px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .persona-strip::-webkit-scrollbar { display: none; }
+
+  .persona-card {
+    flex-shrink: 0;
+    padding: 10px 16px;
+    border-radius: var(--radius);
+    border: 2px solid var(--border);
+    background: var(--card);
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: center;
+    min-width: 120px;
+  }
+  .persona-card.active {
+    border-color: var(--accent);
+    background: var(--accent-light);
+  }
+  .persona-card:hover { border-color: var(--accent); }
+  .persona-emoji { font-size: 24px; display: block; margin-bottom: 4px; }
+  .persona-name { font-size: 13px; font-weight: 600; white-space: nowrap; }
+  .persona-budget { font-size: 12px; color: var(--muted); }
+
+  /* ── Section headers ── */
+  .section {
+    padding: 0 16px;
+    margin-top: 20px;
+  }
+  .section-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .section-title { font-size: 16px; font-weight: 700; }
+  .section-link { font-size: 13px; color: var(--accent); text-decoration: none; font-weight: 500; }
+
+  /* ── Budget summary (inline, no click needed) ── */
+  .budget-bar {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    margin: 14px 16px 0;
+  }
+  .budget-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .budget-label { font-size: 13px; color: var(--muted); }
+  .budget-amount { font-size: 15px; font-weight: 700; }
+  .budget-amount.saved { color: var(--accent); }
+  .budget-track {
+    height: 6px;
+    background: #e7e5e4;
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .budget-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 3px;
+    width: 62%;
+  }
+  .budget-categories {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+  }
+  .budget-cat {
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--muted);
+  }
+  .budget-cat span { color: var(--text); font-weight: 600; }
+
+  /* ── Grocery list ── */
+  .grocery-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .grocery-item:last-child { border-bottom: none; }
+
+  .grocery-check {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    border: 2px solid var(--border);
+    flex-shrink: 0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+  }
+  .grocery-check.checked {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .grocery-check.checked::after {
+    content: "✓";
+    color: white;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .grocery-info { flex: 1; min-width: 0; }
+  .grocery-name { font-size: 14px; font-weight: 500; }
+  .grocery-name.checked-text { text-decoration: line-through; color: var(--muted); }
+  .grocery-detail { font-size: 12px; color: var(--muted); margin-top: 1px; }
+
+  .grocery-right { text-align: right; flex-shrink: 0; }
+  .grocery-price { font-size: 14px; font-weight: 700; }
+  .grocery-store {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-top: 2px;
+    display: inline-block;
+    font-weight: 500;
+  }
+  .store-physical { background: var(--accent-light); color: var(--accent); }
+  .store-delivery { background: var(--blue-light); color: var(--blue); }
+  .store-online { background: var(--purple-light); color: var(--purple); }
+
+  .grocery-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 4px 16px;
+  }
+
+  /* ── Store summary ── */
+  .store-summary {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    overflow-x: auto;
+    padding: 0 16px;
+    scrollbar-width: none;
+  }
+  .store-summary::-webkit-scrollbar { display: none; }
+  .store-chip {
+    flex-shrink: 0;
+    padding: 8px 14px;
+    border-radius: var(--radius);
+    background: var(--card);
+    border: 1px solid var(--border);
+    font-size: 12px;
+    text-align: center;
+  }
+  .store-chip-name { font-weight: 600; font-size: 13px; }
+  .store-chip-count { color: var(--muted); margin-top: 2px; }
+  .store-chip-total { font-weight: 700; color: var(--accent); margin-top: 2px; }
+
+  /* ── Activities ── */
+  .activity-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    margin-bottom: 10px;
+  }
+  .activity-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: start;
+  }
+  .activity-name { font-size: 14px; font-weight: 600; }
+  .activity-price {
+    font-size: 13px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 6px;
+  }
+  .activity-free { background: var(--accent-light); color: var(--accent); }
+  .activity-cheap { background: var(--orange-light); color: var(--orange); }
+  .activity-meta { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .activity-tags { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .activity-tag {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--muted);
+  }
+
+  /* ── Bundle community strip ── */
+  .bundle-strip {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    padding: 0 16px;
+    scrollbar-width: none;
+  }
+  .bundle-strip::-webkit-scrollbar { display: none; }
+  .bundle-card {
+    flex-shrink: 0;
+    width: 220px;
+    padding: 14px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .bundle-card:hover { border-color: var(--accent); }
+  .bundle-card-name { font-size: 14px; font-weight: 600; }
+  .bundle-card-author { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .bundle-card-bottom {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 10px;
+  }
+  .bundle-card-price { font-size: 14px; font-weight: 700; color: var(--accent); }
+  .bundle-card-stats { font-size: 12px; color: var(--muted); }
+  .bundle-card-fork {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    background: var(--accent-light);
+    border: none;
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  /* ── Sticky bottom bar ── */
+  .bottom-bar {
+    position: fixed;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
+    max-width: 480px;
+    background: var(--card);
+    border-top: 1px solid var(--border);
+    padding: 10px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    z-index: 10;
+  }
+  .bottom-total {
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .bottom-total strong {
+    font-size: 18px;
+    color: var(--text);
+    display: block;
+  }
+  .bottom-cta {
+    background: var(--accent);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: var(--radius);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .bottom-savings {
+    font-size: 12px;
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  /* ── Price report nudge ── */
+  .report-nudge {
+    background: var(--orange-light);
+    border: 1px solid #fed7aa;
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    margin: 16px 16px 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+  }
+  .report-nudge-icon { font-size: 20px; flex-shrink: 0; }
+  .report-nudge-text { flex: 1; }
+  .report-nudge-text strong { display: block; font-size: 13px; }
+  .report-nudge-btn {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--orange);
+    background: white;
+    border: 1px solid #fed7aa;
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  /* ── Impact counter ── */
+  .impact {
+    text-align: center;
+    padding: 16px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .impact strong { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<!-- ═══ TOP BAR ═══ -->
+<div class="topbar">
+  <div class="topbar-left">
+    <div class="topbar-logo">Sparfuchs</div>
+    <span class="topbar-loc">Kreuzberg</span>
+  </div>
+  <select class="topbar-lang">
+    <option>EN</option>
+    <option>DE</option>
+    <option>TR</option>
+    <option>AR</option>
+  </select>
+</div>
+
+<!-- ═══ PERSONA STRIP — horizontal scroll, tap to switch ═══ -->
+<div class="persona-strip">
+  <div class="persona-card active">
+    <span class="persona-emoji">🎓</span>
+    <div class="persona-name">Student</div>
+    <div class="persona-budget">€800/mo</div>
+  </div>
+  <div class="persona-card">
+    <span class="persona-emoji">🌍</span>
+    <div class="persona-name">New in Berlin</div>
+    <div class="persona-budget">€2,500/mo</div>
+  </div>
+  <div class="persona-card">
+    <span class="persona-emoji">💑</span>
+    <div class="persona-name">Couple saving</div>
+    <div class="persona-budget">€3,500/mo</div>
+  </div>
+  <div class="persona-card">
+    <span class="persona-emoji">👨‍👩‍👧</span>
+    <div class="persona-name">Young family</div>
+    <div class="persona-budget">€2,800/mo</div>
+  </div>
+  <div class="persona-card">
+    <span class="persona-emoji">🏠</span>
+    <div class="persona-name">WG life</div>
+    <div class="persona-budget">€1,200/mo</div>
+  </div>
+</div>
+
+<!-- ═══ BUDGET AT A GLANCE — no click needed ═══ -->
+<div class="budget-bar">
+  <div class="budget-row">
+    <span class="budget-label">This week's plan</span>
+    <span class="budget-amount">€72 <span style="font-weight:400;color:var(--muted);font-size:13px">/ €92 budget</span></span>
+  </div>
+  <div class="budget-track"><div class="budget-fill"></div></div>
+  <div class="budget-categories">
+    <span class="budget-cat">Groceries <span>€52</span></span>
+    <span class="budget-cat">Household <span>€12</span></span>
+    <span class="budget-cat">Fun <span>€8</span></span>
+  </div>
+  <div style="margin-top:8px">
+    <span class="budget-amount saved">↓ €20 under budget</span>
+    <span style="font-size:12px;color:var(--muted)"> — enough for dinner out</span>
+  </div>
+</div>
+
+<!-- ═══ STORE TRIP PLAN ═══ -->
+<div class="section" style="margin-top:16px">
+  <div class="section-header">
+    <span class="section-title">Your store plan</span>
+  </div>
+</div>
+<div class="store-summary">
+  <div class="store-chip">
+    <div class="store-chip-name">Aldi</div>
+    <div class="store-chip-count">9 items</div>
+    <div class="store-chip-total">€31.40</div>
+  </div>
+  <div class="store-chip">
+    <div class="store-chip-name">Lidl</div>
+    <div class="store-chip-count">4 deals</div>
+    <div class="store-chip-total">€11.20</div>
+  </div>
+  <div class="store-chip">
+    <div class="store-chip-name">dm.de</div>
+    <div class="store-chip-count">2 items</div>
+    <div class="store-chip-total">€8.50</div>
+  </div>
+  <div class="store-chip">
+    <div class="store-chip-name">REWE.de</div>
+    <div class="store-chip-count">1 item</div>
+    <div class="store-chip-total">€3.99</div>
+  </div>
+</div>
+
+<!-- ═══ GROCERY LIST — immediately visible, checkable ═══ -->
+<div class="section" style="margin-top:20px">
+  <div class="section-header">
+    <span class="section-title">Grocery list</span>
+    <a href="#" class="section-link">+ Add item</a>
+  </div>
+  <div class="grocery-card">
+
+    <div class="grocery-item">
+      <div class="grocery-check checked"></div>
+      <div class="grocery-info">
+        <div class="grocery-name checked-text">Whole wheat bread 500g</div>
+        <div class="grocery-detail">Aldi — Harry's Vollkorn</div>
+      </div>
+      <div class="grocery-right">
+        <div class="grocery-price">€1.29</div>
+        <span class="grocery-store store-physical">in-store</span>
+      </div>
+    </div>
+
+    <div class="grocery-item">
+      <div class="grocery-check"></div>
+      <div class="grocery-info">
+        <div class="grocery-name">Olive oil 500ml</div>
+        <div class="grocery-detail">Lidl — Primadonna · <strong style="color:var(--accent)">DEAL -30%</strong></div>
+      </div>
+      <div class="grocery-right">
+        <div class="grocery-price">€3.49</div>
+        <span class="grocery-store store-physical">in-store</span>
+      </div>
+    </div>
+
+    <div class="grocery-item">
+      <div class="grocery-check"></div>
+      <div class="grocery-info">
+        <div class="grocery-name">Pasta 500g</div>
+        <div class="grocery-detail">Aldi — Cucina</div>
+      </div>
+      <div class="grocery-right">
+        <div class="grocery-price">€0.89</div>
+        <span class="grocery-store store-physical">in-store</span>
+      </div>
+    </div>
+
+    <div class="grocery-item">
+      <div class="grocery-check"></div>
+      <div class="grocery-info">
+        <div class="grocery-name">Free-range eggs 10pk</div>
+        <div class="grocery-detail">Aldi — GutBio</div>
+      </div>
+      <div class="grocery-right">
+        <div class="grocery-price">€2.19</div>
+        <span class="grocery-store store-physical">in-store</span>
+      </div>
+    </div>
+
+    <div class="grocery-item">
+      <div class="grocery-check"></div>
+      <div class="grocery-info">
+        <div class="grocery-name">Oat milk 1L</div>
+        <div class="grocery-detail">Lidl — Vemondo · <strong style="color:var(--accent)">DEAL -20%</strong></div>
+      </div>
+      <div class="grocery-right">
+        <div class="grocery-price">€1.15</div>
+        <span class="grocery-store store-physical">in-store</span>
+      </div>
+    </div>
+
+    <div class="grocery-item">
+      <div class="grocery-check"></div>
+      <div class="grocery-info">
+        <div class="grocery-name">Shampoo 250ml</div>
+        <div class="grocery-detail">dm — Balea · free shipping over €30</div>
+      </div>
+      <div class="grocery-right">
+        <div class="grocery-price">€1.95</div>
+        <span class="grocery-store store-online">online</span>
+      </div>
+    </div>
+
+    <div class="grocery-item">
+      <div class="grocery-check"></div>
+      <div class="grocery-info">
+        <div class="grocery-name">Laundry detergent 1.5L</div>
+        <div class="grocery-detail">dm — Denkmit · bundle with shampoo</div>
+      </div>
+      <div class="grocery-right">
+        <div class="grocery-price">€3.45</div>
+        <span class="grocery-store store-online">online</span>
+      </div>
+    </div>
+
+    <div class="grocery-item">
+      <div class="grocery-check"></div>
+      <div class="grocery-info">
+        <div class="grocery-name">Bananas 1kg</div>
+        <div class="grocery-detail">Aldi · price reported 2 days ago</div>
+      </div>
+      <div class="grocery-right">
+        <div class="grocery-price">€1.49</div>
+        <span class="grocery-store store-physical">in-store</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══ PRICE REPORT NUDGE ═══ -->
+<div class="report-nudge">
+  <div class="report-nudge-icon">📷</div>
+  <div class="report-nudge-text">
+    <strong>At the store? Report a price</strong>
+    3 items have stale prices nearby
+  </div>
+  <button class="report-nudge-btn">Scan</button>
+</div>
+
+<!-- ═══ THINGS TO DO THIS WEEK ═══ -->
+<div class="section" style="margin-top:20px">
+  <div class="section-header">
+    <span class="section-title">This week in Kreuzberg</span>
+    <a href="#" class="section-link">See all</a>
+  </div>
+
+  <div class="activity-card">
+    <div class="activity-top">
+      <div class="activity-name">Open-air cinema at Prinzessinnengarten</div>
+      <span class="activity-price activity-free">Free</span>
+    </div>
+    <div class="activity-meta">Saturday 20:30 · Moritzplatz · outdoors</div>
+    <div class="activity-tags">
+      <span class="activity-tag">culture</span>
+      <span class="activity-tag">outdoors</span>
+      <span class="activity-tag">date night</span>
+    </div>
+  </div>
+
+  <div class="activity-card">
+    <div class="activity-top">
+      <div class="activity-name">Techno yoga at Markthalle Neun</div>
+      <span class="activity-price activity-cheap">€5</span>
+    </div>
+    <div class="activity-meta">Sunday 10:00 · Eisenbahnstraße · indoors</div>
+    <div class="activity-tags">
+      <span class="activity-tag">fitness</span>
+      <span class="activity-tag">weekend</span>
+    </div>
+  </div>
+
+  <div class="activity-card">
+    <div class="activity-top">
+      <div class="activity-name">Free walking tour: Street art of Kreuzberg</div>
+      <span class="activity-price activity-free">Free</span>
+    </div>
+    <div class="activity-meta">Sunday 14:00 · Kottbusser Tor · 2h walk</div>
+    <div class="activity-tags">
+      <span class="activity-tag">culture</span>
+      <span class="activity-tag">social</span>
+      <span class="activity-tag">outdoors</span>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ COMMUNITY BUNDLES ═══ -->
+<div class="section" style="margin-top:20px">
+  <div class="section-header">
+    <span class="section-title">Popular bundles in Kreuzberg</span>
+    <a href="#" class="section-link">Browse all</a>
+  </div>
+</div>
+<div class="bundle-strip">
+  <div class="bundle-card">
+    <div class="bundle-card-name">Vegan week under €50</div>
+    <div class="bundle-card-author">by anonymous · 🇩🇪</div>
+    <div class="bundle-card-bottom">
+      <span class="bundle-card-price">€47/week</span>
+      <span class="bundle-card-stats">▲ 41 · 12 forks</span>
+    </div>
+    <button class="bundle-card-fork" style="margin-top:8px;width:100%">Fork this bundle</button>
+  </div>
+
+  <div class="bundle-card">
+    <div class="bundle-card-name">Türk market + Aldi combo</div>
+    <div class="bundle-card-author">by Mehmet · 🇹🇷</div>
+    <div class="bundle-card-bottom">
+      <span class="bundle-card-price">€39/week</span>
+      <span class="bundle-card-stats">▲ 67 · 28 forks</span>
+    </div>
+    <button class="bundle-card-fork" style="margin-top:8px;width:100%">Fork this bundle</button>
+  </div>
+
+  <div class="bundle-card">
+    <div class="bundle-card-name">Family of 4 essentials</div>
+    <div class="bundle-card-author">by Sarah · 🇬🇧</div>
+    <div class="bundle-card-bottom">
+      <span class="bundle-card-price">€95/week</span>
+      <span class="bundle-card-stats">▲ 33 · 9 forks</span>
+    </div>
+    <button class="bundle-card-fork" style="margin-top:8px;width:100%">Fork this bundle</button>
+  </div>
+</div>
+
+<!-- ═══ IMPACT ═══ -->
+<div class="impact">
+  <strong>1,247</strong> price reports this week in Kreuzberg · <strong>€4,320</strong> saved by the community
+</div>
+
+<!-- ═══ STICKY BOTTOM BAR ═══ -->
+<div class="bottom-bar">
+  <div class="bottom-total">
+    This week's plan
+    <strong>€72.10</strong>
+  </div>
+  <div style="text-align:right">
+    <div class="bottom-savings">€20 under budget ↓</div>
+    <button class="bottom-cta">Share with household</button>
+  </div>
+</div>
+
+</body>
+</html>
