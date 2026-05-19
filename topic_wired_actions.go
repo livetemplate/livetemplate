@@ -18,16 +18,18 @@ import (
 // attribute. Widening this set is a deliberate, reviewable change to this one
 // function (and its test), not a moving target.
 //
-// Known limitation (best-effort warning, NOT a correctness gate): names are
-// stored as the literal client-wired strings. ctx.Publish compares its raw
-// action argument against that set by exact string match, but the dispatcher
-// maps a client name to a method via several normalized forms (camelCase +
-// snake_case — see dispatch.go methodNameToActions). So a collision can be
-// MISSED when the styles differ, e.g. <button name="save"> vs
-// ctx.Publish(t, "Save", …) — both resolve to Save(), but "save" != "Save".
-// False negatives only (never a spurious warning). Normalizing both sides
-// through methodNameToActions is the accurate fix and is tracked for Phase 2
-// (phase-1.md / deferred coverage) rather than approximated here.
+// Normalization (Phase 2 — closes the Phase 1 round-4 limitation): the
+// dispatcher resolves a client name to a method via methodNameToActions
+// (camelCase + snake_case + exact — dispatch.go), and every one of those forms
+// reduces to the SAME snake_case key (toSnakeCase("AddItem") ==
+// toSnakeCase("addItem") == toSnakeCase("add_item")). So snake_case is the
+// canonical "could dispatch to the same method" key. Both the stored wired set
+// and the ctx.Publish action argument are canonicalized through it, so a
+// style-mismatched collision — <button name="save"> vs
+// ctx.Publish(t, "Save", …), both resolving to Save() — is now caught. Still a
+// best-effort dev warning, not a correctness gate; canonicalization only
+// widens what it catches, it never produces a spurious warning for two names
+// that could not dispatch to one method.
 
 var (
 	buttonElemRegex = regexp.MustCompile(`(?is)<button\b([^>]*)>`)
@@ -38,14 +40,27 @@ var (
 	actionIdentRegex = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*`)
 )
 
+// canonicalActionKey reduces an action/wired name to the snake_case form the
+// dispatcher's methodNameToActions collapses every style to, so two names that
+// could dispatch to the same controller method share one key. It is the same
+// toSnakeCase the dispatcher uses (dispatch.go) — normalization stays exactly
+// consistent with real dispatch.
+func canonicalActionKey(name string) string { return toSnakeCase(name) }
+
 // extractWiredActionNames returns the set of action names wired to a client
-// element in templateStr. {{…}} directives are stripped first (mirrors
-// extractFormSchemaFromTemplateStr) so a dynamic name="{{.X}}" / lvt-on
-// value collapses to empty and is skipped rather than recorded as a literal.
+// element in templateStr, each stored under its canonicalActionKey so a
+// style-mismatched ctx.Publish still collides. {{…}} directives are stripped
+// first (mirrors extractFormSchemaFromTemplateStr) so a dynamic name="{{.X}}" /
+// lvt-on value collapses to empty and is skipped rather than recorded.
 // Returns nil when nothing is wired (the accessor treats nil as "no match").
 func extractWiredActionNames(templateStr string) map[string]struct{} {
 	stripped := templateDirectiveRegex.ReplaceAllString(templateStr, "")
 	set := make(map[string]struct{})
+	add := func(name string) {
+		if name != "" {
+			set[canonicalActionKey(name)] = struct{}{}
+		}
+	}
 
 	// Submit-capable <button name="X">. A <button> defaults to type=submit;
 	// only an explicit type=button / type=reset is non-submitting.
@@ -55,9 +70,7 @@ func extractWiredActionNames(templateStr string) map[string]struct{} {
 		case "button", "reset":
 			continue
 		}
-		if name := attrs["name"]; name != "" {
-			set[name] = struct{}{}
-		}
+		add(attrs["name"])
 	}
 
 	// <input type="submit"|"image" name="X"> (the only submitting input types).
@@ -65,16 +78,14 @@ func extractWiredActionNames(templateStr string) map[string]struct{} {
 		attrs := parseHTMLAttributes(m[1])
 		switch strings.ToLower(attrs["type"]) {
 		case "submit", "image":
-			if name := attrs["name"]; name != "" {
-				set[name] = struct{}{}
-			}
+			add(attrs["name"])
 		}
 	}
 
 	// lvt-on:<event>="Action" on any element.
 	for _, m := range lvtOnAttrRegex.FindAllStringSubmatch(stripped, -1) {
 		if ident := actionIdentRegex.FindString(strings.TrimSpace(m[1])); ident != "" {
-			set[ident] = struct{}{}
+			add(ident)
 		}
 	}
 
@@ -85,13 +96,15 @@ func extractWiredActionNames(templateStr string) map[string]struct{} {
 }
 
 // isClientWiredAction reports whether action is wired to a client element in
-// this template. Used by ctx.Publish for the symmetry-collision warning. The
-// set is immutable after parse (same contract as formSchema), so no lock.
+// this template, comparing by canonicalActionKey so a style mismatch (e.g.
+// Publish "Save" vs <button name="save">) still matches. Used by ctx.Publish
+// for the symmetry-collision warning. The set is immutable after parse (same
+// contract as formSchema), so no lock.
 func (t *Template) isClientWiredAction(action string) bool {
 	if t == nil || t.wiredActions == nil {
 		return false
 	}
-	_, ok := t.wiredActions[action]
+	_, ok := t.wiredActions[canonicalActionKey(action)]
 	return ok
 }
 
@@ -109,6 +122,8 @@ func (t *Template) shouldWarnWiredCollision(action string) bool {
 	if t.wiredCollisionWarned == nil {
 		return true // no dedup store (e.g. hand-built Template) — fail loud
 	}
-	_, loaded := t.wiredCollisionWarned.LoadOrStore(action, struct{}{})
+	// Key the dedup on the canonical form so "Save" then "save" (one logical
+	// collision) warns once, not once per style.
+	_, loaded := t.wiredCollisionWarned.LoadOrStore(canonicalActionKey(action), struct{}{})
 	return !loaded
 }
