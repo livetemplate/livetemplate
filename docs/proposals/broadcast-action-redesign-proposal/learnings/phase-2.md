@@ -285,6 +285,16 @@ Phase 3 (wildcards / multi-segment PSUBSCRIBE) inherits a clean seam:
   deliberately emits **no** symmetry-collision warning (trusted server code; no
   per-Context template binding to resolve a wired-name set against) — recorded
   for the Phase 6 docs.
+- **Phase 6 operational-docs note (from #424 round-4 review).** A failed
+  `SubscribeToTopicActions` at `Handle()` init is **logged-only and the handler
+  continues** — identical to the pre-existing `SubscribeGroupActions`/
+  `SubscribeServerActions` pattern at that same site (deliberately consistent;
+  changing it would alter the BroadcastAction init path, untouched through
+  Phases 0–4). Behavioral contract for operators: *if this logs an error, the
+  whole cross-instance topic-receive leg is dead for that instance* (per-topic
+  channel-subscribe failures only break one topic; this init failure breaks
+  all). Phase 6 docs/troubleshooting must surface this contract; not a Phase 2
+  code change.
 - Per the signoff gate: commit/PR is left to the user (no push/PR without
   explicit signoff after manual testing). `phase-2.md` commits in Phase 2's
   own PR alongside its code.
