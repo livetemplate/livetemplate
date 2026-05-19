@@ -21,12 +21,13 @@ type topicErrorEnvelope struct {
 }
 
 // sendTopicForbiddenEnvelope best-effort emits the topic_forbidden error
-// envelope to conn. It is queued on the connection's send buffer; writePump's
-// drain-on-close flushes it even though the WS-connect Mount failure closes
-// the connection immediately after. Phase 1 emits the envelope and keeps the
-// existing close-on-Mount-error behavior; finalizing whether the socket should
-// instead stay open is V14 / Phase 4's call (recorded in phase-1.md as a
-// server-emitted-envelope note for the Phase 4 audit).
+// envelope to conn. It is queued on the connection's send buffer and delivered
+// by writePump like any other frame. Phase 4 (V14) finalized the keep-open
+// decision Phase 1 deferred: an ACL-denied Subscribe in the WS-connect Mount
+// emits this envelope and the connection STAYS OPEN (the caller in mount.go
+// falls through to the normal connect lifecycle instead of returning/closing)
+// — so the TS client receives it as an lvt:error CustomEvent without a
+// disconnect/auto-reconnect storm.
 func (h *liveHandler) sendTopicForbiddenEnvelope(conn *session.Connection, topic string) {
 	if conn == nil {
 		return

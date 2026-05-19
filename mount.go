@@ -668,17 +668,34 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// work with fresh data. Keep Mount cheap — it runs on every connect.
 	newState, err := callMount(h.config.Controller, connSt.state, lifecycleCtx)
 	if err != nil {
-		// An ACL-denied ctx.Subscribe in Mount surfaces here on the WS-connect
-		// path. Emit the structured topic_forbidden envelope so the TS client
-		// can distinguish it from a generic connection failure (proposal §3).
+		// A non-TopicForbidden Mount error is a genuine server fault: log and
+		// close (the deferred Unregister at the top of this handler closes the
+		// WS on return). Behavior unchanged for this path.
 		var tfe *TopicForbiddenError
-		if errors.As(err, &tfe) {
-			h.sendTopicForbiddenEnvelope(connection, tfe.Topic)
+		if !errors.As(err, &tfe) {
+			slog.Error("Mount failed",
+				slog.String("component", "live_handler"),
+				slog.Any("error", err))
+			return
 		}
-		slog.Error("Mount failed",
+		// An ACL-denied ctx.Subscribe in Mount on the WS-connect path is an
+		// expected access-control outcome, NOT a server fault. Emit the
+		// structured topic_forbidden envelope so the TS client surfaces it as
+		// an lvt:error CustomEvent (proposal §3 / V14), then KEEP THE
+		// CONNECTION OPEN and fall through to the normal connect lifecycle
+		// with the state the controller returned. Closing here instead would
+		// trip the client's auto-reconnect into a re-Mount → re-deny →
+		// re-close storm; V14 requires the socket to stay open. Phase 1
+		// deliberately deferred this keep-open-vs-close finalization to
+		// Phase 4 / V14 (see phase-1.md, topic_runtime.go).
+		h.sendTopicForbiddenEnvelope(connection, tfe.Topic)
+		slog.Warn("Mount Subscribe denied by topic ACL; surfaced to client, connection kept open",
 			slog.String("component", "live_handler"),
+			slog.String("topic", tfe.Topic),
 			slog.Any("error", err))
-		return
+		// callMount returns the controller's first return value even on error;
+		// for the canonical `return s, err` that is the pre-Subscribe state.
+		// Adopt it and continue exactly as the success path below.
 	}
 	connSt.state = newState
 	h.persistState(ctx, groupID, connSt.state)
