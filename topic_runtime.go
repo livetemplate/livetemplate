@@ -129,22 +129,11 @@ func (s *liveTopicSubscriber) unregisterTopic(topic string) {
 	}
 }
 
-// relayTopicSubscribeOne issues the cross-instance (P)SUBSCRIBE for one topic,
-// branching on whether it is a wildcard pattern. THE RELAY INVARIANT lives
-// here: a pattern relays as exactly one PSUBSCRIBE (TopicPatternSubscriber) —
-// it is NEVER expanded into per-concrete SUBSCRIBEs. Cross-instance wildcard
-// delivery works because publishers always PUBLISH to the exact concrete
-// channel and Redis pattern-matching connects that to this PSUBSCRIBE; an
-// expanded room/42 SUBSCRIBE would silently miss a later room/43 publish from
-// another instance. An exact topic relays as a SUBSCRIBE
-// (TopicChannelSubscriber). A broadcaster implementing neither the needed
-// interface (single-instance, or exact-only facing a pattern) stays
-// single-instance for that topic — local registry fan-out still works;
-// backward compatible by construction (silent no-op, as before).
-//
-// Centralized as a *liveHandler method (not *liveTopicSubscriber) so the one
-// branch is shared by the per-action relay AND the disconnect sweep
-// (releaseRelayedTopics) — one source of truth for the relay invariant.
+// relayTopicSubscribeOne is the single source of THE RELAY INVARIANT: a pattern
+// relays as exactly one PSUBSCRIBE (never expanded into per-concrete SUBSCRIBEs
+// — an expanded room/42 would miss a later cross-instance room/43); an exact
+// topic relays as SUBSCRIBE. Missing interface ⇒ single-instance no-op
+// (backward compatible). Shared by the per-action relay + the disconnect sweep.
 func (h *liveHandler) relayTopicSubscribeOne(topic string) error {
 	if isPatternTopic(topic) {
 		if tps, ok := h.config.PubSubBroadcaster.(pubsub.TopicPatternSubscriber); ok {

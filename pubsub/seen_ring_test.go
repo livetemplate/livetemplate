@@ -2,25 +2,13 @@ package pubsub
 
 import (
 	"encoding/json"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
-// ============================================================================
-// Phase 3 — (instanceID, seq) double-fire dedup ring.
-//
-// The ring is exercised end-to-end cross-instance by V17 (topic_wildcard_test.go,
-// Redis testcontainers). These tests pin the two behaviors that are awkward to
-// force over real Redis:
-//   - ring mechanics: dedup within the window + eviction after it wraps.
-//   - the seq==0 bypass DISCIPLINE (proposal §"Cross-instance exactly-once" +
-//     the GroupActionMessage seq-field constraints): a pre-upgrade sender omits
-//     Seq so EVERY message is seq=0; the ring MUST process all of them and
-//     record NONE (a recorded (id,0) would collapse all-but-one).
-// ============================================================================
+// (instanceID, seq) double-fire dedup ring: pins ring mechanics + the seq==0 two-halves discipline (process all, record none) that are awkward to force over real Redis. End-to-end coverage is V17.
 
 func TestSeenRing(t *testing.T) {
 	var r seenRing
@@ -70,13 +58,13 @@ func fakeTopicMsg(t *testing.T, instanceID string, seq uint64, topic string) *re
 }
 
 func TestHandleTopicActionMessage_DedupAndSeqZeroBypass(t *testing.T) {
-	var calls atomic.Int64
+	calls := 0 // handle() is called synchronously below — no concurrency, plain int
 	// Struct literal: handleTopicActionMessage needs only instanceID + the
 	// handler + the (zero-value-valid) seenRing/mutex — no Redis client.
 	b := &RedisBroadcaster{
 		instanceID: "self",
 		topicActionHandler: func(*GroupActionMessage) error {
-			calls.Add(1)
+			calls++
 			return nil
 		},
 	}
@@ -88,8 +76,8 @@ func TestHandleTopicActionMessage_DedupAndSeqZeroBypass(t *testing.T) {
 
 	// Own-instance message is dropped (sanity — the InstanceID guard, unchanged).
 	handle(fakeTopicMsg(t, "self", 1, "room/1"))
-	if got := calls.Load(); got != 0 {
-		t.Fatalf("own-instance message must not dispatch, got %d calls", got)
+	if calls != 0 {
+		t.Fatalf("own-instance message must not dispatch, got %d calls", calls)
 	}
 
 	// SUBSCRIBE+PSUBSCRIBE double-fire: the SAME (instanceID, seq) twice ⇒ one
@@ -97,8 +85,8 @@ func TestHandleTopicActionMessage_DedupAndSeqZeroBypass(t *testing.T) {
 	dup := fakeTopicMsg(t, "A", 42, "room/42")
 	handle(dup)
 	handle(dup)
-	if got := calls.Load(); got != 1 {
-		t.Fatalf("double-fire (A,42) must dispatch exactly once, got %d", got)
+	if calls != 1 {
+		t.Fatalf("double-fire (A,42) must dispatch exactly once, got %d", calls)
 	}
 
 	// seq==0 ⇒ pre-upgrade sender: EVERY message is seq=0. Both halves of the
@@ -107,8 +95,8 @@ func TestHandleTopicActionMessage_DedupAndSeqZeroBypass(t *testing.T) {
 	// (id,0)). Two seq=0 from "old" ⇒ TWO more dispatches.
 	handle(fakeTopicMsg(t, "old", 0, "room/9"))
 	handle(fakeTopicMsg(t, "old", 0, "room/9"))
-	if got := calls.Load(); got != 3 {
-		t.Fatalf("two seq==0 messages must BOTH dispatch (bypass+no-record), want 3 total, got %d", got)
+	if calls != 3 {
+		t.Fatalf("two seq==0 messages must BOTH dispatch (bypass+no-record), want 3 total, got %d", calls)
 	}
 
 	// A real seq from "old" interleaved with its seq==0 stream still dedups on
@@ -117,7 +105,7 @@ func TestHandleTopicActionMessage_DedupAndSeqZeroBypass(t *testing.T) {
 	handle(real)
 	handle(real)
 	handle(fakeTopicMsg(t, "old", 0, "room/9")) // still bypassed → dispatches
-	if got := calls.Load(); got != 5 {
-		t.Fatalf("want 5 (3 + one (old,5) deduped-once + one bypassed seq0), got %d", got)
+	if calls != 5 {
+		t.Fatalf("want 5 (3 + one (old,5) deduped-once + one bypassed seq0), got %d", calls)
 	}
 }

@@ -169,29 +169,8 @@ type TopicChannelSubscriber interface {
 	UnsubscribeFromTopicChannel(topic string) error
 }
 
-// TopicPatternSubscriber allows subscribing to a wildcard topic *pattern* (a
-// topic containing "*", e.g. "room/*", "org/*/room/*") at runtime, relayed as a
-// single Redis PSUBSCRIBE on the glob channel livetemplate:topic:<pattern>.
-//
-// It is a SEPARATE optional interface from TopicChannelSubscriber, not an
-// extension of it, so a broadcaster that only implements exact-SUBSCRIBE topics
-// still satisfies TopicChannelSubscriber unchanged (no backward-incompatible
-// interface widening for external implementers). The relay type-asserts this
-// independently and only when the subscribed topic is a pattern.
-//
-// Reference-counted per the same DynamicSubscriber contract as
-// TopicChannelSubscriber, but in a parallel refcount map (subscribedPatterns)
-// keyed by the glob channel — Redis PSUBSCRIBE/PUNSUBSCRIBE is a distinct
-// command space from SUBSCRIBE/UNSUBSCRIBE and is replayed separately on
-// reconnect.
-//
-// Relay invariant: a pattern is relayed with exactly one PSUBSCRIBE to its glob
-// channel — never expanded into per-concrete SUBSCRIBEs. Cross-instance
-// wildcard delivery works because the exact PUBLISH (publishers always publish
-// to the concrete channel) is connected to this PSUBSCRIBE by Redis pattern
-// matching. Redis "*" spans "/", so it over-delivers relative to the
-// whole-segment "*" grammar; the receiving instance's local segmentMatch
-// re-resolution drops the surplus.
+// TopicPatternSubscriber relays a wildcard topic as one Redis PSUBSCRIBE (refcounted like TopicChannelSubscriber, parallel map).
+// SEPARATE optional interface, not a TopicChannelSubscriber extension — exact-only broadcasters stay backward-compatible. Relay invariant + over-delivery handling: see relayTopicSubscribeOne / phase-3.md.
 type TopicPatternSubscriber interface {
 	SubscribeToTopicPattern(pattern string) error
 	UnsubscribeFromTopicPattern(pattern string) error

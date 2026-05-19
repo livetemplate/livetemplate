@@ -80,44 +80,27 @@ type RedisBroadcaster struct {
 	subscribedChannels map[string]int // Reference counts for dynamic exact-SUBSCRIBE channels (reconnect replay + 0→1 / 1→0 SUBSCRIBE/UNSUBSCRIBE gating)
 	subscribedPatterns map[string]int // Parallel to subscribedChannels for PSUBSCRIBE glob channels — replayed via PSubscribe in reconnect(), same 0→1 / 1→0 gating
 
-	// seenRing is the bounded (instanceID, seq) double-fire dedup for received
-	// topic messages. A connection holding BOTH an exact SUBSCRIBE and a
-	// matching PSUBSCRIBE makes Redis deliver one PUBLISH twice to this
-	// instance; both copies carry the publisher's identical (InstanceID, Seq),
-	// so the ring drops the second. It is read/written ONLY on the single
-	// serialized processMessages goroutine (handleTopicActionMessage) ⇒ no lock
-	// (proposal §"Cross-instance exactly-once"). seq==0 bypasses the ring
-	// entirely — see the seq field constraints above.
+	// seenRing dedups the SUBSCRIBE+PSUBSCRIBE double-fire by (instanceID, seq); touched only on the serialized processMessages goroutine ⇒ lock-free. See phase-3.md / the seq field constraints.
 	seenRing seenRing
 }
 
-// seenIDRingSize bounds the (instanceID, seq) dedup window. A double-fire's two
-// copies arrive back-to-back on the one pump, so a small ring suffices; 64
-// absorbs interleaving from several publishing instances without unbounded
-// growth (proposal §"Cross-instance exactly-once": "bounded N=64, single
-// serialized pump ⇒ no lock").
+// seenIDRingSize: double-fire copies arrive back-to-back, so a small bounded window suffices (64 absorbs multi-instance interleave without unbounded growth).
 const seenIDRingSize = 64
 
-// seenID is the collision-free dedup key: per-instance monotonic Seq scoped by
-// the emitting InstanceID (Timestamp is deliberately NOT part of it — see the
-// GroupActionMessage doc).
+// seenID is the collision-free dedup key (InstanceID-scoped Seq; not Timestamp — see the GroupActionMessage doc).
 type seenID struct {
 	instanceID string
 	seq        uint64
 }
 
-// seenRing is a fixed-size circular set with O(N) membership (N=64). No map: at
-// this size a linear scan is faster and allocation-free, and the single-pump
-// access model means it never needs a lock or concurrent-safe structure.
+// seenRing is a fixed-size circular set; at N=64 a linear scan beats a map and the single-pump access needs no lock.
 type seenRing struct {
 	ids  [seenIDRingSize]seenID
 	next int  // write cursor (wraps)
 	full bool // true once the ring has wrapped at least once
 }
 
-// seenThenRecord reports whether id was already in the ring; if not, it records
-// id (evicting the oldest entry once full) and returns false. Called only from
-// the single processMessages goroutine — intentionally lock-free.
+// seenThenRecord returns true if id was already present; otherwise records it (evicting oldest once full) and returns false. Single-goroutine, lock-free.
 func (r *seenRing) seenThenRecord(id seenID) bool {
 	limit := r.next
 	if r.full {
@@ -504,20 +487,7 @@ func (b *RedisBroadcaster) UnsubscribeFromTopicChannel(topic string) error {
 	return b.unsubscribeFrom(channelTopic+topic, "topic", subExact)
 }
 
-// SubscribeToTopicPattern relays a wildcard topic *pattern* as a single Redis
-// PSUBSCRIBE on the glob channel livetemplate:topic:<pattern> (each pattern
-// segment "*" is also a Redis glob "*"). It is the TopicPatternSubscriber
-// counterpart of SubscribeToTopicChannel: same reference-counting + reconnect
-// replay contract, but tracked in subscribedPatterns and issued with
-// PSUBSCRIBE on the SAME b.pubsub the one processMessages pump reads (the
-// single-PubSub-instance invariant — never a second *redis.PubSub).
-//
-// Relay invariant: the pattern is registered as ONE PSUBSCRIBE, never expanded
-// into per-concrete SUBSCRIBEs. Publishers always PUBLISH to the exact concrete
-// channel; Redis pattern matching connects that exact PUBLISH to this
-// PSUBSCRIBE cross-instance. Redis "*" spans "/" (broader than the
-// whole-segment "*" grammar), so the receiving instance re-resolves by the
-// strict segmentMatch and drops over-delivery — see handleTopicActionMessage.
+// SubscribeToTopicPattern issues ONE PSUBSCRIBE on the SAME b.pubsub the pump reads (never expand a pattern; never a 2nd PubSub). Refcounted via subscribedPatterns; see TopicPatternSubscriber / phase-3.md.
 func (b *RedisBroadcaster) SubscribeToTopicPattern(pattern string) error {
 	if pattern == "" {
 		return fmt.Errorf("pattern cannot be empty")
@@ -1209,12 +1179,10 @@ func (b *RedisBroadcaster) reconnect() error {
 		return fmt.Errorf("failed to resubscribe: %w", err)
 	}
 
-	// Replay pattern subscriptions onto the SAME new PubSub (single-PubSub-
-	// instance invariant). PSUBSCRIBE here, after the connectivity Receive,
-	// mirrors the live dynamic-add path: the .Channel() the pump reads drains
-	// the psubscribe confirmation — no extra Receive needed. A PSUBSCRIBE
-	// failure is treated like the Subscribe failure above (tear down + return
-	// so the caller's retry loop re-drives a fresh reconnect).
+	// Replay patterns onto the SAME new PubSub; no extra Receive — the
+	// .Channel() pump drains the psubscribe confirmation (go-redis v9.17.2;
+	// re-verify this if the go.mod go-redis version bumps). Failure → tear
+	// down so the caller re-drives reconnect, as for Subscribe above.
 	if len(patterns) > 0 {
 		if err := newPubSub.PSubscribe(b.ctx, patterns...); err != nil {
 			_ = newPubSub.Close()

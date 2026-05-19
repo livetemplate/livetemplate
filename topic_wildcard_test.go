@@ -259,21 +259,18 @@ func TestTopic_V17_CrossInstance_PSubscribeDelivery(t *testing.T) {
 	})
 }
 
-// awaitWSContainsRejecting is awaitWSContains with a forbidden-substring guard:
-// it retries trigger until a frame contains want (success) but FAILS the test
-// if a frame contains reject first. Same reliability profile as awaitWSContains
-// (the existing V8/V9 convention): want is guaranteed deliverable, so a read
-// succeeds quickly on a local Redis testcontainer; the gorilla read-poisoning
-// after a timeout is the same accepted risk the existing helper carries. The
-// retry budget is a SUBSCRIBE/PSUBSCRIBE-propagation guard, not a load driver:
-// the publish is expected to land on the first iteration and the loop normally
-// runs once — it is not a deliberate repeated-publish stress.
+// awaitWSContainsRejecting is awaitWSContains plus a forbidden-substring guard:
+// succeed when a frame contains want, FAIL if one contains reject first. Same
+// reliability profile as awaitWSContains; the 400ms per-read deadline (vs
+// awaitWSContains's 150ms) narrows the stale-frame window since the retry
+// republishes both want and reject. The retry is a propagation guard, not a
+// load driver — normally one iteration.
 func awaitWSContainsRejecting(t *testing.T, ws *websocket.Conn, want, reject string, trigger func()) {
 	t.Helper()
 	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {
 		trigger()
-		if err := ws.SetReadDeadline(time.Now().Add(150 * time.Millisecond)); err != nil {
+		if err := ws.SetReadDeadline(time.Now().Add(400 * time.Millisecond)); err != nil {
 			t.Fatalf("SetReadDeadline failed: %v", err)
 		}
 		_, msg, err := ws.ReadMessage()

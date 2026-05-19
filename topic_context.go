@@ -165,13 +165,7 @@ func (c *Context) Publish(topic, action string, data map[string]interface{}) err
 	if action == "" {
 		return fmt.Errorf("livetemplate: cannot Publish with an empty action")
 	}
-	// Publishers publish to a CONCRETE topic; "*" is Subscribe-only. The
-	// developer grammar permits "*" segments (it is general-case so the matcher
-	// stays general), so a mistaken Publish("room/*", …) would pass
-	// validateDeveloperTopic and then panic GetByTopicExcept ("concrete topic
-	// must not contain \"*\""). Reject it here with a clear, non-panic error —
-	// the footgun is newly plausible in Phase 3 now that "room/*" is a
-	// first-class Subscribe target.
+	// Publish targets a concrete topic; "*" is Subscribe-only — reject here so it is a clear error, not a GetByTopicExcept panic.
 	if isPatternTopic(topic) {
 		return fmt.Errorf("livetemplate: cannot Publish to wildcard pattern %q — publish to a concrete topic; patterns are Subscribe-only", topic)
 	}

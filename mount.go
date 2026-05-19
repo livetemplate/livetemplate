@@ -1715,9 +1715,7 @@ func (h *liveHandler) Publish(topic, action string, data map[string]interface{})
 	if action == "" {
 		return fmt.Errorf("livetemplate: cannot Publish with an empty action")
 	}
-	// Publishers publish to a CONCRETE topic; "*" is Subscribe-only (same rule
-	// + rationale as ctx.Publish — reject the pattern here rather than panic
-	// dispatchToTopic → GetByTopicExcept on a "*" concrete).
+	// Publish targets a concrete topic; "*" is Subscribe-only (same rule as ctx.Publish — reject, don't panic GetByTopicExcept).
 	if isPatternTopic(topic) {
 		return fmt.Errorf("livetemplate: cannot Publish to wildcard pattern %q — publish to a concrete topic; patterns are Subscribe-only", topic)
 	}
