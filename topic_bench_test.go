@@ -76,6 +76,56 @@ func BenchmarkTopicFanoutByN(b *testing.B) {
 	}
 }
 
+// BenchmarkTopicPatternScanByP is §"Benchmarks required" item 2 (Phase 3): the
+// wildcard pattern-scan cost as the number of DISTINCT registered patterns
+// P ∈ {1,10,100} grows, against a concrete publish that matches NONE of them
+// (worst case — every pattern's segmentMatch is evaluated). Confirms the flat
+// O(P) segment scan in GetByTopicExcept is acceptable at expected pattern
+// counts; there is NO trie/radix index by design (proposal §2 "Matcher" /
+// Appendix B) — this validates the linear scan is adequate, not whether to add
+// one. Patterns are mixed segment-count so the scan exercises both the
+// fast count-mismatch reject and the first-literal-mismatch reject.
+func BenchmarkTopicPatternScanByP(b *testing.B) {
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.DiscardHandler))
+	b.Cleanup(func() { slog.SetDefault(prev) })
+
+	for _, p := range []int{1, 10, 100} {
+		b.Run(fmt.Sprintf("P=%d", p), func(b *testing.B) {
+			reg := session.NewConnectionRegistry()
+			conns := make([]*session.Connection, 0, p)
+			for i := 0; i < p; i++ {
+				conn := &session.Connection{GroupID: fmt.Sprintf("g%d", i), UserID: fmt.Sprintf("u%d", i)}
+				reg.Register(conn, 8)
+				// Mixed segment counts: half 2-seg, half 4-seg, each with a
+				// distinct leading literal so the concrete below matches none.
+				var pat string
+				if i%2 == 0 {
+					pat = fmt.Sprintf("scope%d/*", i)
+				} else {
+					pat = fmt.Sprintf("org%d/*/room/*", i)
+				}
+				reg.SubscribeConnectionToTopic(conn, pat)
+				conns = append(conns, conn)
+			}
+			h := &liveHandler{registry: reg, config: mountConfig{}}
+			b.Cleanup(func() {
+				for _, c := range conns {
+					reg.Unregister(c)
+				}
+			})
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				// "nomatch/x" matches no scope%d/* (literal differs) and no
+				// 4-seg pattern (count differs) ⇒ all P patterns are scanned.
+				h.dispatchToTopic("nomatch/x", nil, "Reload", nil)
+			}
+			b.StopTimer()
+		})
+	}
+}
+
 // TestTopic_Phase2_CrossInstanceRoundTripVsGroupAction times the topic
 // round-trip (PublishToTopic on A → topic handler on B) against the existing
 // PublishGroupAction baseline over one shared Redis, and logs both means + the

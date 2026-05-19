@@ -165,6 +165,10 @@ func (c *Context) Publish(topic, action string, data map[string]interface{}) err
 	if action == "" {
 		return fmt.Errorf("livetemplate: cannot Publish with an empty action")
 	}
+	// Publish targets a concrete topic; "*" is Subscribe-only — reject here so it is a clear error, not a GetByTopicExcept panic.
+	if isPatternTopic(topic) {
+		return fmt.Errorf("livetemplate: cannot Publish to wildcard pattern %q — publish to a concrete topic; patterns are Subscribe-only", topic)
+	}
 	if !isReservedTopic(topic) {
 		if err := validateDeveloperTopic(topic); err != nil {
 			return err

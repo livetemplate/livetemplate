@@ -163,10 +163,17 @@ type TopicActionBroadcaster interface {
 // 1→0 transition).
 //
 // Phase 2 issues only exact SUBSCRIBE (concrete topics). Wildcard PSUBSCRIBE is
-// Phase 3.
+// the separate TopicPatternSubscriber (Phase 3).
 type TopicChannelSubscriber interface {
 	SubscribeToTopicChannel(topic string) error
 	UnsubscribeFromTopicChannel(topic string) error
+}
+
+// TopicPatternSubscriber relays a wildcard topic as one Redis PSUBSCRIBE (refcounted like TopicChannelSubscriber, parallel map).
+// SEPARATE optional interface, not a TopicChannelSubscriber extension — exact-only broadcasters stay backward-compatible. Relay invariant + over-delivery handling: see relayTopicSubscribeOne / phase-3.md.
+type TopicPatternSubscriber interface {
+	SubscribeToTopicPattern(pattern string) error
+	UnsubscribeFromTopicPattern(pattern string) error
 }
 
 // MessageHandler is called when a broadcast message is received.

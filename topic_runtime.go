@@ -129,16 +129,41 @@ func (s *liveTopicSubscriber) unregisterTopic(topic string) {
 	}
 }
 
-// relayTopicSubscribe issues the cross-instance exact SUBSCRIBE when the
-// configured broadcaster supports topic channels. A broadcaster that does not
-// implement TopicChannelSubscriber stays single-instance for topics (local
-// registry fan-out only) — backward compatible by construction.
-func (s *liveTopicSubscriber) relayTopicSubscribe(topic string) {
-	tcs, ok := s.h.config.PubSubBroadcaster.(pubsub.TopicChannelSubscriber)
-	if !ok {
-		return
+// relayTopicSubscribeOne is the single source of THE RELAY INVARIANT: a pattern
+// relays as exactly one PSUBSCRIBE (never expanded into per-concrete SUBSCRIBEs
+// — an expanded room/42 would miss a later cross-instance room/43); an exact
+// topic relays as SUBSCRIBE. Missing interface ⇒ single-instance no-op
+// (backward compatible). Shared by the per-action relay + the disconnect sweep.
+func (h *liveHandler) relayTopicSubscribeOne(topic string) error {
+	if isPatternTopic(topic) {
+		if tps, ok := h.config.PubSubBroadcaster.(pubsub.TopicPatternSubscriber); ok {
+			return tps.SubscribeToTopicPattern(topic)
+		}
+		return nil
 	}
-	if err := tcs.SubscribeToTopicChannel(topic); err != nil {
+	if tcs, ok := h.config.PubSubBroadcaster.(pubsub.TopicChannelSubscriber); ok {
+		return tcs.SubscribeToTopicChannel(topic)
+	}
+	return nil
+}
+
+// relayTopicUnsubscribeOne is the unsubscribe twin of relayTopicSubscribeOne
+// (PUNSUBSCRIBE for a pattern, UNSUBSCRIBE for an exact topic).
+func (h *liveHandler) relayTopicUnsubscribeOne(topic string) error {
+	if isPatternTopic(topic) {
+		if tps, ok := h.config.PubSubBroadcaster.(pubsub.TopicPatternSubscriber); ok {
+			return tps.UnsubscribeFromTopicPattern(topic)
+		}
+		return nil
+	}
+	if tcs, ok := h.config.PubSubBroadcaster.(pubsub.TopicChannelSubscriber); ok {
+		return tcs.UnsubscribeFromTopicChannel(topic)
+	}
+	return nil
+}
+
+func (s *liveTopicSubscriber) relayTopicSubscribe(topic string) {
+	if err := s.h.relayTopicSubscribeOne(topic); err != nil {
 		// Error (vs Warn for unsubscribe below): a failed subscribe SILENTLY
 		// breaks cross-instance delivery for this topic — the connection looks
 		// subscribed locally but never receives remote publishes. A failed
@@ -152,11 +177,7 @@ func (s *liveTopicSubscriber) relayTopicSubscribe(topic string) {
 }
 
 func (s *liveTopicSubscriber) relayTopicUnsubscribe(topic string) {
-	tcs, ok := s.h.config.PubSubBroadcaster.(pubsub.TopicChannelSubscriber)
-	if !ok {
-		return
-	}
-	if err := tcs.UnsubscribeFromTopicChannel(topic); err != nil {
+	if err := s.h.relayTopicUnsubscribeOne(topic); err != nil {
 		slog.Warn("Failed to relay topic unsubscribe from PubSub",
 			slog.String("component", "live_handler"),
 			slog.String("topic", topic),
@@ -181,12 +202,13 @@ func (s *liveTopicSubscriber) shouldWarnWiredCollision(action string) bool {
 // internal/session cannot import pubsub (import cycle), so this teardown is
 // driven from the root package, not from Unregister itself.
 func (h *liveHandler) releaseRelayedTopics(conn *session.Connection) {
-	tcs, ok := h.config.PubSubBroadcaster.(pubsub.TopicChannelSubscriber)
-	if !ok {
-		return
-	}
+	// SubscribedTopics returns the exact ∪ pattern set; relayTopicUnsubscribeOne
+	// branches per-topic so a pattern is PUNSUBSCRIBEd (not mis-released as an
+	// exact UNSUBSCRIBE, which would leak the PSUBSCRIBE refcount). No top-level
+	// interface assert — the per-topic helper no-ops if the broadcaster lacks
+	// the relevant interface (backward compatible).
 	for _, topic := range h.registry.SubscribedTopics(conn) {
-		if err := tcs.UnsubscribeFromTopicChannel(topic); err != nil {
+		if err := h.relayTopicUnsubscribeOne(topic); err != nil {
 			slog.Warn("Failed to relay topic unsubscribe on disconnect",
 				slog.String("component", "live_handler"),
 				slog.String("topic", topic),

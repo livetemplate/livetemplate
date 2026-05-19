@@ -944,7 +944,7 @@ func TestSubscribeTo_RetrySucceedsAfterTransientFailure(t *testing.T) {
 	}()
 	defer func() { <-restored }()
 
-	err := broadcaster.subscribeTo("test:retry-channel", "test")
+	err := broadcaster.subscribeTo("test:retry-channel", "test", subExact)
 	if err != nil {
 		t.Fatalf("subscribeTo should have succeeded on retry, got: %v", err)
 	}
@@ -973,7 +973,7 @@ func TestSubscribeTo_ExhaustsRetriesWhenPubSubNil(t *testing.T) {
 	}()
 
 	// Don't call Subscribe — pubsub stays nil, all 3 attempts should fail
-	err := broadcaster.subscribeTo("test:fail-channel", "test")
+	err := broadcaster.subscribeTo("test:fail-channel", "test", subExact)
 	if err == nil {
 		t.Fatal("subscribeTo should fail when pubsub is permanently nil")
 	}
@@ -1002,7 +1002,7 @@ func TestSubscribeTo_RespectsContextCancellation(t *testing.T) {
 	broadcaster.cancel()
 
 	start := time.Now()
-	err := broadcaster.subscribeTo("test:cancel-channel", "test")
+	err := broadcaster.subscribeTo("test:cancel-channel", "test", subExact)
 	elapsed := time.Since(start)
 
 	if err == nil {
@@ -1040,12 +1040,12 @@ func TestSubscribeTo_DeduplicatesAlreadySubscribed(t *testing.T) {
 	}
 
 	channel := "test:dedup-channel"
-	if err := broadcaster.subscribeTo(channel, "test"); err != nil {
+	if err := broadcaster.subscribeTo(channel, "test", subExact); err != nil {
 		t.Fatalf("first subscribeTo failed: %v", err)
 	}
 
 	// Second call should succeed immediately (dedup)
-	if err := broadcaster.subscribeTo(channel, "test"); err != nil {
+	if err := broadcaster.subscribeTo(channel, "test", subExact); err != nil {
 		t.Fatalf("duplicate subscribeTo should succeed (dedup), got: %v", err)
 	}
 }
@@ -1695,5 +1695,90 @@ func TestRedisBroadcaster_RefcountSurvivesUnsubscribeUntilZero(t *testing.T) {
 	subscriber.mu.RUnlock()
 	if present {
 		t.Fatal("channel must be removed from subscribedChannels after final unsubscribe")
+	}
+}
+
+// TestRedisBroadcaster_ReconnectPreservesPatternSubscriptions is the Phase 3
+// twin of TestRedisBroadcaster_ReconnectPreservesDynamicSubscriptions: it pins
+// the seam this phase built — subscribedPatterns is replayed via PSubscribe on
+// the SAME new *redis.PubSub in reconnect(), so a wildcard subscription
+// survives a Redis reconnection and a later concrete publish from another
+// instance still pattern-matches it.
+func TestRedisBroadcaster_ReconnectPreservesPatternSubscriptions(t *testing.T) {
+	client := getTestRedisClient(t)
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
+
+	publisher := NewRedisBroadcaster(client)
+	defer func() {
+		if err := publisher.Close(); err != nil {
+			t.Errorf("Failed to close publisher: %v", err)
+		}
+	}()
+
+	subscriber := NewRedisBroadcaster(client, WithReconnectDelay(10*time.Millisecond))
+	defer func() {
+		if err := subscriber.Close(); err != nil {
+			t.Errorf("Failed to close subscriber: %v", err)
+		}
+	}()
+
+	var mu sync.Mutex
+	var topicMsgs []*GroupActionMessage
+	if err := subscriber.SubscribeToTopicActions(func(msg *GroupActionMessage) error {
+		mu.Lock()
+		topicMsgs = append(topicMsgs, msg)
+		mu.Unlock()
+		return nil
+	}); err != nil {
+		t.Fatalf("SubscribeToTopicActions failed: %v", err)
+	}
+	// Subscribe() starts the processMessages pump and creates b.pubsub.
+	if err := subscriber.Subscribe(func(*BroadcastMessage) error { return nil }); err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
+	// The wildcard subscription under test (PSUBSCRIBE livetemplate:topic:room/*).
+	if err := subscriber.SubscribeToTopicPattern("room/*"); err != nil {
+		t.Fatalf("SubscribeToTopicPattern failed: %v", err)
+	}
+
+	// Force a reconnect by closing the internal pubsub; poll for the swap.
+	subscriber.mu.Lock()
+	oldPubsub := subscriber.pubsub
+	if subscriber.pubsub != nil {
+		_ = subscriber.pubsub.Close()
+	}
+	subscriber.mu.Unlock()
+
+	if !waitFor(func() bool {
+		subscriber.mu.RLock()
+		defer subscriber.mu.RUnlock()
+		return subscriber.pubsub != nil && subscriber.pubsub != oldPubsub && !subscriber.reconnecting
+	}) {
+		t.Fatalf("reconnect did not complete within %v", waitForTimeout)
+	}
+
+	// A concrete publish from the other instance must still reach the wildcard
+	// subscriber AFTER reconnect — only true if subscribedPatterns was replayed
+	// via PSubscribe on the new PubSub. Retry: the publish can race the
+	// post-reconnect PSUBSCRIBE registration.
+	if !waitFor(func() bool {
+		if err := publisher.PublishToTopic("room/42", "Reload", map[string]interface{}{"k": "v"}); err != nil {
+			t.Fatalf("PublishToTopic failed: %v", err)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		return len(topicMsgs) >= 1
+	}) {
+		t.Fatalf("wildcard subscription not replayed after reconnect: no topic message received within %v", waitForTimeout)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if topicMsgs[0].Topic != "room/42" {
+		t.Fatalf("expected Topic=room/42 (concrete published over the replayed room/* PSUBSCRIBE), got %q", topicMsgs[0].Topic)
 	}
 }
