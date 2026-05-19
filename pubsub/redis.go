@@ -52,11 +52,23 @@ type RedisBroadcaster struct {
 	topicActionHandler  GroupActionHandler // topic messages reuse the GroupActionMessage envelope + handler signature
 	// seq is the per-instance monotonic dedup counter, incremented on every
 	// GroupActionMessage emitted (group-action AND topic — see the
-	// GroupActionMessage doc). CONSTRAINT for Phase 3's (instanceID, seq) dedup
-	// ring: values are monotonic PER-INSTANCE only, never per-Type — group and
-	// topic emits interleave and consume from this one counter, so a topic
-	// stream sees gaps. The ring must key on (instanceID, seq) and must not
-	// assume contiguous or per-stream-monotonic seq.
+	// GroupActionMessage doc). atomic.Uint64.Add(1) returns the post-increment
+	// value, so a live instance's first emit is seq=1; this instance never
+	// emits seq=0.
+	//
+	// CONSTRAINTS for Phase 3's (instanceID, seq) dedup ring:
+	//  1. Values are monotonic PER-INSTANCE only, never per-Type — group and
+	//     topic emits interleave and consume from this one counter, so a topic
+	//     stream sees gaps. Key on (instanceID, seq); don't assume contiguous
+	//     or per-stream-monotonic seq.
+	//  2. seq=0 means "pre-upgrade sender" — an instance running code that
+	//     predates the Seq field omits it, so it JSON-unmarshals to 0 (Go zero
+	//     value). In a mixed-version cluster during a rolling upgrade, EVERY
+	//     message from such an instance has seq=0, so a naive (instanceID, 0)
+	//     ring key would collapse all-but-one of that instance's messages. The
+	//     Phase 3 ring MUST bypass dedup when seq==0 (process unconditionally):
+	//     a pre-Phase-2 instance has no topic PSUBSCRIBE, hence no double-fire
+	//     to dedup, so processing every seq=0 message is correct and safe.
 	seq                atomic.Uint64
 	ctx                context.Context
 	cancel             context.CancelFunc

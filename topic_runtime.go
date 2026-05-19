@@ -139,6 +139,11 @@ func (s *liveTopicSubscriber) relayTopicSubscribe(topic string) {
 		return
 	}
 	if err := tcs.SubscribeToTopicChannel(topic); err != nil {
+		// Error (vs Warn for unsubscribe below): a failed subscribe SILENTLY
+		// breaks cross-instance delivery for this topic — the connection looks
+		// subscribed locally but never receives remote publishes. A failed
+		// unsubscribe only leaks a refcount (recoverable, no missed messages),
+		// hence the lower level there. The asymmetry is intentional.
 		slog.Error("Failed to relay topic subscribe to PubSub",
 			slog.String("component", "live_handler"),
 			slog.String("topic", topic),

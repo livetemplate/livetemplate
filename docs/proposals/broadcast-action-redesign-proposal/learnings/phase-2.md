@@ -259,7 +259,16 @@ Phase 3 (wildcards / multi-segment PSUBSCRIBE) inherits a clean seam:
   resolution. The `Seq` counter + envelope field are already wired and
   cross-instance-proven (V8/V9). `handleTopicActionMessage` is the resolution
   site to fold the `(instanceID, seq)` bounded ring (N=64, no map, single
-  serialized pump ⇒ no lock) in front of `GetByTopicExcept`.
+  serialized pump ⇒ no lock) in front of `GetByTopicExcept`. **Two ring
+  constraints (documented at the `seq` field, surfaced by the #424 round-3
+  review):** (a) `seq` is monotonic per-instance only, never per-Type (group +
+  topic interleave one counter — the ring keys on `(instanceID, seq)`, never
+  assumes contiguity); (b) **`seq==0` ⇒ pre-upgrade sender** — a rolling-upgrade
+  instance running pre-`Seq` code omits the field (JSON→0), so *every* message
+  from it has seq=0; the ring MUST bypass dedup when `seq==0` (process
+  unconditionally — a pre-Phase-2 instance has no topic `PSUBSCRIBE`, hence no
+  double-fire, so this is correct). A naive `(instanceID,0)` key would collapse
+  all-but-one of an old instance's messages.
 - **Local strict re-match:** `handleTopicActionMessage` already resolves via
   `GetByTopicExcept(msg.Topic, nil, segmentMatch)` (the general exact∪pattern
   resolver, matcher already injected) — Phase 3's PSUBSCRIBE over-delivery

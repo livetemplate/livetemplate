@@ -83,6 +83,12 @@ func BenchmarkTopicFanoutByN(b *testing.B) {
 // the deliverable is the recorded number showing no order-of-magnitude
 // overhead, not a tight perf gate (which would flake on shared CI).
 func TestTopic_Phase2_CrossInstanceRoundTripVsGroupAction(t *testing.T) {
+	// Informational measurement, not a hard perf gate: the 3x bound only
+	// guards against an order-of-magnitude regression. CI timing is noisy, so
+	// skip under -short; the numbers are reported via t.Logf for the PR/record.
+	if testing.Short() {
+		t.Skip("skipping cross-instance latency measurement under -short (timing-sensitive, informational)")
+	}
 	client := getTestRedisClient(t) // t.Skips if Docker unavailable
 	bA := pubsub.NewRedisBroadcaster(client)
 	bB := pubsub.NewRedisBroadcaster(client)
