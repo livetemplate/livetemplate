@@ -306,5 +306,3 @@ this is a deliberate non-blocker, parked here for a future perf pass.
 - **Commit:** local branch `broadcast-redesign-phase-3` (worktree
   `.worktrees/broadcast-redesign-phase-3`); **not committed** — left for user
   signoff per the gate. `phase-3.md` commits in Phase 3's own PR.
-
-## File / commit / V-item pointers

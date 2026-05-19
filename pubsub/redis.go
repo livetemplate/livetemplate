@@ -78,7 +78,7 @@ type RedisBroadcaster struct {
 	reconnecting       bool           // True while reconnect() is in its sleep/SUBSCRIBE window (pubsub is nil)
 	reconnectDelay     time.Duration  // Delay before reconnecting after subscription failure (default: 1s)
 	subscribedChannels map[string]int // Reference counts for dynamic exact-SUBSCRIBE channels (reconnect replay + 0→1 / 1→0 SUBSCRIBE/UNSUBSCRIBE gating)
-	subscribedPatterns map[string]int // Parallel to subscribedChannels for PSUBSCRIBE glob channels (Phase 3 wildcards) — replayed via PSubscribe in reconnect(), same 0→1 / 1→0 gating
+	subscribedPatterns map[string]int // Parallel to subscribedChannels for PSUBSCRIBE glob channels — replayed via PSubscribe in reconnect(), same 0→1 / 1→0 gating
 
 	// seenRing is the bounded (instanceID, seq) double-fire dedup for received
 	// topic messages. A connection holding BOTH an exact SUBSCRIBE and a
@@ -609,14 +609,14 @@ var errPubsubNotReady = fmt.Errorf("pubsub not ready (reconnect in progress)")
 // map tracks it: subExact = SUBSCRIBE/UNSUBSCRIBE in subscribedChannels;
 // subPattern = PSUBSCRIBE/PUNSUBSCRIBE in subscribedPatterns. It is threaded
 // through the one race-critical retry/check-lock-check loop so that subtle
-// logic (the #420/#422 lock-release seam) stays single-sourced rather than
-// duplicated per verb. Exact callers pass subExact explicitly — the BroadcastAction
-// group-action path is byte-for-byte unchanged, just tagged.
+// lock-release-across-the-network-call logic stays single-sourced rather than
+// duplicated per verb. Exact callers pass subExact explicitly — the
+// group-action subscribe path is byte-for-byte unchanged, just tagged.
 type subKind int
 
 const (
 	subExact   subKind = iota // Redis SUBSCRIBE  / UNSUBSCRIBE  → subscribedChannels
-	subPattern                // Redis PSUBSCRIBE / PUNSUBSCRIBE → subscribedPatterns (Phase 3 wildcards)
+	subPattern                // Redis PSUBSCRIBE / PUNSUBSCRIBE → subscribedPatterns
 )
 
 // refcounts returns the refcount map for kind. The caller MUST hold b.mu (the
@@ -778,8 +778,8 @@ func (b *RedisBroadcaster) trySubscribe(channel, label string, kind subKind) err
 	b.mu.Unlock()
 
 	// One hook for both verbs: it asserts b.mu is not held across the network
-	// (P)SUBSCRIBE, so the pattern path gets the same #420/#422 race coverage
-	// the exact path has, for free.
+	// (P)SUBSCRIBE, so the pattern path gets the same lock-release race
+	// coverage the exact path has, for free.
 	if h := currentSubscribeHook(); h != nil {
 		h()
 	}
@@ -799,9 +799,8 @@ func (b *RedisBroadcaster) trySubscribe(channel, label string, kind subKind) err
 	}
 	// A racing trySubscribe may have completed its (P)SUBSCRIBE between our
 	// release-lock and re-acquire-lock; either way the count belongs to us.
-	// Re-read the map under the re-acquired lock (refcounts above is the same
-	// map header, but re-fetch for clarity that this write is lock-held).
-	refcounts = b.refcounts(kind)
+	// refcounts still points at the same reference-type map (subscribedChannels
+	// or subscribedPatterns); this write is lock-held via the b.mu.Lock() above.
 	refcounts[channel]++
 	count := refcounts[channel]
 	b.mu.Unlock()

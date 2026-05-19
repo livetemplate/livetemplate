@@ -264,7 +264,10 @@ func TestTopic_V17_CrossInstance_PSubscribeDelivery(t *testing.T) {
 // if a frame contains reject first. Same reliability profile as awaitWSContains
 // (the existing V8/V9 convention): want is guaranteed deliverable, so a read
 // succeeds quickly on a local Redis testcontainer; the gorilla read-poisoning
-// after a timeout is the same accepted risk the existing helper carries.
+// after a timeout is the same accepted risk the existing helper carries. The
+// retry budget is a SUBSCRIBE/PSUBSCRIBE-propagation guard, not a load driver:
+// the publish is expected to land on the first iteration and the loop normally
+// runs once — it is not a deliberate repeated-publish stress.
 func awaitWSContainsRejecting(t *testing.T, ws *websocket.Conn, want, reject string, trigger func()) {
 	t.Helper()
 	deadline := time.Now().Add(8 * time.Second)
