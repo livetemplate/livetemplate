@@ -77,7 +77,64 @@ type RedisBroadcaster struct {
 	closed             bool
 	reconnecting       bool           // True while reconnect() is in its sleep/SUBSCRIBE window (pubsub is nil)
 	reconnectDelay     time.Duration  // Delay before reconnecting after subscription failure (default: 1s)
-	subscribedChannels map[string]int // Reference counts for dynamic channel subscriptions (used for reconnect replay and 0→1 / 1→0 SUBSCRIBE/UNSUBSCRIBE gating)
+	subscribedChannels map[string]int // Reference counts for dynamic exact-SUBSCRIBE channels (reconnect replay + 0→1 / 1→0 SUBSCRIBE/UNSUBSCRIBE gating)
+	subscribedPatterns map[string]int // Parallel to subscribedChannels for PSUBSCRIBE glob channels (Phase 3 wildcards) — replayed via PSubscribe in reconnect(), same 0→1 / 1→0 gating
+
+	// seenRing is the bounded (instanceID, seq) double-fire dedup for received
+	// topic messages. A connection holding BOTH an exact SUBSCRIBE and a
+	// matching PSUBSCRIBE makes Redis deliver one PUBLISH twice to this
+	// instance; both copies carry the publisher's identical (InstanceID, Seq),
+	// so the ring drops the second. It is read/written ONLY on the single
+	// serialized processMessages goroutine (handleTopicActionMessage) ⇒ no lock
+	// (proposal §"Cross-instance exactly-once"). seq==0 bypasses the ring
+	// entirely — see the seq field constraints above.
+	seenRing seenRing
+}
+
+// seenIDRingSize bounds the (instanceID, seq) dedup window. A double-fire's two
+// copies arrive back-to-back on the one pump, so a small ring suffices; 64
+// absorbs interleaving from several publishing instances without unbounded
+// growth (proposal §"Cross-instance exactly-once": "bounded N=64, single
+// serialized pump ⇒ no lock").
+const seenIDRingSize = 64
+
+// seenID is the collision-free dedup key: per-instance monotonic Seq scoped by
+// the emitting InstanceID (Timestamp is deliberately NOT part of it — see the
+// GroupActionMessage doc).
+type seenID struct {
+	instanceID string
+	seq        uint64
+}
+
+// seenRing is a fixed-size circular set with O(N) membership (N=64). No map: at
+// this size a linear scan is faster and allocation-free, and the single-pump
+// access model means it never needs a lock or concurrent-safe structure.
+type seenRing struct {
+	ids  [seenIDRingSize]seenID
+	next int  // write cursor (wraps)
+	full bool // true once the ring has wrapped at least once
+}
+
+// seenThenRecord reports whether id was already in the ring; if not, it records
+// id (evicting the oldest entry once full) and returns false. Called only from
+// the single processMessages goroutine — intentionally lock-free.
+func (r *seenRing) seenThenRecord(id seenID) bool {
+	limit := r.next
+	if r.full {
+		limit = seenIDRingSize
+	}
+	for i := 0; i < limit; i++ {
+		if r.ids[i] == id {
+			return true
+		}
+	}
+	r.ids[r.next] = id
+	r.next++
+	if r.next == seenIDRingSize {
+		r.next = 0
+		r.full = true
+	}
+	return false
 }
 
 // RedisBroadcasterOption configures RedisBroadcaster.
@@ -113,6 +170,7 @@ func NewRedisBroadcaster(client redis.UniversalClient, opts ...RedisBroadcasterO
 		cancel:             cancel,
 		reconnectDelay:     1 * time.Second, // Default: 1 second
 		subscribedChannels: make(map[string]int),
+		subscribedPatterns: make(map[string]int),
 	}
 
 	// Apply options
@@ -305,7 +363,7 @@ func (b *RedisBroadcaster) SubscribeToServerAction(userID string) error {
 	if userID == "" {
 		return fmt.Errorf("userID cannot be empty")
 	}
-	return b.subscribeTo(channelServerAction+userID, "server action")
+	return b.subscribeTo(channelServerAction+userID, "server action", subExact)
 }
 
 // SubscribeToGroup subscribes to broadcasts for a specific group.
@@ -313,7 +371,7 @@ func (b *RedisBroadcaster) SubscribeToGroup(groupID string) error {
 	if groupID == "" {
 		return fmt.Errorf("groupID cannot be empty")
 	}
-	return b.subscribeTo(channelGroup+groupID, "group")
+	return b.subscribeTo(channelGroup+groupID, "group", subExact)
 }
 
 // SubscribeToUser subscribes to broadcasts for a specific user.
@@ -321,7 +379,7 @@ func (b *RedisBroadcaster) SubscribeToUser(userID string) error {
 	if userID == "" {
 		return fmt.Errorf("userID cannot be empty")
 	}
-	return b.subscribeTo(channelUser+userID, "user")
+	return b.subscribeTo(channelUser+userID, "user", subExact)
 }
 
 // PublishGroupAction publishes a group-scoped action to all instances.
@@ -373,7 +431,7 @@ func (b *RedisBroadcaster) SubscribeToGroupAction(groupID string) error {
 	if groupID == "" {
 		return fmt.Errorf("groupID cannot be empty")
 	}
-	return b.subscribeTo(channelGroupAction+groupID, "group action")
+	return b.subscribeTo(channelGroupAction+groupID, "group action", subExact)
 }
 
 // PublishToTopic publishes a topic-scoped action to all instances over the
@@ -434,7 +492,7 @@ func (b *RedisBroadcaster) SubscribeToTopicChannel(topic string) error {
 	if topic == "" {
 		return fmt.Errorf("topic cannot be empty")
 	}
-	return b.subscribeTo(channelTopic+topic, "topic")
+	return b.subscribeTo(channelTopic+topic, "topic", subExact)
 }
 
 // UnsubscribeFromTopicChannel decrements the topic channel's refcount,
@@ -443,7 +501,37 @@ func (b *RedisBroadcaster) UnsubscribeFromTopicChannel(topic string) error {
 	if topic == "" {
 		return fmt.Errorf("topic cannot be empty")
 	}
-	return b.unsubscribeFrom(channelTopic+topic, "topic")
+	return b.unsubscribeFrom(channelTopic+topic, "topic", subExact)
+}
+
+// SubscribeToTopicPattern relays a wildcard topic *pattern* as a single Redis
+// PSUBSCRIBE on the glob channel livetemplate:topic:<pattern> (each pattern
+// segment "*" is also a Redis glob "*"). It is the TopicPatternSubscriber
+// counterpart of SubscribeToTopicChannel: same reference-counting + reconnect
+// replay contract, but tracked in subscribedPatterns and issued with
+// PSUBSCRIBE on the SAME b.pubsub the one processMessages pump reads (the
+// single-PubSub-instance invariant — never a second *redis.PubSub).
+//
+// Relay invariant: the pattern is registered as ONE PSUBSCRIBE, never expanded
+// into per-concrete SUBSCRIBEs. Publishers always PUBLISH to the exact concrete
+// channel; Redis pattern matching connects that exact PUBLISH to this
+// PSUBSCRIBE cross-instance. Redis "*" spans "/" (broader than the
+// whole-segment "*" grammar), so the receiving instance re-resolves by the
+// strict segmentMatch and drops over-delivery — see handleTopicActionMessage.
+func (b *RedisBroadcaster) SubscribeToTopicPattern(pattern string) error {
+	if pattern == "" {
+		return fmt.Errorf("pattern cannot be empty")
+	}
+	return b.subscribeTo(channelTopic+pattern, "topic pattern", subPattern)
+}
+
+// UnsubscribeFromTopicPattern decrements the pattern's refcount, issuing the
+// underlying Redis PUNSUBSCRIBE on the 1→0 transition.
+func (b *RedisBroadcaster) UnsubscribeFromTopicPattern(pattern string) error {
+	if pattern == "" {
+		return fmt.Errorf("pattern cannot be empty")
+	}
+	return b.unsubscribeFrom(channelTopic+pattern, "topic pattern", subPattern)
 }
 
 // subscribeHook is a test-only hook invoked from trySubscribe immediately
@@ -517,9 +605,53 @@ func setReconnectHook(h func()) (prev func()) {
 // cover the reconnect-delay rather than failing fast in ~200ms.
 var errPubsubNotReady = fmt.Errorf("pubsub not ready (reconnect in progress)")
 
-// subscribeTo subscribes to a Redis channel with dedup and retry.
+// subKind selects which Redis verb a (un)subscribe issues and which refcount
+// map tracks it: subExact = SUBSCRIBE/UNSUBSCRIBE in subscribedChannels;
+// subPattern = PSUBSCRIBE/PUNSUBSCRIBE in subscribedPatterns. It is threaded
+// through the one race-critical retry/check-lock-check loop so that subtle
+// logic (the #420/#422 lock-release seam) stays single-sourced rather than
+// duplicated per verb. Exact callers pass subExact explicitly — the BroadcastAction
+// group-action path is byte-for-byte unchanged, just tagged.
+type subKind int
+
+const (
+	subExact   subKind = iota // Redis SUBSCRIBE  / UNSUBSCRIBE  → subscribedChannels
+	subPattern                // Redis PSUBSCRIBE / PUNSUBSCRIBE → subscribedPatterns (Phase 3 wildcards)
+)
+
+// refcounts returns the refcount map for kind. The caller MUST hold b.mu (the
+// maps are mutated under it everywhere else).
+func (b *RedisBroadcaster) refcounts(kind subKind) map[string]int {
+	if kind == subPattern {
+		return b.subscribedPatterns
+	}
+	return b.subscribedChannels
+}
+
+// redisSubscribe issues the kind's subscribe verb on ps. PSUBSCRIBE for a
+// pattern, SUBSCRIBE for an exact channel — both multiplex onto ps's single
+// .Channel() the one processMessages pump reads (the single-PubSub-instance
+// invariant: never a second *redis.PubSub).
+func redisSubscribe(ctx context.Context, ps *redis.PubSub, kind subKind, name string) error {
+	if kind == subPattern {
+		return ps.PSubscribe(ctx, name)
+	}
+	return ps.Subscribe(ctx, name)
+}
+
+// redisUnsubscribe issues the kind's unsubscribe verb on ps (PUNSUBSCRIBE vs
+// UNSUBSCRIBE).
+func redisUnsubscribe(ctx context.Context, ps *redis.PubSub, kind subKind, name string) error {
+	if kind == subPattern {
+		return ps.PUnsubscribe(ctx, name)
+	}
+	return ps.Unsubscribe(ctx, name)
+}
+
+// subscribeTo subscribes to a Redis channel (exact SUBSCRIBE or, for
+// kind==subPattern, PSUBSCRIBE) with dedup and retry.
 //
-// The lock is released across the Redis SUBSCRIBE network call so concurrent
+// The lock is released across the Redis (P)SUBSCRIBE network call so concurrent
 // publishes/subscribes/closes are not blocked. Retries handle transient
 // Redis failures and the rare race where reconnect() swaps b.pubsub
 // between our snapshot and our state-update phase (we detect the swap and
@@ -529,7 +661,7 @@ var errPubsubNotReady = fmt.Errorf("pubsub not ready (reconnect in progress)")
 // reconnect() is in progress), the retry budget is extended to cover the
 // reconnect window so subscriptions arriving mid-reconnect succeed against
 // the new connection rather than failing fast.
-func (b *RedisBroadcaster) subscribeTo(channel, label string) error {
+func (b *RedisBroadcaster) subscribeTo(channel, label string, kind subKind) error {
 	const maxAttempts = 3
 	const retryDelay = 100 * time.Millisecond
 
@@ -563,7 +695,7 @@ func (b *RedisBroadcaster) subscribeTo(channel, label string) error {
 		}
 		iteration++
 
-		err := b.trySubscribe(channel, label)
+		err := b.trySubscribe(channel, label, kind)
 		if err == nil {
 			return nil
 		}
@@ -614,7 +746,7 @@ func (b *RedisBroadcaster) subscribeTo(channel, label string) error {
 // command is idempotent on the Redis side. A pubsub-pointer swap during
 // the network call is treated as a transient failure; the retry loop will
 // re-snapshot and try again against the new pubsub.
-func (b *RedisBroadcaster) trySubscribe(channel, label string) error {
+func (b *RedisBroadcaster) trySubscribe(channel, label string, kind subKind) error {
 	b.mu.Lock()
 	if b.closed {
 		b.mu.Unlock()
@@ -636,19 +768,23 @@ func (b *RedisBroadcaster) trySubscribe(channel, label string) error {
 	// Already subscribed (refcount > 0): bump the count, skip the network call.
 	// The Redis subscription is shared; the next caller's UnsubscribeDynamic
 	// only tears it down when the count returns to zero.
-	if b.subscribedChannels[channel] > 0 {
-		b.subscribedChannels[channel]++
+	refcounts := b.refcounts(kind)
+	if refcounts[channel] > 0 {
+		refcounts[channel]++
 		b.mu.Unlock()
 		return nil
 	}
 	pubsub := b.pubsub
 	b.mu.Unlock()
 
+	// One hook for both verbs: it asserts b.mu is not held across the network
+	// (P)SUBSCRIBE, so the pattern path gets the same #420/#422 race coverage
+	// the exact path has, for free.
 	if h := currentSubscribeHook(); h != nil {
 		h()
 	}
 
-	if err := pubsub.Subscribe(b.ctx, channel); err != nil {
+	if err := redisSubscribe(b.ctx, pubsub, kind, channel); err != nil {
 		return fmt.Errorf("failed to subscribe to %s channel: %w", label, err)
 	}
 
@@ -661,10 +797,13 @@ func (b *RedisBroadcaster) trySubscribe(channel, label string) error {
 		b.mu.Unlock()
 		return fmt.Errorf("pubsub connection changed during subscribe to %s channel", label)
 	}
-	// A racing trySubscribe may have completed its SUBSCRIBE between our
+	// A racing trySubscribe may have completed its (P)SUBSCRIBE between our
 	// release-lock and re-acquire-lock; either way the count belongs to us.
-	b.subscribedChannels[channel]++
-	count := b.subscribedChannels[channel]
+	// Re-read the map under the re-acquired lock (refcounts above is the same
+	// map header, but re-fetch for clarity that this write is lock-held).
+	refcounts = b.refcounts(kind)
+	refcounts[channel]++
+	count := refcounts[channel]
 	b.mu.Unlock()
 
 	slog.Info("Subscribed to "+label+" channel",
@@ -681,7 +820,7 @@ func (b *RedisBroadcaster) UnsubscribeFromGroup(groupID string) error {
 	if groupID == "" {
 		return fmt.Errorf("groupID cannot be empty")
 	}
-	return b.unsubscribeFrom(channelGroup+groupID, "group")
+	return b.unsubscribeFrom(channelGroup+groupID, "group", subExact)
 }
 
 // UnsubscribeFromUser decrements the refcount for a user channel.
@@ -690,7 +829,7 @@ func (b *RedisBroadcaster) UnsubscribeFromUser(userID string) error {
 	if userID == "" {
 		return fmt.Errorf("userID cannot be empty")
 	}
-	return b.unsubscribeFrom(channelUser+userID, "user")
+	return b.unsubscribeFrom(channelUser+userID, "user", subExact)
 }
 
 // UnsubscribeFromServerAction decrements the refcount for a server action channel.
@@ -699,7 +838,7 @@ func (b *RedisBroadcaster) UnsubscribeFromServerAction(userID string) error {
 	if userID == "" {
 		return fmt.Errorf("userID cannot be empty")
 	}
-	return b.unsubscribeFrom(channelServerAction+userID, "server action")
+	return b.unsubscribeFrom(channelServerAction+userID, "server action", subExact)
 }
 
 // UnsubscribeFromGroupAction decrements the refcount for a group action channel.
@@ -708,7 +847,7 @@ func (b *RedisBroadcaster) UnsubscribeFromGroupAction(groupID string) error {
 	if groupID == "" {
 		return fmt.Errorf("groupID cannot be empty")
 	}
-	return b.unsubscribeFrom(channelGroupAction+groupID, "group action")
+	return b.unsubscribeFrom(channelGroupAction+groupID, "group action", subExact)
 }
 
 // unsubscribeFrom decrements the refcount for a channel. On the 1→0
@@ -718,13 +857,14 @@ func (b *RedisBroadcaster) UnsubscribeFromGroupAction(groupID string) error {
 // Calls on channels with no refcount are a no-op — the channel was never
 // subscribed (or has already been torn down). This makes deferred cleanup
 // in the WebSocket handler robust against partial-failure setup paths.
-func (b *RedisBroadcaster) unsubscribeFrom(channel, label string) error {
+func (b *RedisBroadcaster) unsubscribeFrom(channel, label string, kind subKind) error {
 	b.mu.Lock()
 	if b.closed {
 		b.mu.Unlock()
 		return nil
 	}
-	count := b.subscribedChannels[channel]
+	refcounts := b.refcounts(kind)
+	count := refcounts[channel]
 	if count <= 0 {
 		// Either never subscribed, or already cleared. Idempotent no-op so
 		// disconnect-time cleanup is robust against earlier setup failures.
@@ -732,13 +872,13 @@ func (b *RedisBroadcaster) unsubscribeFrom(channel, label string) error {
 		return nil
 	}
 	if count > 1 {
-		b.subscribedChannels[channel] = count - 1
+		refcounts[channel] = count - 1
 		b.mu.Unlock()
 		return nil
 	}
 	// count == 1: clear the entry under the lock so concurrent SubscribeTo
-	// observes a zero count and re-issues SUBSCRIBE rather than piggybacking.
-	delete(b.subscribedChannels, channel)
+	// observes a zero count and re-issues (P)SUBSCRIBE rather than piggybacking.
+	delete(refcounts, channel)
 	pubsub := b.pubsub
 	b.mu.Unlock()
 
@@ -753,7 +893,7 @@ func (b *RedisBroadcaster) unsubscribeFrom(channel, label string) error {
 		return nil
 	}
 
-	if err := pubsub.Unsubscribe(b.ctx, channel); err != nil {
+	if err := redisUnsubscribe(b.ctx, pubsub, kind, channel); err != nil {
 		return fmt.Errorf("failed to unsubscribe from %s channel: %w", label, err)
 	}
 
@@ -917,15 +1057,39 @@ func (b *RedisBroadcaster) handleGroupActionMessage(redisMsg *redis.Message) err
 // struct — no separate unmarshal for the guard). The receiving handler
 // resolves the connection set by msg.Topic.
 //
-// Phase 2 has exact SUBSCRIBE only, so a given PUBLISH delivers once to a
-// subscribed instance; the (instanceID, seq) double-fire dedup is not yet
-// needed and lands in Phase 3 with PSUBSCRIBE (gated by V17).
+// Phase 3 (instanceID, seq) double-fire dedup runs HERE — on the single
+// serialized processMessages goroutine, BEFORE the handler does registry
+// resolution (proposal §"Cross-instance exactly-once": "inside the existing
+// single processMessages pump … before registry resolution/enqueue"). With
+// PSUBSCRIBE, a connection holding both an exact SUBSCRIBE and a matching
+// pattern PSUBSCRIBE makes Redis deliver one PUBLISH twice to this instance;
+// the ring drops the second copy. Group-action messages never reach here
+// (routed to handleGroupActionMessage) and have no PSUBSCRIBE, so the shared
+// seq counter is only ever compared on this topic path — the LOAD-BEARING
+// INVARIANT on the GroupActionMessage Seq field.
 func (b *RedisBroadcaster) handleTopicActionMessage(redisMsg *redis.Message) error {
 	var msg GroupActionMessage
 	if err := json.Unmarshal([]byte(redisMsg.Payload), &msg); err != nil {
 		return fmt.Errorf("failed to unmarshal topic action message: %w", err)
 	}
 	if msg.InstanceID == b.instanceID {
+		return nil
+	}
+
+	// (instanceID, seq) double-fire dedup. seq==0 ⇒ pre-Phase-2/pre-upgrade
+	// sender that omits Seq (JSON→0): EVERY message from it has seq=0 and it
+	// has no topic PSUBSCRIBE (no double-fire), so the ring is bypassed
+	// ENTIRELY — neither dedup-checked (process unconditionally) NOR recorded
+	// (recording (id,0) would collapse all-but-one of that instance's messages
+	// once a second seq=0 arrives). Short-circuit && enforces both halves:
+	// seenThenRecord is not even called when msg.Seq==0. Lock-free: the ring is
+	// touched only on this one serialized pump goroutine.
+	if msg.Seq != 0 && b.seenRing.seenThenRecord(seenID{instanceID: msg.InstanceID, seq: msg.Seq}) {
+		slog.Debug("Dropped double-fire topic message (SUBSCRIBE+PSUBSCRIBE)",
+			slog.String("component", "redis_broadcaster"),
+			slog.String("topic", msg.Topic),
+			slog.String("from_instance", msg.InstanceID),
+			slog.Uint64("seq", msg.Seq))
 		return nil
 	}
 
@@ -962,16 +1126,23 @@ func dispatchTypedMessage[T any](redisMsg *redis.Message, getHandler func() func
 }
 
 // reconnect attempts to re-establish the Redis subscription after a failure.
-// It replays all dynamic channel subscriptions that were active before disconnection.
+// It replays all dynamic channel subscriptions (exact SUBSCRIBE) AND all
+// pattern subscriptions (PSUBSCRIBE) that were active before disconnection,
+// both onto the one new *redis.PubSub the pump will read.
 //
 // The lock is released across the reconnect-delay sleep and across the
 // Redis SUBSCRIBE/Receive network calls so concurrent publishes,
 // subscribes, and Close() are not blocked for the duration. The flow is:
 //  1. Lock to close the stale pubsub, set b.reconnecting = true, and
-//     snapshot the channel list.
+//     snapshot the channel + pattern lists.
 //  2. Release the lock; sleep (interruptible via b.ctx.Done()) so Close()
 //     can short-circuit a long reconnectDelay.
-//  3. Issue Redis SUBSCRIBE + Receive outside any lock.
+//  3. Issue Redis SUBSCRIBE + Receive (connectivity smoke-test) outside any
+//     lock, then PSUBSCRIBE the snapshotted patterns onto the SAME new
+//     PubSub. No second Receive: adding a pattern to a PubSub is the same
+//     fire-then-.Channel()-drains-the-confirmation model as the live
+//     dynamic-add path in trySubscribe (which also issues no Receive); the
+//     single Receive exists only to fail fast if the connection is dead.
 //  4. Re-acquire the lock; if Close() raced ahead, tear down the new
 //     pubsub. Otherwise install it as the live one.
 //  5. On every exit path, clear b.reconnecting via deferred unlock so
@@ -997,11 +1168,16 @@ func (b *RedisBroadcaster) reconnect() error {
 	}
 	b.reconnecting = true
 
-	// Snapshot channels to replay (global + all dynamic channels)
+	// Snapshot channels (global + all dynamic exact channels) and patterns
+	// (PSUBSCRIBE globs) to replay onto the one new PubSub.
 	channels := make([]string, 0, 1+len(b.subscribedChannels))
 	channels = append(channels, channelGlobal)
 	for ch := range b.subscribedChannels {
 		channels = append(channels, ch)
+	}
+	patterns := make([]string, 0, len(b.subscribedPatterns))
+	for p := range b.subscribedPatterns {
+		patterns = append(patterns, p)
 	}
 	delay := b.reconnectDelay
 	b.mu.Unlock()
@@ -1026,11 +1202,25 @@ func (b *RedisBroadcaster) reconnect() error {
 	case <-time.After(delay):
 	}
 
-	// Re-subscribe to all channels at once (outside any lock)
+	// Re-subscribe to all exact channels at once (outside any lock); the
+	// single Receive is the connectivity smoke-test.
 	newPubSub := b.client.Subscribe(b.ctx, channels...)
 	if _, err := newPubSub.Receive(b.ctx); err != nil {
 		_ = newPubSub.Close()
 		return fmt.Errorf("failed to resubscribe: %w", err)
+	}
+
+	// Replay pattern subscriptions onto the SAME new PubSub (single-PubSub-
+	// instance invariant). PSUBSCRIBE here, after the connectivity Receive,
+	// mirrors the live dynamic-add path: the .Channel() the pump reads drains
+	// the psubscribe confirmation — no extra Receive needed. A PSUBSCRIBE
+	// failure is treated like the Subscribe failure above (tear down + return
+	// so the caller's retry loop re-drives a fresh reconnect).
+	if len(patterns) > 0 {
+		if err := newPubSub.PSubscribe(b.ctx, patterns...); err != nil {
+			_ = newPubSub.Close()
+			return fmt.Errorf("failed to re-psubscribe patterns: %w", err)
+		}
 	}
 
 	// Install new pubsub under lock
@@ -1042,11 +1232,13 @@ func (b *RedisBroadcaster) reconnect() error {
 	}
 	b.pubsub = newPubSub
 	dynamicCount := len(b.subscribedChannels)
+	patternCount := len(b.subscribedPatterns)
 	b.mu.Unlock()
 
 	slog.Info("Reconnected successfully",
 		slog.String("component", "redis_broadcaster"),
-		slog.Int("dynamic_channels", dynamicCount))
+		slog.Int("dynamic_channels", dynamicCount),
+		slog.Int("dynamic_patterns", patternCount))
 	return nil
 }
 
@@ -1067,8 +1259,9 @@ func (b *RedisBroadcaster) Close() error {
 	b.wg.Wait()
 
 	// Close pubsub with write lock.
-	// Safe to nil subscribedChannels: b.closed is already true (set above),
-	// so subscribeTo() and reconnect() will return early before accessing the map.
+	// Safe to nil subscribedChannels/subscribedPatterns: b.closed is already
+	// true (set above), so subscribeTo() and reconnect() will return early
+	// before accessing the maps.
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -1079,6 +1272,7 @@ func (b *RedisBroadcaster) Close() error {
 		b.pubsub = nil
 	}
 	b.subscribedChannels = nil
+	b.subscribedPatterns = nil
 
 	slog.Info("Closed",
 		slog.String("component", "redis_broadcaster"),

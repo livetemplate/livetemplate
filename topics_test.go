@@ -131,3 +131,30 @@ func TestSegmentMatch(t *testing.T) {
 		})
 	}
 }
+
+// TestIsPatternTopic pins the root-package predicate that the cross-instance
+// relay branches on (exact SUBSCRIBE vs PSUBSCRIBE). It must agree with
+// session.isPatternTopic (the registry index-routing twin) — both are
+// "contains a '*' segment"; the shared validateDeveloperTopic grammar keeps a
+// '*' well-formed only as a whole segment, so they cannot diverge in practice.
+func TestIsPatternTopic(t *testing.T) {
+	tests := []struct {
+		topic string
+		want  bool
+	}{
+		{"room/42", false},
+		{"announcements", false},
+		{"org/9/room/42", false},
+		{"lvt:user:alice", false}, // reserved topics are never patterns (constructed)
+		{"room/*", true},
+		{"*/alice", true},
+		{"org/*/room/*", true},
+		{"*", true},
+		{"a/*/b/*", true},
+	}
+	for _, tt := range tests {
+		if got := isPatternTopic(tt.topic); got != tt.want {
+			t.Errorf("isPatternTopic(%q) = %v, want %v", tt.topic, got, tt.want)
+		}
+	}
+}

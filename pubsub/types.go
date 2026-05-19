@@ -163,10 +163,38 @@ type TopicActionBroadcaster interface {
 // 1→0 transition).
 //
 // Phase 2 issues only exact SUBSCRIBE (concrete topics). Wildcard PSUBSCRIBE is
-// Phase 3.
+// the separate TopicPatternSubscriber (Phase 3).
 type TopicChannelSubscriber interface {
 	SubscribeToTopicChannel(topic string) error
 	UnsubscribeFromTopicChannel(topic string) error
+}
+
+// TopicPatternSubscriber allows subscribing to a wildcard topic *pattern* (a
+// topic containing "*", e.g. "room/*", "org/*/room/*") at runtime, relayed as a
+// single Redis PSUBSCRIBE on the glob channel livetemplate:topic:<pattern>.
+//
+// It is a SEPARATE optional interface from TopicChannelSubscriber, not an
+// extension of it, so a broadcaster that only implements exact-SUBSCRIBE topics
+// still satisfies TopicChannelSubscriber unchanged (no backward-incompatible
+// interface widening for external implementers). The relay type-asserts this
+// independently and only when the subscribed topic is a pattern.
+//
+// Reference-counted per the same DynamicSubscriber contract as
+// TopicChannelSubscriber, but in a parallel refcount map (subscribedPatterns)
+// keyed by the glob channel — Redis PSUBSCRIBE/PUNSUBSCRIBE is a distinct
+// command space from SUBSCRIBE/UNSUBSCRIBE and is replayed separately on
+// reconnect.
+//
+// Relay invariant: a pattern is relayed with exactly one PSUBSCRIBE to its glob
+// channel — never expanded into per-concrete SUBSCRIBEs. Cross-instance
+// wildcard delivery works because the exact PUBLISH (publishers always publish
+// to the concrete channel) is connected to this PSUBSCRIBE by Redis pattern
+// matching. Redis "*" spans "/", so it over-delivers relative to the
+// whole-segment "*" grammar; the receiving instance's local segmentMatch
+// re-resolution drops the surplus.
+type TopicPatternSubscriber interface {
+	SubscribeToTopicPattern(pattern string) error
+	UnsubscribeFromTopicPattern(pattern string) error
 }
 
 // MessageHandler is called when a broadcast message is received.

@@ -142,6 +142,19 @@ func isValidSegmentChar(b byte) bool {
 	}
 }
 
+// isPatternTopic reports whether topic is a wildcard pattern (contains "*")
+// rather than an exact topic. It is the root-package twin of
+// session.isPatternTopic (registry index routing): internal/session cannot be
+// imported here without a cycle — the same cross-boundary duplication that
+// makes segmentMatch a dependency-injected param of GetByTopicExcept. The two
+// must agree (contains-"*"); a single grammar (validateDeveloperTopic) keeps a
+// "*" well-formed only as a whole segment, so the predicate cannot diverge in
+// practice. Used by the cross-instance relay to choose exact SUBSCRIBE vs
+// PSUBSCRIBE per topic (never expand a pattern — the relay invariant).
+func isPatternTopic(topic string) bool {
+	return strings.Contains(topic, "*")
+}
+
 // segmentMatch reports whether a subscription pattern matches a concrete
 // ("*"-free) topic. Two load-bearing invariants (proposal §2); TestSegmentMatch
 // is the exhaustive executable spec:
