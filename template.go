@@ -1662,6 +1662,14 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 				}
 			}
 
+			// One topicActionHandler per broadcaster: a second Handle() sharing
+			// this *RedisBroadcaster gets "already subscribed to topic actions"
+			// here, which is logged and swallowed (consistent with the
+			// SubscribeGroupActions/SubscribeServerActions pattern above) — that
+			// second handler then silently receives NO cross-instance topic
+			// actions for its whole lifetime. Operators must give each Handle()
+			// its own broadcaster. Contract recorded for Phase 6 docs in
+			// learnings/phase-2.md "Open questions".
 			if tab, ok := mountCfg.PubSubBroadcaster.(pubsub.TopicActionBroadcaster); ok {
 				if err := tab.SubscribeToTopicActions(handler.handleTopicActionMessage); err != nil {
 					slog.Error("Failed to subscribe to topic actions",

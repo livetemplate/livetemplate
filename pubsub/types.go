@@ -234,14 +234,15 @@ type ServerActionHandler func(msg *ServerActionMessage) error
 // Action/Data/Seq/Timestamp/InstanceID are always set; the receiver routes on
 // Type and reads only the field valid for that Type.
 type GroupActionMessage struct {
-	Type       string                 `json:"type"`
-	GroupID    string                 `json:"groupID"`
-	Topic      string                 `json:"topic,omitempty"`
-	Action     string                 `json:"action"`
-	Data       map[string]interface{} `json:"data,omitempty"`
-	Seq        uint64                 `json:"seq"`
-	Timestamp  time.Time              `json:"timestamp"`
-	InstanceID string                 `json:"instanceID"`
+	Type    string                 `json:"type"`
+	GroupID string                 `json:"groupID"`
+	Topic   string                 `json:"topic,omitempty"`
+	Action  string                 `json:"action"`
+	Data    map[string]interface{} `json:"data,omitempty"`
+	Seq     uint64                 `json:"seq"` // intentionally NOT omitempty: seq==0 must mean "pre-upgrade sender", not "absent" — see the rolling-upgrade note above; do not add omitempty
+
+	Timestamp  time.Time `json:"timestamp"`
+	InstanceID string    `json:"instanceID"`
 }
 
 // GroupActionHandler is called when a group action message is received.
