@@ -686,6 +686,12 @@ type v14State struct{ Tick string }
 // emits the envelope. Bump is a post-envelope usability probe: a successful
 // value-changing round-trip proves the socket stayed *functional*, not merely
 // un-closed (advisor sharpening of "WS stays open").
+//
+// No ctx.IsInitialMount() guard needed here — this Tier-1 test exercises
+// only the WS path via websocket.DefaultDialer.Dial, so Mount never runs on
+// an HTTP GET (where a denied Subscribe surfaces as HTTP 500 and is exactly
+// why real-controller authors and the lvt Tier-2 e2e MUST guard with
+// IsInitialMount; see phase-4.md Deviation 3).
 type v14MountDenyController struct{}
 
 func (c *v14MountDenyController) Mount(s v14State, ctx *Context) (v14State, error) {

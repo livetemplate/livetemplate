@@ -668,9 +668,8 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// work with fresh data. Keep Mount cheap — it runs on every connect.
 	newState, err := callMount(h.config.Controller, connSt.state, lifecycleCtx)
 	if err != nil {
-		// A non-TopicForbidden Mount error is a genuine server fault: log and
-		// close (the deferred Unregister at the top of this handler closes the
-		// WS on return). Behavior unchanged for this path.
+		// Non-TopicForbidden Mount error: genuine server fault → log and close
+		// (the deferred Unregister at the top of this handler closes the WS).
 		var tfe *TopicForbiddenError
 		if !errors.As(err, &tfe) {
 			slog.Error("Mount failed",
@@ -678,24 +677,19 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				slog.Any("error", err))
 			return
 		}
-		// An ACL-denied ctx.Subscribe in Mount on the WS-connect path is an
-		// expected access-control outcome, NOT a server fault. Emit the
-		// structured topic_forbidden envelope so the TS client surfaces it as
-		// an lvt:error CustomEvent (proposal §3 / V14), then KEEP THE
-		// CONNECTION OPEN and fall through to the normal connect lifecycle
-		// with the state the controller returned. Closing here instead would
-		// trip the client's auto-reconnect into a re-Mount → re-deny →
-		// re-close storm; V14 requires the socket to stay open. Phase 1
-		// deliberately deferred this keep-open-vs-close finalization to
-		// Phase 4 / V14 (see phase-1.md, topic_runtime.go).
+		// ACL-denied ctx.Subscribe in WS-connect Mount: expected access-control
+		// outcome, not a server fault. Emit the envelope so the TS client
+		// surfaces it as lvt:error, then keep the connection open — closing
+		// trips the client's auto-reconnect into a re-Mount → re-deny → storm
+		// (V14 / phase-4.md). Fall through with the controller's returned
+		// newState (callMount returns it even on error; for `return s, err`
+		// that is the pre-Subscribe state — see Phase 6 docs for the
+		// partial-mutation caveat).
 		h.sendTopicForbiddenEnvelope(connection, tfe.Topic)
 		slog.Warn("Mount Subscribe denied by topic ACL; surfaced to client, connection kept open",
 			slog.String("component", "live_handler"),
 			slog.String("topic", tfe.Topic),
 			slog.Any("error", err))
-		// callMount returns the controller's first return value even on error;
-		// for the canonical `return s, err` that is the pre-Subscribe state.
-		// Adopt it and continue exactly as the success path below.
 	}
 	connSt.state = newState
 	h.persistState(ctx, groupID, connSt.state)

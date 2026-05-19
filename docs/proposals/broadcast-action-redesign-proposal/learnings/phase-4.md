@@ -435,6 +435,21 @@ contract documentation deliverables, in priority order:
    + client are wire-independent; lvt gates last via the e2e against both.
    The committed-`replace`-resolved-by-pin-bump pattern is the canonical
    shape.
+8. **Partial-state adoption on `*TopicForbiddenError` keep-open**
+   (surfaced by livetemplate#427 round-1 bot review): when Option B falls
+   through, it adopts `newState` from `callMount` (the controller's first
+   return value, returned alongside the error). For the canonical
+   `return s, err` shape — where the controller never touches `s` before
+   the denied `Subscribe` call — this is the pre-Subscribe state, which is
+   the intended behavior. **But** if a controller mutates `s` before the
+   denied `Subscribe` and then `return s, err`, that *partially-modified*
+   state is silently adopted (not rolled back). Consistent with Go
+   error-handling conventions, but could surprise controller authors who
+   expect a clean rollback on Mount error. Phase 6 docs must surface this
+   alongside the controller-swallows-error case (item 4) — the two-part
+   guidance reads: "to surface the envelope, propagate the error
+   (`return s, err`); to keep state clean, don't mutate `s` before a
+   Subscribe that may be denied."
 
 ## Open questions for the user
 
