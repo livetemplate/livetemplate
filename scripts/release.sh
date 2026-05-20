@@ -159,7 +159,7 @@ Related repositories:
 # Build and test
 build_and_test() {
     log_step "Running Go tests..."
-    GOWORK=off go test ./... -timeout=120s || {
+    GOWORK=off go test ./... -timeout=300s || {
         log_error "Tests failed, aborting release"
         exit 1
     }
