@@ -872,8 +872,8 @@ eventLoop:
 			}
 
 			// actionNavigate re-runs Mount with msg.Data as query params. Rebind
-			// actionCtx itself (not a discarded copy) so BroadcastAction calls
-			// inside Mount land on the context that processBroadcasts reads.
+			// actionCtx itself (not a discarded copy) so ctx.Publish calls in
+			// Mount land on the context that processTopicPublishes reads.
 			var newState interface{}
 			var actionErr error
 			if msg.Action == actionNavigate {
@@ -903,7 +903,6 @@ eventLoop:
 			if actionErr == nil {
 				h.persistState(r.Context(), groupID, connSt.state)
 				connection.Stores = connSt.state
-				h.processBroadcasts(groupID, connection, actionCtx.pendingBroadcasts())
 				h.processTopicPublishes(connection, actionCtx.pendingTopicPublishes())
 			}
 
@@ -1433,7 +1432,6 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	httpTmpl.SetUploadRegistry(uploadRegistry)
 
 	if actionErr == nil {
-		h.processBroadcasts(groupID, nil, actionCtx.pendingBroadcasts())
 		h.processTopicPublishes(nil, actionCtx.pendingTopicPublishes())
 	}
 
@@ -1611,65 +1609,25 @@ func (h *liveHandler) restorePersistedState(ctx context.Context, groupID string)
 	return state, true
 }
 
-// processBroadcasts dispatches pending broadcasts to peer connections.
-// Non-blocking: EnqueueDispatch uses a buffered channel with a default case.
-func (h *liveHandler) processBroadcasts(groupID string, excludeConn *session.Connection, broadcasts []broadcastRequest) {
-	for _, br := range broadcasts {
-		h.dispatchBroadcastToGroup(groupID, excludeConn, br.Action, br.Data)
-	}
-}
-
-// dispatchBroadcastToGroup dispatches a named action to all other connections
-// in the same session group. Each connection processes the action independently
-// via its DispatchChan, preserving per-connection state.
-//
-// For single-instance deployments, this does local fan-out only.
-// For multi-instance deployments with a PubSubBroadcaster, this also publishes
-// a group action message to Redis for remote instances.
-func (h *liveHandler) dispatchBroadcastToGroup(groupID string, excludeConn *session.Connection, action string, data map[string]interface{}) {
-	// Local fan-out: dispatch to other connections on this instance
-	conns := h.registry.GetByGroupExcept(groupID, excludeConn)
-	for _, conn := range conns {
-		conn.EnqueueDispatch(&session.DispatchRequest{Action: action, Data: data})
-	}
-
-	// Remote fan-out: publish to Redis PubSub for other instances.
-	// The local-first optimization in RedisBroadcaster drops our own messages,
-	// so local connections only get the dispatch above (no double-processing).
-	if gab, ok := h.config.PubSubBroadcaster.(pubsub.GroupActionBroadcaster); ok {
-		if err := gab.PublishGroupAction(groupID, action, data); err != nil {
-			slog.Warn("Failed to publish group action to PubSub",
-				slog.String("component", "live_handler"),
-				slog.String("group_id", groupID),
-				slog.String("action", action),
-				slog.Any("error", err))
-		}
-	}
-
-	slog.Debug("Dispatched broadcast to group",
-		slog.String("component", "live_handler"),
-		slog.String("group_id", groupID),
-		slog.String("action", action),
-		slog.Int("local_connections", len(conns)))
-}
-
 // processTopicPublishes drains pending ctx.Publish requests to topic
-// subscribers. Mirrors processBroadcasts and is called at the same
-// post-action, post-persistState site, so a reconciler that re-reads the
-// group-keyed session store sees the originator's committed write
-// (persist-before-publish ordering — a hard requirement).
+// subscribers. Called at the post-action, post-persistState site so a
+// reconciler that re-reads the group-keyed session store sees the
+// originator's committed write (persist-before-publish ordering — a hard
+// requirement).
 func (h *liveHandler) processTopicPublishes(excludeConn *session.Connection, pubs []topicPublish) {
 	for _, p := range pubs {
 		h.dispatchToTopic(p.Topic, excludeConn, p.Action, p.Data)
 	}
 }
 
-// dispatchToTopic is the structural twin of dispatchBroadcastToGroup. Each
-// receiver runs the action against its OWN state via handleDispatchedAction —
-// that is what makes the per-connection-state/reconciler guarantee free (no
-// merge machinery). segmentMatch must be passed in: internal/session cannot
-// import the root package (import cycle), and nil + pattern subscribers panics
-// by design (Phase 0 contract — never a silent exact-only degradation).
+// dispatchToTopic fans out one Publish to the local subscribers of a topic and
+// (when a PubSubBroadcaster is wired) republishes it for cross-instance
+// delivery. Each receiver runs the action against its OWN state via
+// handleDispatchedAction — that is what makes the per-connection-state/
+// reconciler guarantee free (no merge machinery). segmentMatch must be passed
+// in: internal/session cannot import the root package (import cycle), and nil +
+// pattern subscribers panics by design (Phase 0 contract — never a silent
+// exact-only degradation).
 func (h *liveHandler) dispatchToTopic(topic string, excludeConn *session.Connection, action string, data map[string]interface{}) {
 	// Local fan-out: every local subscriber runs the action against its OWN
 	// state via handleDispatchedAction. Kind is KindAction (the only v1 value),
@@ -1680,11 +1638,10 @@ func (h *liveHandler) dispatchToTopic(topic string, excludeConn *session.Connect
 	}
 
 	// Remote fan-out: publish to Redis over the single exact channel
-	// livetemplate:topic:{name} for other instances. Mirrors the
-	// GroupActionBroadcaster block in dispatchBroadcastToGroup. The publishing
-	// instance's own SUBSCRIBE round-trips its message back, but
-	// RedisBroadcaster.handleMessage drops same-instance messages (InstanceID
-	// filter) so local connections are not double-dispatched.
+	// livetemplate:topic:{name} for other instances. The publishing instance's
+	// own SUBSCRIBE round-trips its message back, but RedisBroadcaster.handleMessage
+	// drops same-instance messages (InstanceID filter) so local connections are
+	// not double-dispatched.
 	if tab, ok := h.config.PubSubBroadcaster.(pubsub.TopicActionBroadcaster); ok {
 		if err := tab.PublishToTopic(topic, action, data); err != nil {
 			slog.Warn("Failed to publish topic action to PubSub",
@@ -1753,9 +1710,9 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 	ctx = ctx.WithGroupID(connSt.groupID)
 	ctx = ctx.WithTopicSubscriber(h.topicSubscriberFor(connection, nil))
 	ctx = ctx.WithFlashSetter(connSt)
-	// Wire Session so dispatched actions (from BroadcastAction or
+	// Wire Session so dispatched actions (from Publish fan-out or
 	// Session.TriggerAction) can also call ctx.Session().TriggerAction
-	// for follow-on server pushes. pendingBroadcasts from ctx is still
+	// for follow-on server pushes. pendingTopicPublishes from ctx is still
 	// dropped below to prevent storm loops, but TriggerAction goes
 	// through a different queue (EnqueueDispatch directly) and is
 	// allowed — each hop runs through a connection event loop, so the
@@ -1771,7 +1728,7 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 	newState, err := DispatchWithState(h.config.Controller, connSt.state, ctx)
 	if err != nil {
 		if !errors.Is(err, ErrMethodNotFound) {
-			slog.Warn("Broadcast action dispatch failed",
+			slog.Warn("Dispatched action failed",
 				slog.String("component", "live_handler"),
 				slog.String("action", req.Action),
 				slog.String("group_id", connSt.groupID),
@@ -1784,19 +1741,9 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 	connection.Stores = connSt.state
 	h.persistState(context.Background(), connSt.groupID, connSt.state)
 
-	// Chained BroadcastAction calls from dispatched actions are intentionally
-	// not processed to prevent infinite broadcast storms.
-	if dropped := ctx.pendingBroadcasts(); len(dropped) > 0 {
-		slog.Error("BroadcastAction calls inside a dispatched action are ignored (prevents broadcast storms)",
-			slog.String("component", "live_handler"),
-			slog.String("action", req.Action),
-			slog.Int("dropped_count", len(dropped)))
-	}
-
-	// Chained Publish calls from dispatched actions are likewise dropped: the
-	// shared resolver means a topic action could re-Publish on every peer.
-	// The one-hop guard bounds the cascade (not the first hop) — same shape
-	// as the BroadcastAction guard above, not a flag.
+	// Chained Publish calls from dispatched actions are intentionally dropped:
+	// the shared resolver means a topic action could re-Publish on every peer,
+	// so the one-hop guard bounds the cascade (not the first hop).
 	if dropped := ctx.pendingTopicPublishes(); len(dropped) > 0 {
 		slog.Error("Publish calls inside a dispatched action are ignored (prevents broadcast storms)",
 			slog.String("component", "live_handler"),
@@ -1805,7 +1752,7 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 	}
 
 	if err := h.sendUpdate(connection, connSt.state, connSt.getMessages()); err != nil {
-		slog.Warn("sendUpdate failed during broadcast dispatch",
+		slog.Warn("sendUpdate failed during dispatched action",
 			slog.String("component", "live_handler"),
 			slog.String("action", req.Action),
 			slog.Any("error", err))
@@ -2152,16 +2099,16 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 		//
 		// Asymmetry note: this actionCtx has a live Session attached, so
 		// a server-action handler can chain session.TriggerAction(...) to
-		// re-enqueue more dispatches. The pendingBroadcasts() drop below
-		// only catches ctx.BroadcastAction calls — it does not intercept
-		// chained TriggerAction calls, which bypass the broadcast queue
-		// entirely and go straight to EnqueueDispatch. In practice this
-		// is not a footgun because chained TriggerAction requires explicit
-		// caller intent and each hop still runs through the per-connection
-		// event loop (no unbounded recursion on a single goroutine), but
-		// handlers that recursively trigger themselves will loop until the
-		// session disconnects. The dispatched-flagged session emits an
-		// observability log on chained TriggerAction (#337).
+		// re-enqueue more dispatches. The pendingTopicPublishes() drop below
+		// only catches ctx.Publish calls — it does not intercept chained
+		// TriggerAction calls, which bypass the publish queue entirely and
+		// go straight to EnqueueDispatch. In practice this is not a footgun
+		// because chained TriggerAction requires explicit caller intent and
+		// each hop still runs through the per-connection event loop (no
+		// unbounded recursion on a single goroutine), but handlers that
+		// recursively trigger themselves will loop until the session
+		// disconnects. The dispatched-flagged session emits an observability
+		// log on chained TriggerAction (#337).
 		actionCtx := NewContext(ctx, msg.Action, msg.Data)
 		actionCtx = actionCtx.WithUserID(msg.UserID)
 		actionCtx = actionCtx.WithGroupID(conn.GroupID)
@@ -2199,20 +2146,12 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 			groupStates[conn.GroupID] = newState
 		}
 
-		// Chained BroadcastAction calls from server-initiated actions are
+		// Chained Publish calls from server-initiated actions are
 		// intentionally not processed. Server actions already fan out to all
-		// the user's connections via this loop, and chaining BroadcastAction
-		// on top would cause duplicate fan-out plus storm risk — matching
-		// the behavior of handleDispatchedAction above. Log them so the
-		// failure is observable instead of silent (the pre-fix behavior).
-		if dropped := actionCtx.pendingBroadcasts(); len(dropped) > 0 {
-			slog.Error("BroadcastAction calls inside a server-initiated action are ignored (prevents fan-out amplification and broadcast storms)",
-				slog.String("component", "pubsub_handler"),
-				slog.String("action", msg.Action),
-				slog.String("user_id", msg.UserID),
-				slog.Int("dropped_count", len(dropped)))
-		}
-
+		// the user's connections via this loop, and chaining Publish on top
+		// would cause duplicate fan-out plus storm risk — matching the
+		// behavior of handleDispatchedAction above. Log them so the failure
+		// is observable instead of silent.
 		if dropped := actionCtx.pendingTopicPublishes(); len(dropped) > 0 {
 			slog.Error("Publish calls inside a server-initiated action are ignored (prevents fan-out amplification and broadcast storms)",
 				slog.String("component", "pubsub_handler"),
@@ -2731,10 +2670,7 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, rawData []byte, 
 		} else if actionErr == nil {
 			state.state = newState
 			// Drain ctx.Publish from an upload-complete handler — consistent
-			// with the WS-action and HTTP-POST action paths. (processBroadcasts
-			// is also absent on this path, but that is a pre-existing gap not
-			// in this design's scope — BroadcastAction is untouched until
-			// Phase 5.)
+			// with the WS-action and HTTP-POST action paths.
 			h.processTopicPublishes(connection, actionCtx.pendingTopicPublishes())
 		}
 	}

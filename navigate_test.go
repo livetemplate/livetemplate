@@ -214,9 +214,9 @@ type navigateBroadcastTestState struct {
 	MountCount int
 }
 
-// navigateBroadcastTestController issues a BroadcastAction from inside Mount,
-// but only on re-mounts (MountCount > 0). The connect-time Mount of every
-// connection has MountCount == 0 so it does NOT broadcast — only the
+// navigateBroadcastTestController issues a Publish from inside Mount, but
+// only on re-mounts (MountCount > 0). The connect-time Mount of every
+// connection has MountCount == 0 so it does NOT publish — only the
 // __navigate__-driven Mount, which runs after the initial connect, does.
 //
 // This is the canonical pattern for "navigate-only side effect": the
@@ -226,29 +226,37 @@ type navigateBroadcastTestState struct {
 type navigateBroadcastTestController struct{}
 
 func (c *navigateBroadcastTestController) Mount(state navigateBroadcastTestState, ctx *Context) (navigateBroadcastTestState, error) {
+	// Subscribe self-topic so peers receive the RefreshGreeting dispatch from
+	// the Publish below. Subscribe is idempotent on re-Mount (navigate POST/GET),
+	// so the unconditional call here is safe across the first-Mount and
+	// re-Mount paths.
+	if err := ctx.Subscribe(ctx.SelfTopic()); err != nil {
+		return state, err
+	}
 	isReMount := state.MountCount > 0
 	state.Selected = ctx.GetString("s")
 	state.MountCount++
 	if isReMount {
-		ctx.BroadcastAction("RefreshGreeting", map[string]interface{}{
+		if err := ctx.Publish(ctx.SelfTopic(), "RefreshGreeting", map[string]interface{}{
 			"greeting": "hello-from-" + state.Selected,
-		})
+		}); err != nil {
+			return state, err
+		}
 	}
 	return state, nil
 }
 
 // RefreshGreeting is the action dispatched on other connections by the
-// BroadcastAction call inside Mount.
+// Publish call inside Mount on the re-Mount path.
 func (c *navigateBroadcastTestController) RefreshGreeting(state navigateBroadcastTestState, ctx *Context) (navigateBroadcastTestState, error) {
 	state.Greeting = ctx.GetString("greeting")
 	return state, nil
 }
 
 // TestNavigateAction_BroadcastFromMountOnNavigate_DispatchesToOtherWS
-// exercises the gap called out by issue #346: a BroadcastAction issued from
-// inside Mount on the __navigate__ code path must reach other connections in
-// the same session group, just like a BroadcastAction from a regular WS
-// action does.
+// exercises the gap called out by issue #346: a Publish issued from inside
+// Mount on the __navigate__ code path must reach other connections subscribed
+// to the same SelfTopic(), just like a Publish from a regular WS action does.
 //
 // Two WebSockets connect in the same group. Tab 1 sends __navigate__. Mount
 // re-runs on Tab 1 (MountCount > 0 → broadcast fires) and dispatches

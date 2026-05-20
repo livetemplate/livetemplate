@@ -32,23 +32,33 @@ type broadcastTestState struct {
 	Message string
 }
 
-// broadcastTestController demonstrates BroadcastAction from both WS and HTTP paths.
+// broadcastTestController demonstrates the Subscribe/Publish self-topic
+// pattern from both WS and HTTP paths — the canonical opt-in peer-fanout
+// idiom (Subscribe(SelfTopic()) in Mount + Publish to SelfTopic() in the
+// action).
 type broadcastTestController struct{}
 
 func (c *broadcastTestController) Mount(state broadcastTestState, ctx *Context) (broadcastTestState, error) {
+	// Subscribe self-topic so peer WS connections receive the RefreshCount /
+	// SyncMessage dispatches from the Publish calls in actions below.
+	if err := ctx.Subscribe(ctx.SelfTopic()); err != nil {
+		return state, err
+	}
 	state.Message = "mounted"
 	return state, nil
 }
 
-// Increment is called via HTTP POST. It increments the counter and
-// broadcasts RefreshCount to all WebSocket connections.
+// Increment is called via HTTP POST. It increments the counter and Publishes
+// RefreshCount to all WS peers subscribed to SelfTopic.
 func (c *broadcastTestController) Increment(state broadcastTestState, ctx *Context) (broadcastTestState, error) {
 	state.Count++
-	ctx.BroadcastAction("RefreshCount", map[string]interface{}{"newCount": state.Count})
+	if err := ctx.Publish(ctx.SelfTopic(), "RefreshCount", map[string]interface{}{"newCount": state.Count}); err != nil {
+		return state, err
+	}
 	return state, nil
 }
 
-// RefreshCount is dispatched on WebSocket connections by BroadcastAction.
+// RefreshCount is dispatched on peer WS connections by Increment's Publish.
 func (c *broadcastTestController) RefreshCount(state broadcastTestState, ctx *Context) (broadcastTestState, error) {
 	if v := ctx.GetInt("newCount"); v > 0 {
 		state.Count = v
@@ -56,14 +66,17 @@ func (c *broadcastTestController) RefreshCount(state broadcastTestState, ctx *Co
 	return state, nil
 }
 
-// SetMessage is a WS-only action that broadcasts to other WS connections.
+// SetMessage is a WS-only action that Publishes SyncMessage to peer WS
+// connections subscribed to SelfTopic.
 func (c *broadcastTestController) SetMessage(state broadcastTestState, ctx *Context) (broadcastTestState, error) {
 	state.Message = ctx.GetString("value")
-	ctx.BroadcastAction("SyncMessage", map[string]interface{}{"value": state.Message})
+	if err := ctx.Publish(ctx.SelfTopic(), "SyncMessage", map[string]interface{}{"value": state.Message}); err != nil {
+		return state, err
+	}
 	return state, nil
 }
 
-// SyncMessage is dispatched on other WS connections by BroadcastAction.
+// SyncMessage is dispatched on peer WS connections by SetMessage's Publish.
 func (c *broadcastTestController) SyncMessage(state broadcastTestState, ctx *Context) (broadcastTestState, error) {
 	state.Message = ctx.GetString("value")
 	return state, nil
@@ -130,10 +143,10 @@ func readWSUpdate(t *testing.T, ws *websocket.Conn, timeout time.Duration) map[s
 	return resp
 }
 
-// TestHTTPPost_BroadcastAction_DispatchesToWebSocket verifies that
-// BroadcastAction called from an HTTP POST action dispatches the named
-// action to all WebSocket connections in the group.
-func TestHTTPPost_BroadcastAction_DispatchesToWebSocket(t *testing.T) {
+// TestHTTPPost_Publish_DispatchesToWebSocket verifies that Publish to
+// SelfTopic from an HTTP POST action dispatches the named action to all
+// peer WebSocket connections that subscribed in Mount.
+func TestHTTPPost_Publish_DispatchesToWebSocket(t *testing.T) {
 	server, wsURL := setupBroadcastTestServer(t)
 	defer server.Close()
 
@@ -183,10 +196,10 @@ func TestHTTPPost_BroadcastAction_DispatchesToWebSocket(t *testing.T) {
 	}
 }
 
-// TestWSAction_BroadcastAction_DispatchesToOtherWS verifies that
-// BroadcastAction called from a WebSocket action dispatches to
-// other WebSocket connections in the same group (but not the sender).
-func TestWSAction_BroadcastAction_DispatchesToOtherWS(t *testing.T) {
+// TestWSAction_Publish_DispatchesToOtherWS verifies that Publish to
+// SelfTopic from a WebSocket action dispatches to peer WebSocket
+// connections in the same group (but not the sender).
+func TestWSAction_Publish_DispatchesToOtherWS(t *testing.T) {
 	server, wsURL := setupBroadcastTestServer(t)
 	defer server.Close()
 
@@ -296,6 +309,11 @@ type syncController struct {
 }
 
 func (c *syncController) Mount(state itemsState, ctx *Context) (itemsState, error) {
+	// Subscribe self-topic so peer tabs of the same user receive the Refresh
+	// dispatch from Add's Publish below.
+	if err := ctx.Subscribe(ctx.SelfTopic()); err != nil {
+		return state, err
+	}
 	state.Items = c.DB.getItems(ctx.UserID())
 	return state, nil
 }
@@ -305,7 +323,9 @@ func (c *syncController) Add(state itemsState, ctx *Context) (itemsState, error)
 	id := fmt.Sprintf("item-%d", len(state.Items)+1)
 	c.DB.addItem(ctx.UserID(), id, text)
 	state.Items = c.DB.getItems(ctx.UserID())
-	ctx.BroadcastAction("Refresh", nil)
+	if err := ctx.Publish(ctx.SelfTopic(), "Refresh", nil); err != nil {
+		return state, err
+	}
 	return state, nil
 }
 
@@ -314,7 +334,7 @@ func (c *syncController) Refresh(state itemsState, ctx *Context) (itemsState, er
 	return state, nil
 }
 
-func TestBroadcastAction_ExplicitRefreshDispatchesToPeers(t *testing.T) {
+func TestPublish_ExplicitRefreshDispatchesToPeers(t *testing.T) {
 	db := &syncDB{items: make(map[string][]syncDBItem)}
 
 	auth := NewBasicAuthenticator(func(username, password string) (bool, error) {
@@ -374,70 +394,5 @@ func TestBroadcastAction_ExplicitRefreshDispatchesToPeers(t *testing.T) {
 	items := db.getItems("alice")
 	if len(items) != 1 || items[0].Text != "buy milk" {
 		t.Errorf("Expected 1 item 'buy milk', got %v", items)
-	}
-}
-
-type noSyncController struct{}
-
-func (c *noSyncController) Mount(state itemsState, ctx *Context) (itemsState, error) {
-	return state, nil
-}
-
-func (c *noSyncController) Add(state itemsState, ctx *Context) (itemsState, error) {
-	state.Items = append(state.Items, syncDBItem{ID: "1", Text: ctx.GetString("text")})
-	return state, nil
-}
-
-func TestBroadcastAction_NoAutomaticPeerDispatch(t *testing.T) {
-	// fixedGroupAuth forces all connections into the same group regardless of auth,
-	// so connectWS (unauthenticated) still shares groupID "no-sync-test".
-	auth := &fixedGroupAuth{groupID: "no-sync-test"}
-
-	tmpl, err := New("test", WithAuthenticator(auth))
-	if err != nil {
-		t.Fatalf("New failed: %v", err)
-	}
-	tmpl, err = tmpl.Parse("<div>{{len .Items}} items</div>")
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
-	}
-
-	ctrl := &noSyncController{}
-	handler := tmpl.Handle(ctrl, AsState(&itemsState{}))
-
-	server := httptest.NewServer(handler)
-	defer server.Close()
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
-
-	ws1 := connectWS(t, wsURL)
-	defer func() {
-		if err := ws1.Close(); err != nil {
-			t.Logf("ws1 close: %v", err)
-		}
-	}()
-	ws2 := connectWS(t, wsURL)
-	defer func() {
-		if err := ws2.Close(); err != nil {
-			t.Logf("ws2 close: %v", err)
-		}
-	}()
-
-	addMsg := map[string]interface{}{
-		"action": "add",
-		"data":   map[string]interface{}{"text": "hello"},
-	}
-	msgBytes, _ := json.Marshal(addMsg)
-	if err := ws1.WriteMessage(websocket.TextMessage, msgBytes); err != nil {
-		t.Fatalf("ws1 write failed: %v", err)
-	}
-
-	_ = readWSUpdate(t, ws1, 3*time.Second)
-
-	if err := ws2.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
-		t.Fatalf("SetReadDeadline failed: %v", err)
-	}
-	_, _, err = ws2.ReadMessage()
-	if err == nil {
-		t.Error("Tab 2 should NOT receive update without explicit BroadcastAction")
 	}
 }

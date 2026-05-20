@@ -142,16 +142,16 @@ func TestOnDisconnect_FiresOnAbruptClose(t *testing.T) {
 }
 
 // =============================================================================
-// SetFlash via BroadcastAction Integration Test
+// SetFlash via Publish-to-SelfTopic Integration Test
 // =============================================================================
 //
-// Verifies that ctx.SetFlash messages survive the BroadcastAction dispatch
+// Verifies that ctx.SetFlash messages survive the topic-Publish dispatch
 // path: the initiating connection sees its own flash, and each peer's
 // dispatched action handler can also set its own flash that gets rendered
 // on that peer's client.
 //
-// Before this test, broadcast_test.go covered BroadcastAction itself but
-// nothing verified that FlashSetter is wired on peer connections too.
+// broadcast_test.go covers the Publish-to-SelfTopic mechanism itself; this
+// test covers FlashSetter wiring on the dispatched-action context.
 
 type flashBroadcastState struct {
 	Counter int
@@ -160,15 +160,22 @@ type flashBroadcastState struct {
 type flashBroadcastController struct{}
 
 func (c *flashBroadcastController) Mount(state flashBroadcastState, ctx *Context) (flashBroadcastState, error) {
+	// Subscribe self-topic so peer tabs receive the PeerSync dispatch from
+	// Bump's Publish below.
+	if err := ctx.Subscribe(ctx.SelfTopic()); err != nil {
+		return state, err
+	}
 	return state, nil
 }
 
 // Bump increments the counter, sets a "success" flash on the initiator,
-// and broadcasts PeerSync to peer connections.
+// and Publishes PeerSync to peer connections subscribed to SelfTopic.
 func (c *flashBroadcastController) Bump(state flashBroadcastState, ctx *Context) (flashBroadcastState, error) {
 	state.Counter++
 	ctx.SetFlash("success", "bump complete on sender")
-	ctx.BroadcastAction("PeerSync", map[string]interface{}{"counter": state.Counter})
+	if err := ctx.Publish(ctx.SelfTopic(), "PeerSync", map[string]interface{}{"counter": state.Counter}); err != nil {
+		return state, err
+	}
 	return state, nil
 }
 
@@ -180,7 +187,7 @@ func (c *flashBroadcastController) PeerSync(state flashBroadcastState, ctx *Cont
 	return state, nil
 }
 
-func TestBroadcastAction_PeerCanSetFlash(t *testing.T) {
+func TestPublishToSelfTopic_PeerCanSetFlash(t *testing.T) {
 	auth := &fixedGroupAuth{groupID: "flash-broadcast-group"}
 
 	tmpl, err := New("test", WithAuthenticator(auth))

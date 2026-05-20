@@ -991,11 +991,10 @@ func (b *RedisBroadcaster) handleServerActionMessage(redisMsg *redis.Message) er
 // dropped own-instance messages. This does a fresh FULL unmarshal of the same
 // payload — the established route-then-decode pattern shared by the
 // server/broadcast/topic handlers (a small, deliberate cost on the
-// cross-instance path; not refactored to a single decode here because that
-// would alter the long-standing BroadcastAction group-action dispatch path,
-// which the pub/sub-topic rollout keeps untouched through Phases 0–4). The
-// msg.InstanceID re-check is a cheap redundant guard against the
-// already-decoded struct (no separate unmarshal for the guard itself).
+// cross-instance path; not refactored to a single decode here because the
+// group-action dispatch path is shared with the pub/sub-topic rollout and
+// kept stable). The msg.InstanceID re-check is a cheap redundant guard against
+// the already-decoded struct (no separate unmarshal for the guard itself).
 func (b *RedisBroadcaster) handleGroupActionMessage(redisMsg *redis.Message) error {
 	var msg GroupActionMessage
 	if err := json.Unmarshal([]byte(redisMsg.Payload), &msg); err != nil {

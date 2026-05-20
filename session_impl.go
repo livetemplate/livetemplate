@@ -24,7 +24,7 @@ var ErrSessionDisconnected = errors.New("livetemplate: session disconnected")
 // localSession is the concrete implementation of the Session interface.
 // It dispatches server-initiated actions to every connection in a specific
 // session group via the existing per-connection dispatch queue
-// (EnqueueDispatch), the same mechanism used by ctx.BroadcastAction. A
+// (EnqueueDispatch), the same mechanism that backs ctx.Publish fan-out. A
 // PubSubBroadcaster, when configured, is also notified so remote
 // instances can deliver to their own local connections.
 //
@@ -57,7 +57,7 @@ func newLocalSessionFromDispatched(handler *liveHandler, groupID string) *localS
 //     event loop via EnqueueDispatch. Each connection processes the
 //     request serially, creating a fresh action context, running the
 //     controller method, and sending the resulting diff over WebSocket.
-//     This is the same machinery used by ctx.BroadcastAction.
+//     This is the same machinery that backs ctx.Publish fan-out.
 //   - If a PubSubBroadcaster implementing GroupActionBroadcaster is
 //     configured, the action is also published to Redis for remote
 //     instances. The RedisBroadcaster filters messages from its own

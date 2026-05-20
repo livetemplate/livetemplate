@@ -84,8 +84,8 @@ const (
 )
 
 // DispatchRequest represents an action to dispatch on a connection's event loop.
-// Used by BroadcastAction and topic Publish to fan out actions to other
-// connections (same group, or any topic subscriber).
+// Used by topic Publish and Session.TriggerAction to fan out actions to other
+// connections (any topic subscriber, or every connection in a session group).
 type DispatchRequest struct {
 	Action string
 	Data   map[string]interface{}
