@@ -226,7 +226,7 @@ type navigateBroadcastTestState struct {
 type navigateBroadcastTestController struct{}
 
 func (c *navigateBroadcastTestController) Mount(state navigateBroadcastTestState, ctx *Context) (navigateBroadcastTestState, error) {
-	// Subscribe is idempotent across first-Mount and re-Mount (navigate POST/GET), so the unconditional call is safe on both paths.
+	// Idempotent across first-Mount and navigate re-Mount — safe to call unconditionally.
 	if err := ctx.Subscribe(ctx.SelfTopic()); err != nil {
 		return state, err
 	}
