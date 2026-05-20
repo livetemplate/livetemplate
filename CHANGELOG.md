@@ -5,6 +5,26 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.9.2] - 2026-05-20
+
+### Changes
+
+- chore(scripts): bump release.sh test timeout to 300s to match pre-commit (#428) (1718bf5f)
+- feat(topics): Phase 4 — keep-open on ACL-denied Subscribe in WS-connect Mount + V14 Tier-1 (#415) (#427) (3986586b)
+- feat(topics): Phase 3 — multi-segment wildcards (PSUBSCRIBE + seen-ring dedup) (#426) (6b8d0f2d)
+- feat(topics): Phase 2 — cross-instance Redis topic Pub/Sub (#424) (b7b1ab08)
+- fix(pubsub): synchronize the subscribeHook test seam (data race, #422) (#423) (cec0d3ea)
+- feat(topics): Phase 1 — Context API + topic ACL (single-instance) (#419) (9836d116)
+- fix(pubsub): synchronize the reconnectHook test seam (data race, #420) (#421) (1bca9aef)
+- test: skip TestRangeBuildLatency_PostPhase7 under -race (pre-existing flake) (#418) (61a44c32)
+- feat(topics): Phase 0 — pub/sub registry foundations (#417) (fcaa92b2)
+- docs: add per-phase audit + learnings loop to the BroadcastAction redesign plan (#416) (19774be3)
+- docs: pub/sub topic model — converged design & implementation specification (#415) (c01d4a23)
+- docs: redesign BroadcastAction as a single Publish/Subscribe topic model (#412) (eb0de7e7)
+- docs: propose BroadcastAction redesign with implicit peer sync and topics (#411) (124f1d99)
+
+
+
 ## [v0.9.1] - 2026-05-14
 
 ### Changes
