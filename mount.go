@@ -668,17 +668,30 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// work with fresh data. Keep Mount cheap — it runs on every connect.
 	newState, err := callMount(h.config.Controller, connSt.state, lifecycleCtx)
 	if err != nil {
-		// An ACL-denied ctx.Subscribe in Mount surfaces here on the WS-connect
-		// path. Emit the structured topic_forbidden envelope so the TS client
-		// can distinguish it from a generic connection failure (proposal §3).
+		// Non-TopicForbidden Mount error: genuine server fault → log and close
+		// (the deferred Unregister at the top of this handler closes the WS).
 		var tfe *TopicForbiddenError
-		if errors.As(err, &tfe) {
-			h.sendTopicForbiddenEnvelope(connection, tfe.Topic)
+		if !errors.As(err, &tfe) {
+			slog.Error("Mount failed",
+				slog.String("component", "live_handler"),
+				slog.Any("error", err))
+			return
 		}
-		slog.Error("Mount failed",
+		// ACL-denied ctx.Subscribe in WS-connect Mount: expected access-control
+		// outcome, not a server fault. Emit the envelope so the TS client
+		// surfaces it as lvt:error, then keep the connection open — closing
+		// trips the client's auto-reconnect into a re-Mount → re-deny → storm
+		// (V14 / phase-4.md). Fall through with the controller's returned
+		// newState: for the canonical `return s, err`, that is the pre-Subscribe
+		// state and is correct; if the controller mutates `s` before the denied
+		// Subscribe, that partially-modified state is silently adopted (no
+		// rollback, consistent with Go error-handling conventions — callers
+		// who need a clean rollback must not mutate before a may-deny Subscribe).
+		h.sendTopicForbiddenEnvelope(connection, tfe.Topic)
+		slog.Warn("Mount Subscribe denied by topic ACL; surfaced to client, connection kept open",
 			slog.String("component", "live_handler"),
+			slog.String("topic", tfe.Topic),
 			slog.Any("error", err))
-		return
 	}
 	connSt.state = newState
 	h.persistState(ctx, groupID, connSt.state)

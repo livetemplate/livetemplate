@@ -2,6 +2,7 @@ package livetemplate
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -664,5 +665,92 @@ func TestTopic_V21_InActionSubscribeNotReconnectDurable(t *testing.T) {
 	_ = readWSUpdate(t, pubM, 3*time.Second)
 	if u := readWSUpdate(t, m2, 3*time.Second); u["meta"] == nil {
 		t.Errorf("V21: Mount-established subscription must survive reconnect")
+	}
+}
+
+// ============================================================================
+// V14 (Tier-1 server leg) — an ACL-denied ctx.Subscribe in the WS-connect
+// Mount emits the topic_forbidden envelope AND keeps the connection open and
+// functional (the Phase-4 keep-open finalization Phase 1 deferred). V14's
+// client-logic leg is the ../client jest suite; its user-visible leg is the
+// lvt chromedp e2e. This Tier-1 test pins the server-emitted envelope contract
+// (byte-for-byte the {code,topic} the TS client's lvt:error CustomEvent must
+// mirror) and the keep-open behavior the client consumes — see phase-4.md.
+// ============================================================================
+
+type v14State struct{ Tick string }
+
+// v14MountDenyController.Mount subscribes a topic the ACL denies and
+// propagates the error (the canonical `return s, err` real apps use — see
+// ctx.Subscribe godoc), exercising the WS-connect Mount-failure path that
+// emits the envelope. Bump is a post-envelope usability probe: a successful
+// value-changing round-trip proves the socket stayed *functional*, not merely
+// un-closed (advisor sharpening of "WS stays open").
+//
+// No ctx.IsInitialMount() guard needed here — this Tier-1 test exercises
+// only the WS path via websocket.DefaultDialer.Dial, so Mount never runs on
+// an HTTP GET (where a denied Subscribe surfaces as HTTP 500 and is exactly
+// why real-controller authors and the lvt Tier-2 e2e MUST guard with
+// IsInitialMount; see phase-4.md Deviation 3).
+type v14MountDenyController struct{}
+
+func (c *v14MountDenyController) Mount(s v14State, ctx *Context) (v14State, error) {
+	if err := ctx.Subscribe("private/admin"); err != nil {
+		return s, err
+	}
+	return s, nil
+}
+
+func (c *v14MountDenyController) Bump(s v14State, _ *Context) (v14State, error) {
+	s.Tick = "PONG"
+	return s, nil
+}
+
+func TestTopic_V14_MountDenyEmitsEnvelopeAndKeepsConnectionOpen(t *testing.T) {
+	ctrl := &v14MountDenyController{}
+	server, wsURL := setupTopicServer(t, ctrl, AsState(&v14State{}), `<div>{{.Tick}}</div>`,
+		WithAuthenticator(&fixedGroupAuth{groupID: "g"}),
+		WithTopicACL(func(topic, _ string, _ *http.Request) (bool, error) {
+			return topic != "private/admin", nil
+		}))
+	defer server.Close()
+
+	// Raw dial — NOT connectWS: on this path the first frame is the envelope,
+	// not the initial render (connectWS assumes the latter and would consume
+	// the envelope as the "initial render").
+	ws, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("WebSocket dial failed: %v", err)
+	}
+	defer func() { _ = ws.Close() }()
+
+	// Frame 1: the server-emitted topic_forbidden envelope. Pinned
+	// byte-for-byte — this is the exact contract the TS client (Phase 4) and
+	// the lvt chromedp e2e consume; the shipped lvt:error CustomEvent's
+	// {code,topic} MUST equal {code,topic} asserted here.
+	frame1 := rawWSUpdate(t, ws, 3*time.Second)
+	var env struct {
+		Type  string `json:"type"`
+		Code  string `json:"code"`
+		Topic string `json:"topic"`
+	}
+	if err := json.Unmarshal([]byte(frame1), &env); err != nil {
+		t.Fatalf("V14: envelope is not JSON: %v (raw=%s)", err, frame1)
+	}
+	if env.Type != "error" || env.Code != "topic_forbidden" || env.Topic != "private/admin" {
+		t.Fatalf("V14: envelope mismatch: got %+v, want {Type:error Code:topic_forbidden Topic:private/admin} (raw=%s)", env, frame1)
+	}
+
+	// Frame 2: the lifecycle continued (Option B keep-open) — the initial
+	// render follows the envelope instead of a socket close.
+	if u := readWSUpdate(t, ws, 3*time.Second); u["tree"] == nil {
+		t.Fatalf("V14: WS must stay open after a denied Mount Subscribe — expected the initial render (UpdateResponse with \"tree\") after the envelope, got %v", u)
+	}
+
+	// The socket is *functional*, not merely un-closed: an action round-trips
+	// and re-renders the changed dynamic (robust value probe, mirroring V3).
+	sendWSAction(t, ws, "bump", nil)
+	if bumped := rawWSUpdate(t, ws, 3*time.Second); !strings.Contains(bumped, "PONG") {
+		t.Fatalf("V14: post-envelope action must round-trip a re-render carrying %q: %s", "PONG", bumped)
 	}
 }
