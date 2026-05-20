@@ -160,8 +160,6 @@ type flashBroadcastState struct {
 type flashBroadcastController struct{}
 
 func (c *flashBroadcastController) Mount(state flashBroadcastState, ctx *Context) (flashBroadcastState, error) {
-	// Subscribe self-topic so peer tabs receive the PeerSync dispatch from
-	// Bump's Publish below.
 	if err := ctx.Subscribe(ctx.SelfTopic()); err != nil {
 		return state, err
 	}

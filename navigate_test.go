@@ -226,10 +226,7 @@ type navigateBroadcastTestState struct {
 type navigateBroadcastTestController struct{}
 
 func (c *navigateBroadcastTestController) Mount(state navigateBroadcastTestState, ctx *Context) (navigateBroadcastTestState, error) {
-	// Subscribe self-topic so peers receive the RefreshGreeting dispatch from
-	// the Publish below. Subscribe is idempotent on re-Mount (navigate POST/GET),
-	// so the unconditional call here is safe across the first-Mount and
-	// re-Mount paths.
+	// Subscribe is idempotent across first-Mount and re-Mount (navigate POST/GET), so the unconditional call is safe on both paths.
 	if err := ctx.Subscribe(ctx.SelfTopic()); err != nil {
 		return state, err
 	}

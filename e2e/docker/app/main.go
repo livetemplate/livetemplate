@@ -59,9 +59,6 @@ func (c *ChatController) loadMessages() []Message {
 }
 
 func (c *ChatController) Mount(state ChatState, ctx *livetemplate.Context) (ChatState, error) {
-	// Subscribe self-topic so peer chat tabs receive the RefreshMessages
-	// dispatch from a Send Publish below — the canonical opt-in peer-fanout
-	// idiom.
 	if err := ctx.Subscribe(ctx.SelfTopic()); err != nil {
 		return state, err
 	}

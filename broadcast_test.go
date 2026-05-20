@@ -32,15 +32,10 @@ type broadcastTestState struct {
 	Message string
 }
 
-// broadcastTestController demonstrates the Subscribe/Publish self-topic
-// pattern from both WS and HTTP paths — the canonical opt-in peer-fanout
-// idiom (Subscribe(SelfTopic()) in Mount + Publish to SelfTopic() in the
-// action).
+// broadcastTestController exercises the Subscribe/Publish self-topic peer-fanout idiom over both WS and HTTP paths.
 type broadcastTestController struct{}
 
 func (c *broadcastTestController) Mount(state broadcastTestState, ctx *Context) (broadcastTestState, error) {
-	// Subscribe self-topic so peer WS connections receive the RefreshCount /
-	// SyncMessage dispatches from the Publish calls in actions below.
 	if err := ctx.Subscribe(ctx.SelfTopic()); err != nil {
 		return state, err
 	}
@@ -48,8 +43,6 @@ func (c *broadcastTestController) Mount(state broadcastTestState, ctx *Context) 
 	return state, nil
 }
 
-// Increment is called via HTTP POST. It increments the counter and Publishes
-// RefreshCount to all WS peers subscribed to SelfTopic.
 func (c *broadcastTestController) Increment(state broadcastTestState, ctx *Context) (broadcastTestState, error) {
 	state.Count++
 	if err := ctx.Publish(ctx.SelfTopic(), "RefreshCount", map[string]interface{}{"newCount": state.Count}); err != nil {
@@ -58,7 +51,6 @@ func (c *broadcastTestController) Increment(state broadcastTestState, ctx *Conte
 	return state, nil
 }
 
-// RefreshCount is dispatched on peer WS connections by Increment's Publish.
 func (c *broadcastTestController) RefreshCount(state broadcastTestState, ctx *Context) (broadcastTestState, error) {
 	if v := ctx.GetInt("newCount"); v > 0 {
 		state.Count = v
@@ -66,8 +58,6 @@ func (c *broadcastTestController) RefreshCount(state broadcastTestState, ctx *Co
 	return state, nil
 }
 
-// SetMessage is a WS-only action that Publishes SyncMessage to peer WS
-// connections subscribed to SelfTopic.
 func (c *broadcastTestController) SetMessage(state broadcastTestState, ctx *Context) (broadcastTestState, error) {
 	state.Message = ctx.GetString("value")
 	if err := ctx.Publish(ctx.SelfTopic(), "SyncMessage", map[string]interface{}{"value": state.Message}); err != nil {
@@ -76,7 +66,6 @@ func (c *broadcastTestController) SetMessage(state broadcastTestState, ctx *Cont
 	return state, nil
 }
 
-// SyncMessage is dispatched on peer WS connections by SetMessage's Publish.
 func (c *broadcastTestController) SyncMessage(state broadcastTestState, ctx *Context) (broadcastTestState, error) {
 	state.Message = ctx.GetString("value")
 	return state, nil

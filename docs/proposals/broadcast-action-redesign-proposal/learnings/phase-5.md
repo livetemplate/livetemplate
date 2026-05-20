@@ -193,7 +193,8 @@ The Phase 5 audit (Audit findings section above) was wrong in **three** places. 
 ## File / commit / V-item pointers
 
 - Worktree: `livetemplate/.worktrees/broadcast-redesign-phase-5` (off `main` @ `ab855777 chore(release): v0.9.2`)
-- Atomic commit (pending — applied after pre-commit gate passes; this section will be updated with the SHA on commit).
+- Atomic commit: `2703d1d0 feat(broadcast)!: Phase 5 — remove ctx.BroadcastAction; migrate call sites to Subscribe/Publish self-topic` (18 files, +370/-466).
+- Pull request: livetemplate#429 (opened 2026-05-20, off `main` @ `ab855777` v0.9.2).
 - V-item map (proposal §V-items):
   - V20 (BroadcastAction zero-hits sweep): **landed in this PR** — substring grep across the repo returns zero matches; Phase 6 inherits a clean canvas.
   - V21 (Subscribe(SelfTopic())+Publish migration parity): **landed** — every controller previously using BroadcastAction now uses the canonical opt-in pattern; tests cover WS + HTTP + e2e Docker.
