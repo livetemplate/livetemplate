@@ -226,7 +226,7 @@ type navigateBroadcastTestState struct {
 type navigateBroadcastTestController struct{}
 
 func (c *navigateBroadcastTestController) Mount(state navigateBroadcastTestState, ctx *Context) (navigateBroadcastTestState, error) {
-	// Idempotent across first-Mount and navigate re-Mount — safe to call unconditionally.
+	// Idempotent across first-Mount and navigate re-Mount — safe to call unconditionally for SelfTopic() (ACL-exempt). Topics that can fail ACL would need IsInitialMount() guarding.
 	if err := ctx.Subscribe(ctx.SelfTopic()); err != nil {
 		return state, err
 	}
