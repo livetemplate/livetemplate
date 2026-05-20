@@ -22,7 +22,7 @@ import (
 // round-4 symmetry-collision normalization fix. Single-instance; no Redis.
 //
 //   1. ctx.Publish invalid (grammar-rejected) topic
-//   2. ctx.Publish at the MaxBroadcastsPerAction cap
+//   2. ctx.Publish at the MaxPublishesPerAction cap
 //   3. ctx.Unsubscribe stops delivery
 //   4. server-originated Subscribe (nil r) → deny-by-default + ErrNoRequestContext
 //   5. ctx.Publish from an upload-complete handler (the 28b8f6cb drain)
@@ -58,10 +58,10 @@ func (c *p2ErrController) PubBadTopic(s probeState, ctx *Context) (probeState, e
 }
 
 func (c *p2ErrController) PubSpam(s probeState, ctx *Context) (probeState, error) {
-	// Cap is len(topicPubs) >= MaxBroadcastsPerAction: the first
-	// MaxBroadcastsPerAction calls append, the next returns the cap error.
+	// Cap is len(topicPubs) >= MaxPublishesPerAction: the first
+	// MaxPublishesPerAction calls append, the next returns the cap error.
 	var last error
-	for i := 0; i <= MaxBroadcastsPerAction; i++ {
+	for i := 0; i <= MaxPublishesPerAction; i++ {
 		last = ctx.Publish("cap/x", "A", nil)
 	}
 	c.setErr(last)
@@ -93,7 +93,7 @@ func TestTopic_Phase2_PublishInvalidTopic(t *testing.T) {
 	}
 }
 
-// 2. MaxBroadcastsPerAction cap → the over-cap call errors.
+// 2. MaxPublishesPerAction cap → the over-cap call errors.
 func TestTopic_Phase2_PublishCap(t *testing.T) {
 	ctrl := &p2ErrController{}
 	server, wsURL := setupTopicServer(t, ctrl, AsState(&probeState{}), `<div>{{.N}}</div>`,
@@ -109,7 +109,7 @@ func TestTopic_Phase2_PublishCap(t *testing.T) {
 
 	err := ctrl.lastErr()
 	if err == nil {
-		t.Fatalf("expected the over-cap Publish to error (cap=%d)", MaxBroadcastsPerAction)
+		t.Fatalf("expected the over-cap Publish to error (cap=%d)", MaxPublishesPerAction)
 	}
 	if !strings.Contains(err.Error(), "cap") {
 		t.Errorf("error does not mention the cap: %v", err)

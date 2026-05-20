@@ -223,7 +223,7 @@ func TestTopic_V1_V3_V10_SelfSyncTwoDevices(t *testing.T) {
 
 	// V1: dev2 (different groupID, SAME user) runs the Reload reconciler and
 	// gets a diff carrying the reconciled shared Items — proving SelfTopic()
-	// keys on UserID and spans groups, where BroadcastAction cannot.
+	// keys on UserID and spans groups, which a group-scoped fan-out cannot.
 	reload := rawWSUpdate(t, dev2, 3*time.Second)
 	if !strings.Contains(reload, "hello") {
 		t.Fatalf("V1: dev2 did not receive the reconciled shared Items: %s", reload)

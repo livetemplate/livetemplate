@@ -14,7 +14,8 @@ Controllers hold dependencies (singleton, never cloned). State holds pure data (
 
 **Key caveats:**
 - **Mount() guard pattern:** Mount runs on POST too, so guard side effects with the connect-kind helpers: `if ctx.IsInitialMount() { trackPageView() }` (initial HTTP GET only) or `if ctx.IsReconnect() { ... }` (WS reconnect with restored state). The older `if ctx.Action() == ""` idiom still works but conflates GETs with WS connects/reconnects and internal navigate POSTs.
-- **BroadcastAction ordering:** `ctx.With*()` creates shallow copies. Call `ctx.BroadcastAction()` AFTER all `With*()` calls, or broadcasts queued before the copy won't propagate.
+- **Publish ordering:** `ctx.With*()` creates shallow copies. Call `ctx.Publish()` AFTER all `With*()` calls, or publishes queued before the copy won't propagate.
+- **Peer fan-out is opt-in:** an action only reaches other connections via `ctx.Subscribe(ctx.SelfTopic())` in Mount (or a developer topic) plus an explicit `ctx.Publish(topic, action, data)`. Nothing fans out implicitly.
 - **AssertPureState[T]():** Use in tests to catch dependency types accidentally in state structs.
 
 See `docs/references/controller-pattern.md` for the full pattern guide with examples.

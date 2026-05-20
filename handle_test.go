@@ -2330,10 +2330,13 @@ func TestPerConnectionState_ActionPersistsAcrossReconnect(t *testing.T) {
 	}
 }
 
-// TestPerConnectionState_NoAutoBroadcast verifies that without BroadcastAction,
-// WS2 does NOT receive an automatic update when WS1 performs an action.
-func TestPerConnectionState_NoAutoBroadcast(t *testing.T) {
-	auth := &fixedGroupAuth{groupID: "no-autobroadcast-test"}
+// TestPerConnectionState_NoAutoFanOut verifies that a controller with no
+// Subscribe in Mount produces no automatic peer dispatch: WS2 does NOT receive
+// an update when WS1 performs an action. The Subscribe(SelfTopic())+Publish
+// pattern is opt-in, never implicit — this guards against a regression where
+// an action would silently fan out to peers without an explicit publish.
+func TestPerConnectionState_NoAutoFanOut(t *testing.T) {
+	auth := &fixedGroupAuth{groupID: "no-auto-fanout-test"}
 
 	tmpl, err := New("test", WithAuthenticator(auth))
 	if err != nil {
@@ -2903,63 +2906,6 @@ func TestEphemeral_DispatchedActionNotPersisted(t *testing.T) {
 
 	if v := treeDynamic(t, reconnectMsg, "0"); v != "0" {
 		t.Errorf("Ephemeral: expected Count=0 on reconnect (dispatch not persisted), got %q. Full: %s", v, string(reconnectMsg))
-	}
-}
-
-// TestEphemeral_BroadcastActionStillWorks verifies that explicit BroadcastAction
-// dispatches to peer connections in ephemeral mode (uses in-memory registry, not SessionStore).
-func TestEphemeral_BroadcastActionStillWorks(t *testing.T) {
-	db := &syncDB{items: make(map[string][]syncDBItem)}
-	auth := &fixedGroupAuth{groupID: "ephemeral-sync-test"}
-
-	tmpl, err := New("test", WithAuthenticator(auth))
-	if err != nil {
-		t.Fatalf("New failed: %v", err)
-	}
-	tmpl, err = tmpl.Parse("<div>{{len .Items}} items</div>")
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
-	}
-
-	ctrl := &syncController{DB: db}
-	handler := tmpl.Handle(ctrl, AsState(&itemsState{}))
-
-	server := httptest.NewServer(handler)
-	defer server.Close()
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
-
-	ws1 := connectWS(t, wsURL)
-	defer func() {
-		if err := ws1.Close(); err != nil {
-			t.Logf("ws1 close: %v", err)
-		}
-	}()
-	ws2 := connectWS(t, wsURL)
-	defer func() {
-		if err := ws2.Close(); err != nil {
-			t.Logf("ws2 close: %v", err)
-		}
-	}()
-
-	// WS1 adds an item and explicitly broadcasts Refresh to WS2.
-	addMsg, _ := json.Marshal(map[string]interface{}{
-		"action": "add",
-		"data":   map[string]interface{}{"text": "test item"},
-	})
-	if err := ws1.WriteMessage(websocket.TextMessage, addMsg); err != nil {
-		t.Fatalf("ws1 write failed: %v", err)
-	}
-
-	// WS1 gets its own action response
-	readWSUpdate(t, ws1, 3*time.Second)
-
-	// WS2 should receive the Refresh dispatch (in-memory, not via SessionStore).
-	// Dynamic "0" is {{len .Items}} = "1" after Add.
-	update2 := readWSUpdate(t, ws2, 3*time.Second)
-	if tree, ok := update2["tree"].(map[string]interface{}); ok {
-		if v, ok := tree["0"].(string); ok && v != "1" {
-			t.Errorf("Ephemeral BroadcastAction: expected len(Items)=1 on WS2, got %q", v)
-		}
 	}
 }
 

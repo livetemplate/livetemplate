@@ -59,6 +59,9 @@ func (c *ChatController) loadMessages() []Message {
 }
 
 func (c *ChatController) Mount(state ChatState, ctx *livetemplate.Context) (ChatState, error) {
+	if err := ctx.Subscribe(ctx.SelfTopic()); err != nil {
+		return state, err
+	}
 	state.Messages = c.loadMessages()
 	state.InstanceID = os.Getenv("INSTANCE_ID")
 	return state, nil
@@ -95,7 +98,9 @@ func (c *ChatController) Send(state ChatState, ctx *livetemplate.Context) (ChatS
 	}
 
 	state.Messages = c.loadMessages()
-	ctx.BroadcastAction("RefreshMessages", nil)
+	if err := ctx.Publish(ctx.SelfTopic(), "RefreshMessages", nil); err != nil {
+		return state, err
+	}
 	return state, nil
 }
 

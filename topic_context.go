@@ -35,14 +35,19 @@ type topicSubscriber interface {
 	shouldWarnWiredCollision(action string) bool
 }
 
-// topicPublish is a deferred Publish, drained after the action like
-// broadcastRequest (the queue it mirrors). Topic carries the publish target so
-// the handler resolves the subscriber set by topic (never the GroupID field).
+// topicPublish is a deferred Publish, drained by the mount handler after the
+// action returns. Topic carries the publish target so the handler resolves the
+// subscriber set by topic (never the GroupID field).
 type topicPublish struct {
 	Topic  string
 	Action string
 	Data   map[string]interface{}
 }
+
+// MaxPublishesPerAction is the maximum number of ctx.Publish calls allowed per
+// action invocation. Excess calls are rejected with an error log and a
+// returned error from Publish.
+const MaxPublishesPerAction = 100
 
 // WithTopicSubscriber returns a new Context wired to the given topic
 // subscriber. Injected by the mount handler at every Context-build site.
@@ -154,10 +159,10 @@ func (c *Context) Unsubscribe(topic string) {
 // A Publish issued from inside a dispatched/server-initiated action is
 // logged-and-dropped (one-hop recursion guard) to prevent fan-out storms.
 //
-// Ordering caveat (same shallow-copy footgun as ctx.BroadcastAction, per
-// CLAUDE.md): ctx.With*() returns a shallow copy and the topicPubs slice
-// diverges once it reallocates, so call Publish AFTER all With*() calls or a
-// publish queued before the copy won't be drained.
+// Ordering caveat (the shallow-copy footgun, per CLAUDE.md): ctx.With*()
+// returns a shallow copy and the topicPubs slice diverges once it
+// reallocates, so call Publish AFTER all With*() calls or a publish queued
+// before the copy won't be drained.
 func (c *Context) Publish(topic, action string, data map[string]interface{}) error {
 	if topic == "" {
 		return fmt.Errorf("livetemplate: cannot Publish to an empty topic")
@@ -174,12 +179,12 @@ func (c *Context) Publish(topic, action string, data map[string]interface{}) err
 			return err
 		}
 	}
-	if len(c.topicPubs) >= MaxBroadcastsPerAction {
+	if len(c.topicPubs) >= MaxPublishesPerAction {
 		slog.Error("Publish cap reached, dropping",
 			slog.String("topic", topic),
 			slog.String("action", action),
-			slog.Int("limit", MaxBroadcastsPerAction))
-		return fmt.Errorf("livetemplate: Publish cap (%d) reached for this action", MaxBroadcastsPerAction)
+			slog.Int("limit", MaxPublishesPerAction))
+		return fmt.Errorf("livetemplate: Publish cap (%d) reached for this action", MaxPublishesPerAction)
 	}
 
 	// Topic and user-action dispatch share one resolver, so Publishing an
@@ -196,7 +201,7 @@ func (c *Context) Publish(topic, action string, data map[string]interface{}) err
 }
 
 // pendingTopicPublishes returns and clears pending Publish requests. Drained by
-// the mount handler at the post-action processBroadcasts site, after
+// the mount handler at the post-action processTopicPublishes site, after
 // persistState, so a reconciler that re-reads the group-keyed session store
 // sees the originator's committed write (persist-before-publish ordering).
 func (c *Context) pendingTopicPublishes() []topicPublish {

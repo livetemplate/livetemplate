@@ -82,9 +82,9 @@ type Broadcaster interface {
 }
 
 // GroupActionBroadcaster extends Broadcaster with group-scoped action dispatch.
-// Implementations that support BroadcastAction for cross-instance delivery should
-// implement this interface. The handler layer type-asserts and calls these methods
-// during action dispatch and WebSocket connection setup.
+// Implementations that support Session.TriggerAction for cross-instance delivery
+// should implement this interface. The handler layer type-asserts and calls these
+// methods during action dispatch and WebSocket connection setup.
 type GroupActionBroadcaster interface {
 	// PublishGroupAction publishes a group-scoped action to all instances.
 	PublishGroupAction(groupID string, action string, data map[string]interface{}) error
@@ -210,8 +210,8 @@ type ServerActionHandler func(msg *ServerActionMessage) error
 
 // GroupActionMessage represents a group-scoped action sent over Redis Pub/Sub.
 // Unlike ServerActionMessage (user-scoped), this targets all connections in a
-// specific session group across all instances. Used by BroadcastAction to deliver
-// explicit cross-connection broadcasts in per-connection state mode.
+// specific session group across all instances. Used by Session.TriggerAction to
+// deliver server-initiated group-scoped dispatches across instances.
 //
 // The same envelope also carries Publish/Subscribe topic actions (Type
 // "topic_action", routed by Topic instead of GroupID) — reusing one struct keeps
@@ -235,7 +235,7 @@ type ServerActionHandler func(msg *ServerActionMessage) error
 // a type-tagged key) before that change ships.
 //
 // This envelope is a tagged union, not a product type — fields populated by Type:
-//   - "group_action": GroupID set, Topic empty (BroadcastAction cross-instance).
+//   - "group_action": GroupID set, Topic empty (Session.TriggerAction cross-instance).
 //   - "topic_action":  Topic set, GroupID empty (ctx.Publish / handler.Publish).
 //
 // Action/Data/Seq/Timestamp/InstanceID are always set; the receiver routes on
