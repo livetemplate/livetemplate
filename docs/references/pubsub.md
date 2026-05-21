@@ -233,7 +233,7 @@ Two failure modes operators need to know about, neither of which is a code-chang
 
 **`SubscribeToTopicActions` init failure at `Handle()` ⇒ cross-instance topic-receive leg dead for that instance.** The handler subscribes to the `livetemplate:topic_action:*` channel at startup (in `Template.Handle()`). If that subscribe fails (Redis unreachable, network issue, etc.) the failure is **logged-only and the handler continues** — identical to the pre-existing `SubscribeGroupActions` / `SubscribeServerActions` init pattern at the same site (deliberately consistent). The local instance keeps serving HTTP and WS, but **every cross-instance topic Publish from other instances is silently dropped** for that instance until restart. Per-topic channel-subscribe failures only break one topic; this *init* failure breaks all topics.
 
-Grep for `"failed to subscribe"` with `event=topic_action_subscribe` in production logs; treat a hit as a deploy-blocking alarm on multi-instance setups.
+Grep for `event=topic_action_subscribe_failed` in production logs (the structured slog attribute emitted by `template.go` alongside the `Failed to subscribe to topic actions` ERROR); treat a hit as a deploy-blocking alarm on multi-instance setups.
 
 **`Publish` local fan-out is non-blocking, drops on a full per-connection buffer.** Same backpressure model as `Session.TriggerAction` (and as the pre-v0.10.0 peer-fan-out API it replaced). Surfaced via the existing `wsBufferFull` / `wsSlowClientCloses` metrics; tuned via `WithWebSocketBufferSize` / `LVT_WS_BUFFER_SIZE`. Not a regression — accepted pre-existing model.
 
