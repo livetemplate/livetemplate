@@ -1673,6 +1673,8 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 			if tab, ok := mountCfg.PubSubBroadcaster.(pubsub.TopicActionBroadcaster); ok {
 				if err := tab.SubscribeToTopicActions(handler.handleTopicActionMessage); err != nil {
 					slog.Error("Failed to subscribe to topic actions",
+						slog.String("component", "live_handler"),
+						slog.String("event", "topic_action_subscribe_failed"),
 						slog.Any("error", err))
 				}
 			}

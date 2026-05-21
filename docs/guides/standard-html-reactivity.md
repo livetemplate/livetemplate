@@ -56,13 +56,22 @@ For HTML-attribute-based validation (`required`, `pattern`, `min`, `max`), see t
 
 ## Multi-User Broadcast
 
-When one user's action should be visible to other WebSocket-connected tabs, use `BroadcastAction`. Note: `BroadcastAction` must be called AFTER all state mutations and `ctx.With*()` calls, because `With*()` creates shallow copies and broadcasts queued before the copy won't propagate.
+When one user's action should be visible to other WebSocket-connected tabs, the pattern is two-step: each connection that wants peer updates opts in via `ctx.Subscribe(ctx.SelfTopic())` in `Mount`, and the action that mutated shared state fans out via `ctx.Publish(ctx.SelfTopic(), "Refresh", nil)`. Peer fan-out is opt-in — a connection that didn't subscribe receives nothing.
+
+`SelfTopic()` resolves to `lvt:session:<groupID>` — the reserved-namespace topic for this session's own connections, ACL-exempt by construction. For app-wide announcements that should cross session boundaries, use a developer-defined topic (e.g. `"announcements"`) and admit it in your `WithTopicACL` ruleset.
+
+Note: `Publish` must be called AFTER all state mutations and `ctx.With*()` calls. `With*()` creates shallow copies, and publishes queued before the copy are stranded on the pre-copy Context and never propagate.
 
 ```go
+func (c *TodoController) Mount(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
+    _ = ctx.Subscribe(ctx.SelfTopic()) // opt this connection in to peer fan-out
+    return state, nil
+}
+
 func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
     state.Items = append(state.Items, Todo{Title: ctx.GetString("title")})
-    // BroadcastAction after all state changes — pushes to other WS-connected tabs
-    ctx.BroadcastAction("Refresh", nil)
+    // Publish after all state changes — pushes to subscribed peer tabs
+    ctx.Publish(ctx.SelfTopic(), "Refresh", nil)
     return state, nil
 }
 

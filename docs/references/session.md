@@ -59,10 +59,16 @@ Fields tagged with `lvt:"persist"` follow this persistence schedule. Untagged fi
 ### Explicit Peer Refresh
 
 ```go
+func (c *TodoController) Mount(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
+    _ = ctx.Subscribe(ctx.SelfTopic()) // opt in to peer fan-out for this session
+    state.Items = c.DB.GetItems(ctx.UserID())
+    return state, nil
+}
+
 func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
     c.DB.AddItem(ctx.UserID(), ctx.GetString("text"))
     state.Items = c.DB.GetItems(ctx.UserID())
-    ctx.BroadcastAction("RefreshTodos", nil)
+    ctx.Publish(ctx.SelfTopic(), "RefreshTodos", nil)
     return state, nil
 }
 
@@ -74,10 +80,11 @@ func (c *TodoController) RefreshTodos(state TodoState, ctx *livetemplate.Context
 
 **How it works:**
 - Each browser gets a unique session ID (via cookie: `livetemplate-id`)
-- All tabs in the same browser share this session ID (`groupID`)
-- After a successful action, queued `BroadcastAction` calls dispatch to other connections in the group
+- All tabs in the same browser share this session ID (`groupID`); `ctx.SelfTopic()` resolves to the reserved-namespace topic `lvt:session:<groupID>` for that session
+- `Mount` subscribes the calling connection to `SelfTopic()` — this opt-in is what makes the connection a peer-receiver; without it, nothing reaches the tab
+- After a successful action, queued `ctx.Publish` calls fan out to every subscriber of the named topic in the group
 - Each peer connection runs the named action with its own state, reloading from the database
-- If the action does not call `BroadcastAction`, no cross-tab dispatch occurs
+- If no peer subscribed (or the action did not `Publish`), no cross-tab dispatch occurs
 
 ## State Safety
 
@@ -190,7 +197,7 @@ State is deserialized fresh on each `Get()`, preventing reference sharing across
 
 #### Broadcast Scoping
 
-`BroadcastAction()` is scoped to the sender's `groupID`. The [ConnectionRegistry](#connection-registry) filters recipients via `GetByGroup(groupID)` — messages only reach connections in the same group. Different groups are never informed of each other's updates.
+`SelfTopic()` resolves to `lvt:session:<groupID>` — scoped to the sender's own `groupID`. A `ctx.Publish(ctx.SelfTopic(), ...)` therefore reaches only connections in that same group (and only those that subscribed). The [ConnectionRegistry](#connection-registry) filters recipients via `GetByTopicExcept(topic, sender)`; different groups receive different `SelfTopic()` strings and are never informed of each other's updates.
 
 #### HTTP Request Isolation
 

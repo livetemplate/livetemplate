@@ -25,9 +25,14 @@ The HTML and Go behind a reactive todo list:
 ```
 
 ```go
+func (c *TodoController) Mount(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
+    _ = ctx.Subscribe(ctx.SelfTopic()) // opt in to peer fan-out on this session
+    return state, nil
+}
+
 func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
     state.Items = append(state.Items, Todo{Title: ctx.GetString("title")})
-    ctx.BroadcastAction("Refresh", nil) // pushes update to other WS-connected tabs
+    ctx.Publish(ctx.SelfTopic(), "Refresh", nil) // pushes update to other WS-connected tabs
     return state, nil
 }
 ```

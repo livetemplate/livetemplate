@@ -192,7 +192,10 @@ Primarily useful in tests. In production, Context is created internally and pass
 | `UserID` | `() string` | Returns the authenticated user's ID |
 | `Session` | `() Session` | Returns the Session for server-initiated actions |
 | `IsHTTP` | `() bool` | Whether this is an HTTP (not WebSocket) context |
-| `BroadcastAction` | `(action string, data map[string]interface{})` | Queues a named action dispatch to all other connections in the session group. Deferred until the current action completes successfully. |
+| `SelfTopic` | `() string` | Returns the reserved-namespace topic (`lvt:session:<groupID>`) that identifies this session's own connections. ACL-exempt — always subscribable. |
+| `Subscribe` | `(topic string) error` | Subscribes the calling connection to a topic. `SelfTopic()` bypasses the ACL; developer topics run `WithTopicACL`. Returns `*TopicForbiddenError` when the ACL denies. |
+| `Unsubscribe` | `(topic string) error` | Removes the calling connection's subscription. |
+| `Publish` | `(topic, action string, data map[string]interface{})` | Queues a named action dispatch to every connection subscribed to the topic. Fan-out is opt-in — only Subscribers receive it. Deferred until the current action completes successfully. |
 
 ### Data Extraction
 
