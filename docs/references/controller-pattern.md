@@ -353,17 +353,26 @@ func (c *NotificationController) AddMessage(state NotificationState, ctx *livete
 }
 ```
 
-### Cross-Tab Updates with BroadcastAction
+### Cross-Tab Updates with Subscribe + Publish
 
-In per-connection state mode (the default), use `ctx.BroadcastAction()` to dispatch a named action to all other connections in the session group. Each receiving connection runs the action with its own state, preserving per-connection fields.
+Peer fan-out is opt-in. Each connection that wants to receive peer updates subscribes to a topic in `Mount`; actions that mutate shared state publish to that topic, and every subscribed peer dispatches the named action with its own state.
+
+The canonical "broadcast to my own session" pattern uses `ctx.SelfTopic()` — a reserved-namespace topic (`lvt:session:<groupID>`) that resolves to this session's own connections. `SelfTopic()` is ACL-exempt by construction; you can always `Subscribe(SelfTopic())` without a `WithTopicACL` rule.
 
 ```go
+func (c *ChatController) Mount(state ChatState, ctx *livetemplate.Context) (ChatState, error) {
+    // Opt this connection in to peer fan-out for the session.
+    // SelfTopic() is ACL-exempt, idempotent across re-Mounts.
+    _ = ctx.Subscribe(ctx.SelfTopic())
+    return state, nil
+}
+
 func (c *ChatController) Send(state ChatState, ctx *livetemplate.Context) (ChatState, error) {
     c.mu.Lock()
     c.messages = append(c.messages, Message{User: state.CurrentUser, Text: ctx.GetString("message")})
     c.mu.Unlock()
     state.Messages = c.copyMessages()
-    ctx.BroadcastAction("RefreshMessages", nil) // dispatches to other connections
+    ctx.Publish(ctx.SelfTopic(), "RefreshMessages", nil) // fans out to subscribed peers
     return state, nil
 }
 
@@ -372,6 +381,39 @@ func (c *ChatController) RefreshMessages(state ChatState, ctx *livetemplate.Cont
     return state, nil
 }
 ```
+
+**Ordering.** `Publish` queues onto a per-action drain. Call it **after** every `ctx.With*()` shallow-copy mutation; publishes queued before a `With*()` are stranded on the pre-copy Context and won't propagate.
+
+**Cap.** A single action can enqueue at most `MaxPublishesPerAction` (declared in `topic_context.go`) `Publish` calls before subsequent calls become hard errors.
+
+### Subscribing to ACL-Gated Developer Topics
+
+Beyond `SelfTopic()`, controllers can subscribe to developer-defined topics (e.g. `"room/lobby"`). Developer topics are **deny-by-default** — every `Subscribe(developerTopic)` runs the `WithTopicACL(fn)` hook, and a denied call returns `*TopicForbiddenError`. Two patterns matter for controllers:
+
+**(1) Guard with `IsInitialMount` when the ACL may deny.** `Mount` runs on HTTP GET, HTTP POST, WS connect, and WS reconnect. A denied `Subscribe` on the HTTP GET path surfaces as **HTTP 500** — the page aborts before the WS can exercise the keep-open path. Guard side-effects (including potentially-denied Subscribes) with the connect-kind helpers so the GET render does not call `Subscribe` until the WS is the lifecycle owner:
+
+```go
+func (c *RoomController) Mount(state RoomState, ctx *livetemplate.Context) (RoomState, error) {
+    _ = ctx.Subscribe(ctx.SelfTopic()) // always safe, ACL-exempt
+    if !ctx.IsInitialMount() {
+        // Only subscribe to the gated topic on WS connect / reconnect /
+        // POST actions — never on the initial HTTP GET render.
+        if err := ctx.Subscribe("room/" + state.RoomID); err != nil {
+            // Propagate the error to surface lvt:error on the client (see below).
+            return state, err
+        }
+    }
+    return state, nil
+}
+```
+
+**(2) Propagate the error to surface `lvt:error`.** When a controller propagates a `*TopicForbiddenError` from `Mount` on the WS-connect path, the server emits a `{"type":"error","code":"topic_forbidden","topic":<denied>}` envelope, logs a structured warning, and **keeps the connection open** — adopting the controller's returned state and continuing the normal mount lifecycle (`persistState`, `OnConnect`, initial-tree send). The client dispatches a `lvt:error` `CustomEvent` on the `[data-lvt-id]` wrapper element. See the [Client Error Envelope section in the PubSub reference](pubsub.md#client-error-envelope-lvterror) for the wire-level contract.
+
+**(3) Don't swallow the error if you want it surfaced.** A controller that swallows the denied Subscribe — `_ = ctx.Subscribe("denied"); return s, nil` — emits **no envelope**. The Phase 4 contract is on the propagated-error scenario only; if you want the client to see `lvt:error`, return the error. Returning `nil` is a quiet allow-and-continue.
+
+**(4) Don't mutate `s` before a may-deny `Subscribe`.** Because keep-open adopts the controller's returned `newState`, a partial mutation before a denied Subscribe persists silently (it isn't rolled back). The rule of thumb:
+
+> To surface the envelope, propagate the error (`return s, err`). To keep state clean, don't mutate `s` before a `Subscribe` that may be denied.
 
 ## Registration
 

@@ -690,6 +690,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		h.sendTopicForbiddenEnvelope(connection, tfe.Topic)
 		slog.Warn("Mount Subscribe denied by topic ACL; surfaced to client, connection kept open",
 			slog.String("component", "live_handler"),
+			slog.String("event", "topic_acl_denied_keep_open"),
 			slog.String("topic", tfe.Topic),
 			slog.Any("error", err))
 	}

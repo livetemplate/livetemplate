@@ -412,12 +412,12 @@ When a user has multiple tabs or devices connected:
 ```
 User clicks button in Tab 1
     └─► Tab 1's action method called
-        └─► action may call ctx.BroadcastAction("RefreshTodos", nil)
+        └─► action may call ctx.Publish(ctx.SelfTopic(), "RefreshTodos", nil)
         └─► Tab 1 receives update
-        └─► Tab 2, Tab 3 receive the explicit peer action
+        └─► Tab 2, Tab 3 receive the explicit peer action — but only if they Subscribed to ctx.SelfTopic() in Mount
 ```
 
-> Cross-tab updates are explicit: call `ctx.BroadcastAction("ActionName", nil)` from the action that changed shared state.
+> Cross-tab updates are explicit and two-step: subscribe to `ctx.SelfTopic()` in `Mount` (the ACL-exempt self-identity topic), then call `ctx.Publish(ctx.SelfTopic(), "ActionName", nil)` from the action that changed shared state. A connection that did not subscribe receives nothing — peer fan-out is opt-in.
 
 **Server Action (TriggerAction):**
 ```

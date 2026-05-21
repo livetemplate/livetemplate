@@ -123,4 +123,4 @@ Browser-level chromedp tests live in the lvt repo at `e2e/livetemplate_core_test
 - [Client Attributes](client-attributes.md) — `lvt-nav:no-intercept` opt-out
 - [Standard HTML Reactivity](../guides/standard-html-reactivity.md) — Why navigation is a Tier 1 concern
 - [PR #344](https://github.com/livetemplate/livetemplate/pull/344) — Original implementation
-- Follow-up issues: [#345](https://github.com/livetemplate/livetemplate/issues/345) (`ClearAllFlash`), [#346](https://github.com/livetemplate/livetemplate/issues/346) (`BroadcastAction` inside Mount on navigate), [#347](https://github.com/livetemplate/livetemplate/issues/347), [#348](https://github.com/livetemplate/livetemplate/issues/348)
+- Follow-up issues: [#345](https://github.com/livetemplate/livetemplate/issues/345) (`ClearAllFlash`), [#346](https://github.com/livetemplate/livetemplate/issues/346) (peer-fan-out inside `Mount` on navigate — see `ctx.Publish` to `SelfTopic()`), [#347](https://github.com/livetemplate/livetemplate/issues/347), [#348](https://github.com/livetemplate/livetemplate/issues/348)

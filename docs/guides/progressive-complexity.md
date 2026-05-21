@@ -379,7 +379,7 @@ This transport is also used as the automatic fallback when a WebSocket connectio
 
 ### JavaScript + WebSocket
 
-Full bidirectional communication. Actions are sent as WebSocket messages, and the server can push updates at any time. Server push (`Session.TriggerAction()`, `ctx.BroadcastAction()`) is only available in this mode.
+Full bidirectional communication. Actions are sent as WebSocket messages, and the server can push updates at any time. Server push (`Session.TriggerAction()`) and peer fan-out (`ctx.Publish()` on a subscribed topic) reach peer tabs only in this mode.
 
 ### How the Server Detects Transport
 

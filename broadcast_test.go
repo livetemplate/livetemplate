@@ -324,8 +324,9 @@ func (c *syncController) Refresh(state itemsState, ctx *Context) (itemsState, er
 }
 
 // TestPublish_ExplicitRefreshDispatchesToPeers also covers the ephemeral
-// (in-memory registry, no SessionStore) path — replaces the coverage signal
-// the deleted TestEphemeral_BroadcastActionStillWorks carried.
+// (in-memory registry, no SessionStore) path — replaces the equivalent
+// coverage signal previously held by a now-removed ephemeral peer-dispatch
+// test from the pre-v0.10.0 API surface.
 func TestPublish_ExplicitRefreshDispatchesToPeers(t *testing.T) {
 	db := &syncDB{items: make(map[string][]syncDBItem)}
 

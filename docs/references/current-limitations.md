@@ -56,7 +56,7 @@ See [Session Reference — State Safety](session.md#state-safety) for the full e
 
 | Limitation | Detail | Workaround |
 |-----------|--------|-----------|
-| Tabs don't update each other by default | Each connection owns its state independently | Use `ctx.BroadcastAction()` to explicitly refresh peer connections |
+| Tabs don't update each other by default | Each connection owns its state independently (peer fan-out is opt-in) | Subscribe to `ctx.SelfTopic()` in `Mount`, then `ctx.Publish(ctx.SelfTopic(), "Action", data)` from the action that mutated shared state |
 | Concurrent HTTP requests serialized | Per-group mutex in HTTP mode processes one action at a time | By design — prevents data races on shared state |
 
 See [Session Reference](session.md) for session stores and connection management.
@@ -69,7 +69,7 @@ Some features are only available in one transport mode. This is by design — ea
 
 | HTTP-Only | WebSocket-Only |
 |-----------|---------------|
-| `ctx.SetCookie()` / `ctx.GetCookie()` / `ctx.DeleteCookie()` | `ctx.BroadcastAction()` |
+| `ctx.SetCookie()` / `ctx.GetCookie()` / `ctx.DeleteCookie()` | `ctx.Publish()` peer fan-out (HTTP POSTs queue+drain locally; cross-tab dispatch requires a live WS receiver) |
 | `ctx.Redirect()` | Server push via `Session.TriggerAction()` |
 | Query params merged with form data | Real-time bidirectional communication |
 
