@@ -5,6 +5,15 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.11.0] - 2026-05-22
+
+### Changes
+
+- chore(changelog): restructure v0.11.0 entry as subsections for release.sh prepend (86c75e1e)
+- feat(observe)!: rename broadcasts_* metric family to publishes_* (v0.11.0) (#431) (e025ab6c)
+
+
+
 ### Breaking Changes
 
 - **Prometheus metric family renamed**: `livetemplate_broadcasts_sent_total` is now
