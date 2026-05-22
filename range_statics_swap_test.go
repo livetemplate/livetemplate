@@ -9,17 +9,8 @@ import (
 	"testing"
 )
 
-// Tests in this file cover issue #413:
-// "{{range}} statics not cached across full content swap — resends per-row scaffolding".
-//
-// Goal: lock in the contract that per-row static scaffolding is NOT re-emitted
-// across full content swaps of the same {{range}} (matching the
-// tree-update-specification §3.4 "stripped from operations" rule for stripped
-// statics when the structure fingerprint is unchanged).
+// Per-row static scaffolding must not be re-emitted across full content swaps of the same {{range}}.
 
-// rangeFileLine mirrors the per-row shape used by the prereview app from
-// issue #413: kind, line number, and a (template-safe) highlighted-content
-// blob. Keeping the shape ASCII-simple makes wire-byte assertions stable.
 type rangeFileLine struct {
 	ID                 string
 	Kind               string
@@ -32,9 +23,6 @@ type rangeFileState struct {
 	Lines    []rangeFileLine
 }
 
-// makeRangeLines builds N homogeneous lines whose content varies with `i`,
-// so a swap from set A to set B produces fully different dynamic values
-// (matching the file-switch scenario from issue #413).
 func makeRangeLines(n int, prefix string) []rangeFileLine {
 	out := make([]rangeFileLine, n)
 	for i := 0; i < n; i++ {
@@ -48,16 +36,12 @@ func makeRangeLines(n int, prefix string) []rangeFileLine {
 	return out
 }
 
-// countStaticsKey returns how many times "s":[ appears in the wire payload.
-// (Counts the JSON key, not the bytes inside any literal strings — payloads
-// here don't embed `"s":[` inside content.)
+// countStaticsKey counts occurrences of the statics key. Matches the `[` suffix to skip the rare false positive of `"s":` appearing inside a string value.
 func countStaticsKey(payload []byte) int {
-	return bytes.Count(payload, []byte(`"s":`))
+	return bytes.Count(payload, []byte(`"s":[`))
 }
 
-// renderUpdate renders d1 to prime the template (initial render) and returns
-// the wire payload of the subsequent ExecuteUpdates(d2) — the update path
-// these tests care about.
+// renderUpdate primes the template with d1 then returns the wire payload of ExecuteUpdates(d2).
 func renderUpdate(t *testing.T, tmplStr string, d1, d2 interface{}) []byte {
 	t.Helper()
 	tmpl := Must(New("test"))
@@ -74,9 +58,7 @@ func renderUpdate(t *testing.T, tmplStr string, d1, d2 interface{}) []byte {
 	return update.Bytes()
 }
 
-// TestRangeStatics_InitialRender_IncludesStatics is the baseline: the initial
-// render of a {{range}} MUST include the item template under "s" so the client
-// can cache the scaffold. Spec §5.1.
+// Initial render of a {{range}} must include the item template under "s" so the client can cache it.
 func TestRangeStatics_InitialRender_IncludesStatics(t *testing.T) {
 	tmplStr := `<div class="diff">{{range .Lines}}<div class="line-row" data-key="{{.ID}}"><span class="kind">{{.Kind}}</span><span class="ln">{{.LineNo}}</span><span class="content">{{.HighlightedContent}}</span></div>{{end}}</div>`
 
@@ -101,11 +83,7 @@ func TestRangeStatics_InitialRender_IncludesStatics(t *testing.T) {
 	}
 }
 
-// TestRangeStatics_FullContentSwap_NoPerRowStatics is the core assertion from
-// issue #413: when the {{range}}'s backing slice is fully replaced with a new
-// set of items (different keys, same range item template), the update payload
-// MUST NOT re-emit per-row static scaffolding. The client has the item
-// template cached from the initial render.
+// Full slice replacement on the same range template must not re-emit per-row statics; client has them cached.
 func TestRangeStatics_FullContentSwap_NoPerRowStatics(t *testing.T) {
 	tmplStr := `<div class="diff">{{range .Lines}}<div class="line-row" data-key="{{.ID}}"><span class="kind">{{.Kind}}</span><span class="ln">{{.LineNo}}</span><span class="content">{{.HighlightedContent}}</span></div>{{end}}</div>`
 
@@ -125,11 +103,7 @@ func TestRangeStatics_FullContentSwap_NoPerRowStatics(t *testing.T) {
 	}
 }
 
-// TestRangeStatics_GrowCountDelta_NoPerRowStatics: growing the list (e.g.,
-// switching from a 5-row file to a 50-row file) must not re-emit per-row
-// statics. The 'p'/'a' insertion op may carry the item template once at
-// the op envelope, but it gets stripped when the structure fingerprint
-// matches the previous render — so the wire must not contain ANY "s":[.
+// Growing the list must not re-emit per-row statics. n == 0: this template has only string dynamics, so PrepareTreeForClient strips nothing at the item level; op-envelope statics get stripped separately by fingerprint match.
 func TestRangeStatics_GrowCountDelta_NoPerRowStatics(t *testing.T) {
 	tmplStr := `<div class="diff">{{range .Lines}}<div class="line-row" data-key="{{.ID}}"><span class="kind">{{.Kind}}</span><span class="ln">{{.LineNo}}</span><span class="content">{{.HighlightedContent}}</span></div>{{end}}</div>`
 
@@ -142,8 +116,7 @@ func TestRangeStatics_GrowCountDelta_NoPerRowStatics(t *testing.T) {
 	}
 }
 
-// TestRangeStatics_ShrinkCountDelta_NoPerRowStatics: shrinking the list must
-// not re-emit per-row statics either.
+// Shrinking the list must not re-emit per-row statics.
 func TestRangeStatics_ShrinkCountDelta_NoPerRowStatics(t *testing.T) {
 	tmplStr := `<div class="diff">{{range .Lines}}<div class="line-row" data-key="{{.ID}}"><span class="kind">{{.Kind}}</span><span class="ln">{{.LineNo}}</span><span class="content">{{.HighlightedContent}}</span></div>{{end}}</div>`
 
@@ -156,11 +129,7 @@ func TestRangeStatics_ShrinkCountDelta_NoPerRowStatics(t *testing.T) {
 	}
 }
 
-// TestRangeStatics_EmptyToNonEmpty_IncludesItemTemplateOnce: empty → items
-// is the only update path where the item template can legitimately appear on
-// the wire (the client received an empty range on first render and never saw
-// the per-row scaffold). The item template must appear in the append op's
-// statics slot ONCE — not N times.
+// Empty → items is the only update path where the item template legitimately appears on the wire — exactly once.
 func TestRangeStatics_EmptyToNonEmpty_IncludesItemTemplateOnce(t *testing.T) {
 	tmplStr := `<div class="diff">{{range .Lines}}<div class="line-row" data-key="{{.ID}}"><span class="kind">{{.Kind}}</span></div>{{end}}</div>`
 
@@ -174,8 +143,7 @@ func TestRangeStatics_EmptyToNonEmpty_IncludesItemTemplateOnce(t *testing.T) {
 	}
 }
 
-// TestRangeStatics_NonEmptyToEmpty: populated → empty must clear/remove items
-// but not include any per-row statics on the wire.
+// Populated → empty must remove items without emitting any per-row statics.
 func TestRangeStatics_NonEmptyToEmpty(t *testing.T) {
 	tmplStr := `<div class="diff">{{range .Lines}}<div class="line-row" data-key="{{.ID}}"><span class="kind">{{.Kind}}</span></div>{{end}}</div>`
 
@@ -188,8 +156,7 @@ func TestRangeStatics_NonEmptyToEmpty(t *testing.T) {
 	}
 }
 
-// TestRangeStatics_SingleItemSwap: a single-item range whose only item is
-// replaced (different key, same template) must not re-emit the item template.
+// Single-item swap (different key, same template) must not re-emit the item template.
 func TestRangeStatics_SingleItemSwap(t *testing.T) {
 	tmplStr := `<div class="diff">{{range .Lines}}<div class="line-row" data-key="{{.ID}}"><span class="kind">{{.Kind}}</span></div>{{end}}</div>`
 
@@ -202,9 +169,7 @@ func TestRangeStatics_SingleItemSwap(t *testing.T) {
 	}
 }
 
-// TestRangeStatics_RepeatedSwap_PayloadStable: repeated A→B→A→B swaps must
-// produce comparable payload sizes (no growth from accumulated static-resends).
-// The third swap's payload size should be within a small factor of the first.
+// Repeated swaps of equal-sized lists must produce stable payload sizes (no accumulated static-resend growth).
 func TestRangeStatics_RepeatedSwap_PayloadStable(t *testing.T) {
 	tmplStr := `<div class="diff">{{range .Lines}}<div class="line-row" data-key="{{.ID}}"><span class="kind">{{.Kind}}</span><span class="ln">{{.LineNo}}</span></div>{{end}}</div>`
 
@@ -232,8 +197,6 @@ func TestRangeStatics_RepeatedSwap_PayloadStable(t *testing.T) {
 		}
 	}
 
-	// Sanity-check sizes are within ~20% of each other — they should be near-
-	// identical for homogeneous swaps of equal-sized lists.
 	min, max := sizes[0], sizes[0]
 	for _, s := range sizes[1:] {
 		if s < min {
@@ -243,15 +206,13 @@ func TestRangeStatics_RepeatedSwap_PayloadStable(t *testing.T) {
 			max = s
 		}
 	}
+	// Allow up to 20% size drift across repeated same-size swaps.
 	if max > min*12/10 {
 		t.Errorf("repeated swap payload sizes drifted: %v (min=%d max=%d)", sizes, min, max)
 	}
 }
 
-// TestRangeStatics_FullSwap_DynamicsPreserved sanity-checks that the swap
-// payload — while omitting statics — still carries enough new-side data to
-// rebuild every row. This is the wire-format contract: dynamics + op
-// envelope + cached statics must be sufficient.
+// Swap payload omits statics but must still carry every new row's dynamic content.
 func TestRangeStatics_FullSwap_DynamicsPreserved(t *testing.T) {
 	tmplStr := `<div class="diff">{{range .Lines}}<div class="line-row" data-key="{{.ID}}"><span class="kind">{{.Kind}}</span><span class="ln">{{.LineNo}}</span><span class="content">{{.HighlightedContent}}</span></div>{{end}}</div>`
 
@@ -281,13 +242,7 @@ func truncate(b []byte, n int) string {
 	return string(b[:n]) + "...(truncated)"
 }
 
-// TestRangeStatics_AutoKey_AppendIncludesAutoKey is the flash-messages
-// regression test for issue #413: a `{{range}}` over a slice of strings has
-// no explicit data-key, so each item gets an auto-generated `_k` hash.
-// Stream-mode inserts must carry the `_k` field so the client can track the
-// new row for later remove/update operations. The earlier strip-on-insert
-// attempt dropped AutoKey via PrepareTreeForClient and broke remove flow in
-// examples/flash-messages.
+// Stream-mode insert must carry auto-generated _k so the client can later remove/update the new row.
 func TestRangeStatics_AutoKey_AppendIncludesAutoKey(t *testing.T) {
 	tmplStr := `<ul>{{range .Items}}<li>{{.}}</li>{{end}}</ul>`
 
@@ -313,14 +268,7 @@ func TestRangeStatics_AutoKey_AppendIncludesAutoKey(t *testing.T) {
 	}
 }
 
-// TestRangeStatics_NestedBranch_AppendIncludesBranchStatics is the
-// tinkerdown auto-tables regression test for issue #413: a `{{range}}` whose
-// item template contains a nested `{{if}}` branch with dynamics must keep
-// the branch's statics on insert. The client has no per-position branch
-// statics cache — when it receives an item with stripped nested statics
-// (numeric keys only on the nested object), it joins values without the
-// HTML wrapper, losing the row's structure (`<span class="marker">…</span>`
-// becomes just the dynamic text).
+// Range items with a nested {{if}} branch carrying dynamics must keep their branch statics on insert.
 func TestRangeStatics_NestedBranch_AppendIncludesBranchStatics(t *testing.T) {
 	tmplStr := `<ul>{{range .Items}}<li>{{if .HasMarker}}<span class="marker">{{.MarkerText}}</span>{{end}}{{.Name}}</li>{{end}}</ul>`
 

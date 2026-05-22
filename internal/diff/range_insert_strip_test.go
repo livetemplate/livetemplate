@@ -8,20 +8,7 @@ import (
 	"github.com/livetemplate/livetemplate/internal/build"
 )
 
-// TestStreamInsert_PreservesNestedDynamicBranchStatics — issue #413.
-//
-// The original symmetry attempt (stripping nested item statics in stream-mode
-// INSERTs to mirror the UPDATE path) broke client rendering. Updates patch
-// existing DOM in place, so the client only needs new dynamic values. Inserts
-// have to RENDER new DOM, and the client has no per-position branch-statics
-// cache — when it sees an item like {"0": {"0": "marker text"}} with no "s"
-// on the nested object, it joins values with empty string and loses the
-// HTML wrapper (`<span class="marker">…</span>`). Downstream regressions:
-// examples/flash-messages and tinkerdown auto-tables.
-//
-// This test locks in the contract that stream-mode INSERT payloads carry
-// the full per-item nested branch statics so the client can reconstruct
-// every new row's HTML structure.
+// Stream-mode INSERTs must carry full nested statics; client renders new rows without a branch-statics cache.
 func TestStreamInsert_PreservesNestedDynamicBranchStatics(t *testing.T) {
 	itemStatics := []string{`<li data-key="`, `">`, `</li>`}
 	makeItem := func(key, markerText string) *TreeNode {
@@ -75,7 +62,7 @@ func TestStreamInsert_PreservesNestedDynamicBranchStatics(t *testing.T) {
 	// default. Check the "s":[...] envelope (proves the nested statics
 	// were not stripped) and the actual on-wire marker content.
 	if !strings.Contains(string(payload), `"s":[`) {
-		t.Errorf("nested marker statics missing from insert payload; client cannot render new rows (issue #413)\n  payload=%s", payload)
+		t.Errorf("nested marker statics missing from insert payload; client cannot render new rows\n  payload=%s", payload)
 	}
 	if !strings.Contains(string(payload), `\u003cm\u003e`) {
 		t.Errorf("nested marker static content (<m>) missing from insert payload\n  payload=%s", payload)
@@ -92,12 +79,7 @@ func TestStreamInsert_PreservesNestedDynamicBranchStatics(t *testing.T) {
 	}
 }
 
-// TestStreamInsert_PreservesStaticOnlyBranchIdentity — companion test. For
-// static-only conditional branches (e.g. `{{if .Add}}+{{end}}`) the branch's
-// statics ARE the branch identity. The PrepareTreeForClient special case for
-// static-only branches preserved this even when the (now-reverted) strip-on-
-// insert path was active. Keeping the test guards against future regressions
-// in that special case.
+// Static-only conditional branches ({{if .Add}}+{{end}}) carry identity in their statics — never strip them.
 func TestStreamInsert_PreservesStaticOnlyBranchIdentity(t *testing.T) {
 	itemStatics := []string{`<li data-key="`, `">`, `</li>`}
 	makeItem := func(key, branchStatic string) *TreeNode {
@@ -149,12 +131,7 @@ func TestStreamInsert_PreservesStaticOnlyBranchIdentity(t *testing.T) {
 	}
 }
 
-// TestStreamInsert_PreservesAutoKey — regression test for the
-// examples/flash-messages bug. Items in a `{{range}}` without an explicit
-// data-key get an auto-generated `_k` field via build.TreeNode.AutoKey.
-// PrepareTreeForClient was dropping AutoKey when stripping statics, so
-// stream-mode inserts arrived at the client without `_k` and the client
-// could not track the new row by key.
+// PrepareTreeForClient must preserve AutoKey when stripping statics so the client can track new rows by key.
 func TestStreamInsert_PreservesAutoKey(t *testing.T) {
 	makeItem := func(autoKey, val string) *TreeNode {
 		return &TreeNode{
@@ -200,15 +177,11 @@ func TestStreamInsert_PreservesAutoKey(t *testing.T) {
 	}
 
 	if !strings.Contains(string(payload), `"_k":"hash-c"`) {
-		t.Errorf("auto-key (_k) missing from stream-mode insert; client cannot track new row (issue #413)\n  payload=%s", payload)
+		t.Errorf("auto-key (_k) missing from stream-mode insert; client cannot track new row\n  payload=%s", payload)
 	}
 }
 
-// extractDynamics mirrors parse.extractItemDynamics for test fixtures: items
-// in a range carry their statics on the parent Range.Statics, not on each
-// item TreeNode. Without this, the homogeneity check would compare two items
-// with embedded Statics arrays as if they were the wire shape, which the
-// diff path never sees in production.
+// extractDynamics mirrors parse.extractItemDynamics: range items carry statics on parent Range.Statics, not per-item.
 func extractDynamics(item *TreeNode) *TreeNode {
 	result := &TreeNode{AutoKey: item.AutoKey}
 	if len(item.Dynamics) > 0 {

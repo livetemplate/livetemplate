@@ -229,12 +229,7 @@ func GenerateRangeStreamOperations(
 	operations := make([]interface{}, 0, 4)
 	operations = generateStreamRemovalOps(streamState.Keys, ctx.newByKey, operations)
 	operations = generateStreamUpdateOps(newItems, newKeys, newHashes, oldHashByKey, ctx.keyPos, operations)
-	// Inserts keep nested item statics: even under the §5b homogeneity
-	// guarantee, the client renders new rows from data and has no per-position
-	// branch statics cache. Stripping breaks rendering for any item containing
-	// nested *TreeNode dynamics (conditional branches with dynamics). The
-	// stream-mode UPDATE path strips because it patches existing DOM in
-	// place — INSERT can't. Op-envelope statics are still stripped below.
+	// Inserts keep nested statics: client renders new DOM without a per-position branch-statics cache.
 	operations = generateInsertionOps(ctx, operations)
 
 	if hasReorder {
@@ -486,11 +481,7 @@ func hasKeptItemChanged(ctx *rangeContext) bool {
 	return false
 }
 
-// generateInsertionOps emits insert operations for items newly added in the
-// new render. Items are kept intact (PrepareTreeForClient with strip=false)
-// because the client renders new rows from data and has no cache for
-// per-item nested branch statics — stripping them would lose the HTML
-// structure the client needs (issue #413).
+// generateInsertionOps emits insert ops for newly-added items, keeping nested statics intact.
 func generateInsertionOps(ctx *rangeContext, operations []interface{}) []interface{} {
 	if len(ctx.addedKeys) == 0 {
 		return operations
