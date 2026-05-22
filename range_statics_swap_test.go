@@ -280,3 +280,81 @@ func truncate(b []byte, n int) string {
 	}
 	return string(b[:n]) + "...(truncated)"
 }
+
+// TestRangeStatics_AutoKey_AppendIncludesAutoKey is the flash-messages
+// regression test for issue #413: a `{{range}}` over a slice of strings has
+// no explicit data-key, so each item gets an auto-generated `_k` hash.
+// Stream-mode inserts must carry the `_k` field so the client can track the
+// new row for later remove/update operations. The earlier strip-on-insert
+// attempt dropped AutoKey via PrepareTreeForClient and broke remove flow in
+// examples/flash-messages.
+func TestRangeStatics_AutoKey_AppendIncludesAutoKey(t *testing.T) {
+	tmplStr := `<ul>{{range .Items}}<li>{{.}}</li>{{end}}</ul>`
+
+	tmpl := Must(New("test"))
+	if _, err := tmpl.Parse(tmplStr); err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	d1 := map[string]interface{}{"Items": []string{"Apple", "Banana", "Cherry"}}
+	if err := tmpl.ExecuteUpdates(&bytes.Buffer{}, d1); err != nil {
+		t.Fatalf("initial render failed: %v", err)
+	}
+
+	d2 := map[string]interface{}{"Items": []string{"Apple", "Banana", "Cherry", "Date"}}
+	var update bytes.Buffer
+	if err := tmpl.ExecuteUpdates(&update, d2); err != nil {
+		t.Fatalf("update failed: %v", err)
+	}
+
+	payload := update.String()
+	if !strings.Contains(payload, `"_k"`) {
+		t.Errorf("append payload missing auto-key (_k); client cannot track new row\n  payload=%s", payload)
+	}
+}
+
+// TestRangeStatics_NestedBranch_AppendIncludesBranchStatics is the
+// tinkerdown auto-tables regression test for issue #413: a `{{range}}` whose
+// item template contains a nested `{{if}}` branch with dynamics must keep
+// the branch's statics on insert. The client has no per-position branch
+// statics cache — when it receives an item with stripped nested statics
+// (numeric keys only on the nested object), it joins values without the
+// HTML wrapper, losing the row's structure (`<span class="marker">…</span>`
+// becomes just the dynamic text).
+func TestRangeStatics_NestedBranch_AppendIncludesBranchStatics(t *testing.T) {
+	tmplStr := `<ul>{{range .Items}}<li>{{if .HasMarker}}<span class="marker">{{.MarkerText}}</span>{{end}}{{.Name}}</li>{{end}}</ul>`
+
+	type item struct {
+		Name       string
+		HasMarker  bool
+		MarkerText string
+	}
+
+	tmpl := Must(New("test"))
+	if _, err := tmpl.Parse(tmplStr); err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	d1 := map[string]interface{}{"Items": []item{
+		{Name: "Apple", HasMarker: true, MarkerText: "A"},
+		{Name: "Banana", HasMarker: true, MarkerText: "B"},
+	}}
+	if err := tmpl.ExecuteUpdates(&bytes.Buffer{}, d1); err != nil {
+		t.Fatalf("initial render failed: %v", err)
+	}
+
+	d2 := map[string]interface{}{"Items": []item{
+		{Name: "Apple", HasMarker: true, MarkerText: "A"},
+		{Name: "Banana", HasMarker: true, MarkerText: "B"},
+		{Name: "Cherry", HasMarker: true, MarkerText: "C"},
+	}}
+	var update bytes.Buffer
+	if err := tmpl.ExecuteUpdates(&update, d2); err != nil {
+		t.Fatalf("update failed: %v", err)
+	}
+
+	payload := update.String()
+	if !strings.Contains(payload, "marker") {
+		t.Errorf("append payload missing nested branch statics (class=\"marker\"); client cannot render new row\n  payload=%s", payload)
+	}
+}

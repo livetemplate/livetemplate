@@ -14,15 +14,15 @@ import (
 //
 // Two shapes:
 //   1. "Simple": homogeneous range with primitive dynamics — the case from
-//      the issue. After the existing fingerprint-based strip, this should
-//      scale near-linearly in dynamic content size with zero per-row static
+//      the issue. After the fingerprint-based op-envelope strip, this
+//      scales near-linearly in dynamic content size with zero per-row static
 //      overhead.
 //   2. "DynamicBranch": homogeneous range whose item template contains an
-//      {{if}}…{{else}}{{end}} branch with a dynamic inside the if-arm. Before
-//      the fix in #413 the stream-mode insert path re-emitted those branch
-//      statics; after the fix they are stripped under the §5b homogeneity
-//      guarantee. Static-only branches still retain statics (the special
-//      case in PrepareTreeForClient preserves branch identity).
+//      {{if}}…{{else}}{{end}} branch with a dynamic inside the if-arm. The
+//      branch's statics MUST remain in the insert payload — the client has
+//      no per-position branch-statics cache and would otherwise render the
+//      new row without its HTML wrapper. See the regression tests in
+//      `range_statics_swap_test.go` (NestedBranch_AppendIncludesBranchStatics).
 //
 // Reported metric: bytes/op = wire JSON bytes per update.
 
@@ -113,9 +113,9 @@ func BenchmarkRangeFullSwap_Simple_N1000(b *testing.B) {
 }
 
 // DynamicBranch (nested {{if}} with dynamic inside the if-arm) — exercises
-// the stream-mode insert path that previously re-emitted nested branch
-// statics. After the fix in #413, the if-arm statics are stripped under the
-// §5b homogeneity guarantee.
+// the stream-mode insert path. Branch statics MUST remain in the wire so
+// the client can render new rows; bytes/op here is the cost of that
+// per-row scaffolding.
 func BenchmarkRangeFullSwap_DynamicBranch_N10(b *testing.B) {
 	benchmarkFullContentSwapPayload(b, benchDynamicBranchTemplate, 10)
 }

@@ -24,8 +24,10 @@ func PrepareTreeForClient(node interface{}, clientHasStatics bool) interface{} {
 	// Client has statics - remove them to reduce wire size
 	switch v := node.(type) {
 	case *TreeNode:
-		// Create new TreeNode without statics or fingerprint
-		result := &TreeNode{}
+		// Create new TreeNode without statics or fingerprint. AutoKey must
+		// be preserved because it is the "_k" identifier the client uses to
+		// track range items by key (issue #413).
+		result := &TreeNode{AutoKey: v.AutoKey}
 		// Pre-allocate to avoid repeated growth in SetDynamic
 		result.GrowDynamics(len(v.Dynamics))
 		// Recursively prepare dynamics, filtering out empty values while preserving static-only conditional blocks

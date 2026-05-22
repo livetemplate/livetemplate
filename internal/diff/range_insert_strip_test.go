@@ -8,27 +8,21 @@ import (
 	"github.com/livetemplate/livetemplate/internal/build"
 )
 
-// TestStreamInsert_StripsNestedDynamicBranchStatics — issue #413.
+// TestStreamInsert_PreservesNestedDynamicBranchStatics — issue #413.
 //
-// The stream-mode update path (`dynamicsToUpdatePayload`) already strips
-// nested statics via `PrepareTreeForClient(v, true)` because the §5b
-// homogeneity check guarantees the client has them. Insertions were
-// inconsistent: they kept all nested statics via `PrepareTreeForClient(item,
-// false)`, re-emitting per-row scaffolding the client had cached.
+// The original symmetry attempt (stripping nested item statics in stream-mode
+// INSERTs to mirror the UPDATE path) broke client rendering. Updates patch
+// existing DOM in place, so the client only needs new dynamic values. Inserts
+// have to RENDER new DOM, and the client has no per-position branch-statics
+// cache — when it sees an item like {"0": {"0": "marker text"}} with no "s"
+// on the nested object, it joins values with empty string and loses the
+// HTML wrapper (`<span class="marker">…</span>`). Downstream regressions:
+// examples/flash-messages and tinkerdown auto-tables.
 //
-// After the fix in #413, stream-mode insertions also pass the
-// homogeneity-guaranteed flag, so nested branches containing dynamics drop
-// their statics on the wire. Static-only branches (whose entire content is
-// HTML, no dynamics) still retain statics — the special case in
-// `PrepareTreeForClient` preserves branch identity for those, since the
-// client otherwise has no way to distinguish two static-only branches at the
-// same item position.
-func TestStreamInsert_StripsNestedDynamicBranchStatics(t *testing.T) {
-	// Build a homogeneous range "old side" with items shaped like:
-	//   {data-key, marker-branch-with-dynamic}
-	// where the marker is `{{if .HasMarker}}<m>{{.MarkerText}}</m>{{end}}`.
-	// All items share the same statics-fingerprint shape, so
-	// TransitionToStreamMode succeeds.
+// This test locks in the contract that stream-mode INSERT payloads carry
+// the full per-item nested branch statics so the client can reconstruct
+// every new row's HTML structure.
+func TestStreamInsert_PreservesNestedDynamicBranchStatics(t *testing.T) {
 	itemStatics := []string{`<li data-key="`, `">`, `</li>`}
 	makeItem := func(key, markerText string) *TreeNode {
 		marker := &TreeNode{
@@ -36,7 +30,7 @@ func TestStreamInsert_StripsNestedDynamicBranchStatics(t *testing.T) {
 			Dynamics: []interface{}{markerText},
 		}
 		return &TreeNode{
-			Statics:  itemStatics, // before extractItemDynamics, item carries statics
+			Statics:  itemStatics,
 			Dynamics: []interface{}{key, marker},
 		}
 	}
@@ -54,9 +48,6 @@ func TestStreamInsert_StripsNestedDynamicBranchStatics(t *testing.T) {
 		t.Fatalf("TransitionToStreamMode left StreamState nil — fixture lost homogeneity?")
 	}
 
-	// New side: all items replaced with new keys (full content swap).
-	// Items have the SAME structure (marker with dynamic), but different
-	// dynamic values.
 	newItems := []interface{}{
 		extractDynamics(makeItem("n1", "new-marker-1")),
 		extractDynamics(makeItem("n2", "new-marker-2")),
@@ -66,7 +57,6 @@ func TestStreamInsert_StripsNestedDynamicBranchStatics(t *testing.T) {
 		Range:   &build.RangeData{Items: newItems, Statics: itemStatics},
 	}
 
-	// Drive the dispatch path so stripStatics == true (fingerprint match).
 	changes := &TreeNode{}
 	if !handleStreamModeRange(oldTree, newTree, changes) {
 		t.Fatalf("handleStreamModeRange did not dispatch to stream mode")
@@ -81,29 +71,35 @@ func TestStreamInsert_StripsNestedDynamicBranchStatics(t *testing.T) {
 		t.Fatalf("json.Marshal failed: %v", err)
 	}
 
-	// The marker's `<m>` static SHOULD be absent — the client has it cached
-	// from the homogeneity guarantee.
-	if strings.Contains(string(payload), `<m>`) {
-		t.Errorf("nested marker statics leaked into stream-mode insert payload (issue #413)\n  payload=%s", payload)
+	// json.Marshal HTML-escapes `<` to `<` and `>` to `>` by
+	// default. Check the "s":[...] envelope (proves the nested statics
+	// were not stripped) and the actual on-wire marker content.
+	if !strings.Contains(string(payload), `"s":[`) {
+		t.Errorf("nested marker statics missing from insert payload; client cannot render new rows (issue #413)\n  payload=%s", payload)
+	}
+	if !strings.Contains(string(payload), `\u003cm\u003e`) {
+		t.Errorf("nested marker static content (<m>) missing from insert payload\n  payload=%s", payload)
 	}
 
 	// The new dynamic content MUST still arrive.
 	if !strings.Contains(string(payload), "new-marker-1") || !strings.Contains(string(payload), "new-marker-2") {
 		t.Errorf("new-side dynamic content missing from insert payload\n  payload=%s", payload)
 	}
+
+	// Item keys must arrive so the client can track the new rows.
+	if !strings.Contains(string(payload), `"n1"`) || !strings.Contains(string(payload), `"n2"`) {
+		t.Errorf("new-side item keys missing from insert payload\n  payload=%s", payload)
+	}
 }
 
-// TestStreamInsert_PreservesStaticOnlyBranchIdentity — companion to the
-// previous test. For static-only conditional branches (e.g.
-// `{{if .Add}}+{{end}}`) the branch's statics ARE the branch identity, and
-// stripping them would make `{s:["+"]}` and `{s:["-"]}` indistinguishable on
-// the wire. The special case in `PrepareTreeForClient` retains those, so the
-// fix in #413 must not regress this case.
+// TestStreamInsert_PreservesStaticOnlyBranchIdentity — companion test. For
+// static-only conditional branches (e.g. `{{if .Add}}+{{end}}`) the branch's
+// statics ARE the branch identity. The PrepareTreeForClient special case for
+// static-only branches preserved this even when the (now-reverted) strip-on-
+// insert path was active. Keeping the test guards against future regressions
+// in that special case.
 func TestStreamInsert_PreservesStaticOnlyBranchIdentity(t *testing.T) {
 	itemStatics := []string{`<li data-key="`, `">`, `</li>`}
-	// Build items where position 1 is a static-only nested *TreeNode (e.g.
-	// the {{else}} branch of a multi-branch conditional rendered with no
-	// dynamics).
 	makeItem := func(key, branchStatic string) *TreeNode {
 		branch := &TreeNode{Statics: []string{branchStatic}}
 		return &TreeNode{
@@ -112,10 +108,6 @@ func TestStreamInsert_PreservesStaticOnlyBranchIdentity(t *testing.T) {
 		}
 	}
 
-	// Need homogeneous old side to enter stream mode. All items use the same
-	// branch shape (static-only), but they may differ in what static text
-	// fills the branch — that's a STATICS difference, not a structure
-	// difference, so the staticsFingerprint matches.
 	oldItems := []interface{}{
 		extractDynamics(makeItem("k1", "+")),
 		extractDynamics(makeItem("k2", "+")),
@@ -152,11 +144,63 @@ func TestStreamInsert_PreservesStaticOnlyBranchIdentity(t *testing.T) {
 		t.Fatalf("json.Marshal failed: %v", err)
 	}
 
-	// The static-only branch's content MUST remain — it carries the branch
-	// identity. Stripping it would make two static-only branches at the same
-	// position indistinguishable.
 	if !strings.Contains(string(payload), `"+"`) {
 		t.Errorf("static-only branch statics were stripped, losing branch identity (regression vs PrepareTreeForClient special case)\n  payload=%s", payload)
+	}
+}
+
+// TestStreamInsert_PreservesAutoKey — regression test for the
+// examples/flash-messages bug. Items in a `{{range}}` without an explicit
+// data-key get an auto-generated `_k` field via build.TreeNode.AutoKey.
+// PrepareTreeForClient was dropping AutoKey when stripping statics, so
+// stream-mode inserts arrived at the client without `_k` and the client
+// could not track the new row by key.
+func TestStreamInsert_PreservesAutoKey(t *testing.T) {
+	makeItem := func(autoKey, val string) *TreeNode {
+		return &TreeNode{
+			AutoKey:  autoKey,
+			Dynamics: []interface{}{val},
+		}
+	}
+
+	itemStatics := []string{"<li>", "</li>"}
+	oldItems := []interface{}{
+		makeItem("hash-a", "Apple"),
+		makeItem("hash-b", "Banana"),
+	}
+	oldTree := &TreeNode{
+		Statics:  itemStatics,
+		Range:    &build.RangeData{Items: oldItems, Statics: itemStatics},
+		Metadata: &build.TreeMetadata{IDKey: "_k"},
+	}
+	TransitionToStreamMode(oldTree)
+	if oldTree.Range.StreamState == nil {
+		t.Fatalf("TransitionToStreamMode left StreamState nil — fixture lost homogeneity?")
+	}
+
+	newItems := []interface{}{
+		makeItem("hash-a", "Apple"),
+		makeItem("hash-b", "Banana"),
+		makeItem("hash-c", "Cherry"),
+	}
+	newTree := &TreeNode{
+		Statics:  itemStatics,
+		Range:    &build.RangeData{Items: newItems, Statics: itemStatics},
+		Metadata: &build.TreeMetadata{IDKey: "_k"},
+	}
+
+	changes := &TreeNode{}
+	if !handleStreamModeRange(oldTree, newTree, changes) {
+		t.Fatalf("handleStreamModeRange did not dispatch to stream mode")
+	}
+
+	payload, err := json.Marshal(changes.Range.Items)
+	if err != nil {
+		t.Fatalf("json.Marshal failed: %v", err)
+	}
+
+	if !strings.Contains(string(payload), `"_k":"hash-c"`) {
+		t.Errorf("auto-key (_k) missing from stream-mode insert; client cannot track new row (issue #413)\n  payload=%s", payload)
 	}
 }
 
