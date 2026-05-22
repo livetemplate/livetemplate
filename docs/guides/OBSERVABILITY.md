@@ -72,12 +72,14 @@ mux.Handle("/metrics", handler.MetricsHandler()) // Prometheus text format
 
 ### Available Metrics
 
+> **Breaking change in v0.11.0:** The `livetemplate_broadcasts_*` metric family was renamed to `livetemplate_publishes_*` to reflect the post-v0.10.0 `ctx.Publish` API. The `BroadcastFailures` alert is now `PublishFailures`. See [Metric Migration (v0.10.x → v0.11.0)](#metric-migration-v010x--v0110) below.
+
 **Counters:**
 - `livetemplate_actions_processed_total`
 - `livetemplate_templates_executed_total`
 - `livetemplate_trees_built_total`
 - `livetemplate_trees_diffed_total`
-- `livetemplate_broadcasts_sent_total`
+- `livetemplate_publishes_sent_total` (peer-fan-out publishes via `ctx.Publish`)
 - `livetemplate_errors_total`
 - `livetemplate_connections_rejected_total`
 - `livetemplate_websocket_buffer_full_total`
@@ -98,6 +100,41 @@ mux.Handle("/metrics", handler.MetricsHandler()) // Prometheus text format
 - `livetemplate_diff_duration_seconds`
 - `livetemplate_action_duration_seconds`
 - `livetemplate_update_payload_bytes`
+
+### Metric Migration (v0.10.x → v0.11.0)
+
+v0.11.0 renames the broadcast metric family to reflect the new `ctx.Publish`/`ctx.Subscribe` API. There is no dual-emit period — operators must update dashboards, recording rules, and alert configurations in lockstep with the deploy.
+
+**Renamed metrics:**
+
+| v0.10.x | v0.11.0 |
+|---|---|
+| `livetemplate_broadcasts_sent_total` | `livetemplate_publishes_sent_total` |
+
+The `livetemplate_websocket_dispatch_dropped_total` name is unchanged; only its help text was updated to use "publish dispatch" instead of "broadcast dispatch".
+
+**Renamed alerts:**
+
+| v0.10.x | v0.11.0 |
+|---|---|
+| `BroadcastFailures` | `PublishFailures` |
+
+**Quick migration for Prometheus alert rules / Grafana dashboards** (sed one-liners against your YAML/JSON):
+
+```bash
+sed -i 's/livetemplate_broadcasts_sent_total/livetemplate_publishes_sent_total/g' /path/to/alerts.yml
+sed -i 's/BroadcastFailures/PublishFailures/g' /path/to/alerts.yml
+sed -i 's/broadcast_errors_per_minute/publish_errors_per_minute/g' /path/to/alerts.yml
+```
+
+**Programmatic Go callers** (internal to livetemplate or out-of-tree forks) using the unexported metric API see two corresponding renames:
+
+| v0.10.x | v0.11.0 |
+|---|---|
+| `(*observe.Metrics).BroadcastSent()` | `(*observe.Metrics).PublishSent()` |
+| `MetricsSnapshot.BroadcastsSent` | `MetricsSnapshot.PublishesSent` |
+
+External users importing the public `MetricsHandler()` API are unaffected.
 
 ## Log Output Formats
 
@@ -156,7 +193,7 @@ func main() {
 ## Log Levels
 
 - **DEBUG**: Tree building, diffing, rendering details
-- **INFO**: Template parsing, actions received, WebSocket lifecycle, broadcasts, metrics
+- **INFO**: Template parsing, actions received, WebSocket lifecycle, publishes, metrics
 - **WARN**: Recoverable errors, retries, degraded performance
 - **ERROR**: Operation failures, unrecoverable errors
 
@@ -234,9 +271,9 @@ alerts:
     condition: websocket_disconnected_per_minute > 100
     severity: warning
 
-# Broadcast failures
-  - name: BroadcastFailures
-    condition: broadcast_errors_per_minute > 5
+# Publish (peer fan-out) failures
+  - name: PublishFailures
+    condition: publish_errors_per_minute > 5
     severity: critical
 ```
 

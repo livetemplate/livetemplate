@@ -432,7 +432,7 @@ Options passed to `New()`:
 | `WithTemplateBaseDir` | `(dir string)` | Template discovery base dir |
 | `WithIgnoreTemplateDirs` | `(dirs ...string)` | Skip directories during discovery |
 | `WithUpload` | `(name string, config UploadConfig)` | Configure upload field |
-| `WithPubSubBroadcaster` | `(broadcaster pubsub.Broadcaster)` | Enable distributed broadcasting |
+| `WithPubSubBroadcaster` | `(broadcaster pubsub.Broadcaster)` | Enable cross-instance peer fan-out via Redis Pub/Sub |
 | `WithComponentTemplates` | `(sets ...*TemplateSet)` | Register component templates |
 | `WithProgressiveEnhancement` | `(enabled bool)` | Non-JS form submission support |
 
@@ -510,9 +510,9 @@ Built-in: `NewSessionStoreHealthChecker(store)`, `NewRedisHealthChecker(store)`.
 
 ---
 
-## PubSub (Distributed Broadcasting)
+## PubSub (Cross-Instance Peer Fan-Out)
 
-Package `pubsub` provides cross-instance messaging for horizontally scaled deployments. See the [PubSub Reference](pubsub.md) for the complete API including `Broadcaster`, `DynamicSubscriber`, broadcast scopes, channel schema, and subscription lifecycle.
+Package `pubsub` provides cross-instance messaging for horizontally scaled deployments. See the [PubSub Reference](pubsub.md) for the complete API including `Broadcaster`, `DynamicSubscriber`, the `livetemplate:broadcast:*` channel namespace, channel schema, and subscription lifecycle.
 
 ---
 
@@ -563,6 +563,6 @@ Converts `go-playground/validator` errors to `MultiError`.
 - [Configuration](CONFIGURATION.md) - Environment and option configuration
 - [Authentication](authentication.md) - Auth setup
 - [Session Management](session.md) - Session stores and persistence
-- [Server Actions](server-actions.md) - Broadcasting and server-initiated updates
+- [Server Actions](server-actions.md) - Peer fan-out and server-initiated updates
 - [Error Handling](error-handling.md) - Validation and error display
 - [Client Attributes](client-attributes.md) - Template attribute reference

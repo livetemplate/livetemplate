@@ -527,7 +527,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		GroupID:  groupID,
 		UserID:   userID,
 		Template: connTmpl,
-		Stores:   typedState, // Store typed state for broadcasting
+		Stores:   typedState, // Store typed state for peer fan-out
 		Uploads:  uploadRegistry,
 	}
 

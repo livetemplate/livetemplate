@@ -71,13 +71,13 @@
 //   - Store: Interface for application state and action handlers
 //   - ActionContext: Provides action data and utilities in Change() method
 //   - ActionData: Type-safe data extraction and validation
-//   - Broadcaster: Share state updates across all connected clients
+//   - Broadcaster: Share state updates across instances via Redis Pub/Sub
 //   - SessionStore: Per-session state management
 //
 // # Advanced Features
 //
 //   - Multi-store pattern: Namespace multiple stores in one template
-//   - Broadcasting: Real-time updates to all connected clients
+//   - Peer fan-out: Real-time updates to all connected clients via ctx.Publish
 //   - Server-side validation: Automatic error handling with go-playground/validator
 //   - Form lifecycle events: Client-side hooks for pending, success, error, done
 //   - Focus preservation: Maintains input focus and scroll position during updates
@@ -545,10 +545,10 @@ func WithWebSocketBufferSize(size int) Option {
 	}
 }
 
-// WithDispatchBufferSize sets the buffer size for the broadcast dispatch channel
+// WithDispatchBufferSize sets the buffer size for the peer-fan-out dispatch channel
 // per WebSocket connection. This is separate from the WebSocket send buffer
 // (WithWebSocketBufferSize) because dispatch requests are less frequent.
-// Default: 16. Increase for apps with high broadcast fan-out.
+// Default: 16. Increase for apps with high ctx.Publish fan-out.
 func WithDispatchBufferSize(size int) Option {
 	return func(c *Config) {
 		c.DispatchBufferSize = size
@@ -638,13 +638,13 @@ func WithUpload(name string, config uploadtypes.UploadConfig) Option {
 	}
 }
 
-// WithPubSubBroadcaster enables distributed broadcasting across multiple application instances.
+// WithPubSubBroadcaster enables distributed peer fan-out across multiple application instances.
 //
-// When set, Broadcast*, BroadcastToUsers, and BroadcastToGroup methods will publish messages
-// to Redis Pub/Sub for distribution to all instances. Each instance subscribes to these messages
-// and fans them out to its local connections.
+// When set, ctx.Publish calls (and the framework-internal group/user/global scopes) are
+// republished to Redis Pub/Sub via the configured pubsub.Broadcaster. Each instance subscribes
+// to these channels and fans the messages out to its local WebSocket connections.
 //
-// This is essential for horizontal scaling - without it, broadcasts only reach connections
+// This is essential for horizontal scaling — without it, ctx.Publish only reaches connections
 // on the same instance.
 //
 // Example:

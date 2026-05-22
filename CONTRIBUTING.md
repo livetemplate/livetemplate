@@ -212,7 +212,7 @@ livetemplate/
 │   ├── keys/            # Range item key generation
 │   ├── upload/          # Upload infrastructure
 │   └── fuzz/            # Fuzz testing framework
-├── pubsub/              # Redis pub/sub for distributed broadcasting
+├── pubsub/              # Redis pub/sub for distributed peer fan-out
 ├── testdata/            # Test fixtures, golden files, fuzz corpus
 ├── docs/                # Documentation
 └── scripts/             # Development scripts

@@ -130,7 +130,7 @@ livetemplate/
 │   ├── upload/                   # File upload handling
 │   ├── uploadtypes/              # Upload type definitions
 │   └── util/                     # String utilities
-├── pubsub/                       # Pub/sub broadcasting
+├── pubsub/                       # Pub/sub cross-instance peer fan-out
 ├── docs/                         # Architecture and guides
 ├── testdata/                     # Test fixtures and golden files
 └── scripts/                      # Release and build scripts
@@ -1326,7 +1326,7 @@ See: [`internal/keys/generator.go`](../../internal/keys/generator.go)
 **Examples:**
 - [Counter](https://github.com/livetemplate/examples/tree/main/counter) - Simplest example
 - [Todos](https://github.com/livetemplate/examples/tree/main/todos) - CRUD operations
-- [Chat](https://github.com/livetemplate/examples/tree/main/chat) - Broadcasting
+- [Chat](https://github.com/livetemplate/examples/tree/main/chat) - Peer fan-out with `ctx.Publish`
 
 ## Getting Help
 
@@ -1344,7 +1344,7 @@ Good starting points for new contributors:
 
 1. **Documentation**
    - Add more code examples to existing docs
-   - Create topic-specific guides (validation, broadcasting patterns)
+   - Create topic-specific guides (validation, pub/sub patterns)
    - Improve inline code comments
 
 2. **Testing**

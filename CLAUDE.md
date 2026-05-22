@@ -338,7 +338,7 @@ The TypeScript client is maintained in a separate repository at `github.com/live
 - Monitor `wsBufferFull` metric to detect backpressure
 - Use Prometheus metrics at `/metrics` endpoint for observability
 
-### PubSub / Cross-Instance Broadcasting Issues
+### PubSub / Cross-Instance Peer Fan-Out Issues
 
 **Cross-instance messages not received:**
 - Verify `WithPubSubBroadcaster(broadcaster)` is configured

@@ -33,7 +33,7 @@ func TestPrometheusExporter_WriteMetrics(t *testing.T) {
 	metrics.TemplateExecuted(20 * time.Millisecond)
 	metrics.TreeBuilt(5 * time.Millisecond)
 	metrics.TreeDiffed(3 * time.Millisecond)
-	metrics.BroadcastSent()
+	metrics.PublishSent()
 	metrics.ErrorEncountered()
 	metrics.ConnectionAdded()
 	metrics.ConnectionAdded()
@@ -64,7 +64,7 @@ func TestPrometheusExporter_WriteMetrics(t *testing.T) {
 		"livetemplate_templates_executed_total",
 		"livetemplate_trees_built_total",
 		"livetemplate_trees_diffed_total",
-		"livetemplate_broadcasts_sent_total",
+		"livetemplate_publishes_sent_total",
 		"livetemplate_errors_total",
 		"livetemplate_template_duration_seconds",
 		"livetemplate_build_duration_seconds",
@@ -127,8 +127,8 @@ func TestPrometheusExporter_WriteMetrics(t *testing.T) {
 		t.Errorf("Expected 5 rejected connections, got %f", parsedMetrics["livetemplate_connections_rejected_total"])
 	}
 
-	if parsedMetrics["livetemplate_broadcasts_sent_total"] != 1 {
-		t.Errorf("Expected 1 broadcast sent, got %f", parsedMetrics["livetemplate_broadcasts_sent_total"])
+	if parsedMetrics["livetemplate_publishes_sent_total"] != 1 {
+		t.Errorf("Expected 1 publish sent, got %f", parsedMetrics["livetemplate_publishes_sent_total"])
 	}
 }
 
