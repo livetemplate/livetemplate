@@ -17,14 +17,14 @@ type Metrics struct {
 	templatesExecuted atomic.Int64
 	treesBuilt        atomic.Int64
 	treesDiffed       atomic.Int64
-	broadcastsSent    atomic.Int64
+	publishesSent     atomic.Int64
 	errorsEncountered atomic.Int64
 
 	// WebSocket async sending counters
 	wsBufferFull       atomic.Int64 // Total count of buffer overflow events
 	wsSlowClientCloses atomic.Int64 // Total count of connections closed due to slow clients
 	wsWriteErrors      atomic.Int64 // Total count of WebSocket write errors
-	wsDispatchDropped  atomic.Int64 // Total count of broadcast dispatch drops (channel full)
+	wsDispatchDropped  atomic.Int64 // Total count of publish dispatch drops (channel full)
 
 	// Wire format metrics (fingerprint-based diff tracking)
 	fullTreeSends         atomic.Int64 // Total sends with statics (structure changed or first render)
@@ -85,9 +85,9 @@ func (m *Metrics) TreeDiffed(duration time.Duration) {
 	m.diffDurations.Record(duration)
 }
 
-// BroadcastSent increments the broadcasts sent counter.
-func (m *Metrics) BroadcastSent() {
-	m.broadcastsSent.Add(1)
+// PublishSent increments the publishes-sent counter (peer-fan-out via ctx.Publish).
+func (m *Metrics) PublishSent() {
+	m.publishesSent.Add(1)
 }
 
 // ErrorEncountered increments the errors counter.
@@ -144,7 +144,7 @@ func (m *Metrics) WSAddBufferSize(delta int64) {
 	m.wsSendBufferSize.Add(delta)
 }
 
-// WSDispatchDropped increments the broadcast dispatch drop counter.
+// WSDispatchDropped increments the publish dispatch drop counter.
 func (m *Metrics) WSDispatchDropped() {
 	m.wsDispatchDropped.Add(1)
 }
@@ -192,7 +192,7 @@ func (m *Metrics) emit() {
 		"templates_executed", m.templatesExecuted.Load(),
 		"trees_built", m.treesBuilt.Load(),
 		"trees_diffed", m.treesDiffed.Load(),
-		"broadcasts_sent", m.broadcastsSent.Load(),
+		"publishes_sent", m.publishesSent.Load(),
 		"errors_encountered", m.errorsEncountered.Load(),
 
 		// WebSocket async sending counters

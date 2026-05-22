@@ -6,9 +6,9 @@ For server-initiated actions, see [Server Actions](server-actions.md). For scali
 
 ## Overview
 
-In a single-instance deployment, all WebSocket connections live in the same process. State changes and broadcasts are delivered directly via the in-memory connection registry.
+In a single-instance deployment, all WebSocket connections live in the same process. State changes and `ctx.Publish` peer fan-out are delivered directly via the in-memory connection registry.
 
-In multi-instance deployments, a user's connections may be spread across different servers. The `pubsub` package provides cross-instance messaging via Redis Pub/Sub so that broadcasts, group updates, and server actions reach all relevant connections regardless of which instance they're on.
+In multi-instance deployments, a user's connections may be spread across different servers. The `pubsub` package provides cross-instance messaging via Redis Pub/Sub so that `ctx.Publish` calls, group updates, and server actions reach all relevant connections regardless of which instance they're on.
 
 **When you need it:** Any deployment with 2+ application instances behind a load balancer.
 

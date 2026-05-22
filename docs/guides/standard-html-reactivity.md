@@ -54,7 +54,7 @@ For HTML-attribute-based validation (`required`, `pattern`, `min`, `max`), see t
 
 ---
 
-## Multi-User Broadcast
+## Multi-User Peer Fan-Out
 
 When one user's action should be visible to other WebSocket-connected tabs, the pattern is two-step: each connection that wants peer updates opts in via `ctx.Subscribe(ctx.SelfTopic())` in `Mount`, and the action that mutated shared state fans out via `ctx.Publish(ctx.SelfTopic(), "Refresh", nil)`. Peer fan-out is opt-in — a connection that didn't subscribe receives nothing.
 
@@ -81,7 +81,7 @@ func (c *TodoController) Refresh(state TodoState, ctx *livetemplate.Context) (To
 }
 ```
 
-Broadcast is scoped to the session group. For multi-instance deployments, add Redis pub/sub:
+Peer fan-out is scoped to the session group. For multi-instance deployments, add Redis pub/sub:
 
 ```go
 tmpl, _ := livetemplate.New("app",
@@ -118,7 +118,7 @@ LiveView uses `phx-*` attributes and requires a persistent WebSocket connection.
 
 ### LiveTemplate
 
-Standard HTML forms work reactively without any framework attributes. The button `name` routes to a Go method, form data is available via `ctx.GetString()`, and the response is a minimal tree diff. WebSocket is optional — only needed for server-initiated broadcasts.
+Standard HTML forms work reactively without any framework attributes. The button `name` routes to a Go method, form data is available via `ctx.GetString()`, and the response is a minimal tree diff. WebSocket is optional — only needed for server-initiated publishes (peer fan-out).
 
 ---
 

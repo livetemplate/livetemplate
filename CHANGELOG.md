@@ -5,6 +5,41 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.11.0] - 2026-05-22
+
+### Breaking Changes
+
+- **Prometheus metric family renamed**: `livetemplate_broadcasts_sent_total` is now
+  `livetemplate_publishes_sent_total`. The rename reflects the post-v0.10.0 `ctx.Publish` /
+  `ctx.Subscribe` API and removes the lingering ambiguity between the old `BroadcastAction`
+  vocabulary and the new pub/sub vocabulary. The metric's help text now reads
+  *"Total number of peer-fan-out publishes sent (ctx.Publish)"*.
+- **Alert renamed**: the example alert `BroadcastFailures` in `docs/guides/OBSERVABILITY.md`
+  is now `PublishFailures`; the condition expression uses `publish_errors_per_minute`.
+- **Internal (unexported) metric API renamed**: callers of `internal/observe` —
+  `(*observe.Metrics).BroadcastSent()` → `PublishSent()`, and
+  `MetricsSnapshot.BroadcastsSent` → `PublishesSent`. External users importing only the
+  public `MetricsHandler()` API are unaffected.
+
+There is no dual-emit period. Operators must update dashboards, recording rules, and alert
+configurations in lockstep with the deploy. See the
+[Metric Migration section in OBSERVABILITY.md](docs/guides/OBSERVABILITY.md#metric-migration-v010x--v0110)
+for the sed one-liners.
+
+### Changes
+
+- Scrub residual "broadcast" terminology from non-history docs/comments where it was
+  ambiguous next to the new pub/sub API: `WithPubSubBroadcaster` doc comment (which
+  referenced now-removed `BroadcastTo*` methods), `WithDispatchBufferSize` doc, package
+  doc comment, `Context.ConnectKind` comment, `CONTRIBUTING.md` directory map,
+  `docs/guides/SCALING.md`, `docs/guides/OBSERVABILITY.md`, `docs/guides/standard-html-reactivity.md`,
+  `docs/references/pubsub.md` (the "Broadcast Scopes" heading is preserved because it documents
+  the literal `livetemplate:broadcast:*` channel namespace), `docs/references/error-handling.md`,
+  `docs/references/api-reference.md`, `docs/guides/new-contributor-walkthrough.md`, and
+  `CLAUDE.md`. Public API type/identifier names (`Broadcaster`, `RedisBroadcaster`,
+  `WithPubSubBroadcaster`, `pubsub.BroadcastMessage`) are unchanged; wire-format Redis
+  channel names (`livetemplate:broadcast:*`) are unchanged.
+
 ## [v0.10.1] - 2026-05-21
 
 ### Changes

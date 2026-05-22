@@ -94,9 +94,9 @@ func (e *PrometheusExporter) WriteMetrics(w io.Writer) error {
 		"Total number of tree diffs performed",
 		e.metrics.treesDiffed.Load())
 
-	e.writeCounter(&sb, "livetemplate_broadcasts_sent_total",
-		"Total number of broadcasts sent",
-		e.metrics.broadcastsSent.Load())
+	e.writeCounter(&sb, "livetemplate_publishes_sent_total",
+		"Total number of peer-fan-out publishes sent (ctx.Publish)",
+		e.metrics.publishesSent.Load())
 
 	e.writeCounter(&sb, "livetemplate_errors_total",
 		"Total number of errors encountered",
@@ -120,7 +120,7 @@ func (e *PrometheusExporter) WriteMetrics(w io.Writer) error {
 		e.metrics.wsSendBufferSize.Load())
 
 	e.writeCounter(&sb, "livetemplate_websocket_dispatch_dropped_total",
-		"Total number of broadcast dispatch drops (dispatch channel full)",
+		"Total number of publish dispatch drops (dispatch channel full)",
 		e.metrics.wsDispatchDropped.Load())
 
 	// Wire format metrics (fingerprint-based diff tracking)
@@ -254,7 +254,7 @@ type MetricsSnapshot struct {
 	TemplatesExecuted int64
 	TreesBuilt        int64
 	TreesDiffed       int64
-	BroadcastsSent    int64
+	PublishesSent     int64
 	ErrorsEncountered int64
 
 	// Gauges
@@ -285,7 +285,7 @@ func (e *PrometheusExporter) Snapshot() MetricsSnapshot {
 		TemplatesExecuted: e.metrics.templatesExecuted.Load(),
 		TreesBuilt:        e.metrics.treesBuilt.Load(),
 		TreesDiffed:       e.metrics.treesDiffed.Load(),
-		BroadcastsSent:    e.metrics.broadcastsSent.Load(),
+		PublishesSent:     e.metrics.publishesSent.Load(),
 		ErrorsEncountered: e.metrics.errorsEncountered.Load(),
 		ActiveConnections: e.metrics.activeConnections.Load(),
 		ActiveGroups:      e.metrics.activeGroups.Load(),
@@ -348,7 +348,7 @@ func (e *PrometheusExporter) GetMetricNames() []string {
 		"livetemplate_templates_executed_total",
 		"livetemplate_trees_built_total",
 		"livetemplate_trees_diffed_total",
-		"livetemplate_broadcasts_sent_total",
+		"livetemplate_publishes_sent_total",
 		"livetemplate_errors_total",
 		"livetemplate_template_duration_seconds",
 		"livetemplate_build_duration_seconds",

@@ -474,7 +474,7 @@ Pass `livetemplate.FlashExpiry(d)` for transient feedback that should disappear 
 ctx.SetFlash("success", "Saved!", livetemplate.FlashExpiry(5*time.Second))
 ```
 
-The message is pruned on the next render that walks flash state after the duration elapses — there is no background timer, so the user must trigger a render (action, broadcast, or scan-loop refresh) to see it disappear. A duration of `0` or less disables auto-expiry, behaving as if `FlashExpiry` were not provided.
+The message is pruned on the next render that walks flash state after the duration elapses — there is no background timer, so the user must trigger a render (action, peer-fan-out publish, or scan-loop refresh) to see it disappear. A duration of `0` or less disables auto-expiry, behaving as if `FlashExpiry` were not provided.
 
 `FlashExpiry` has no observable effect on HTTP connections — HTTP flash is already one-shot per request.
 
@@ -616,7 +616,7 @@ Flash follows a **persist-until-cleared** lifecycle. On a WebSocket connection, 
 If a user has multiple tabs open (same session group):
 - Tab 1 triggers action → sets flash → Tab 1 sees flash
 - Tab 2 does NOT see Tab 1's flash (flash is per-connection)
-- State changes ARE broadcast to Tab 2 (state is shared)
+- State changes ARE published to Tab 2 when the connection has subscribed via `ctx.Subscribe(ctx.SelfTopic())` (state is shared)
 
 #### Migration: v0.8 → v0.9 (PR #344)
 

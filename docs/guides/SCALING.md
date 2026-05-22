@@ -1539,7 +1539,7 @@ redis-cli DBSIZE
 **Redis CPU:**
 - Baseline: 0.5-1 core
 - Per 10K ops/sec: +0.5 cores
-- Pub/Sub broadcasting: +1-2 cores per 10K messages/sec
+- Pub/Sub fan-out: +1-2 cores per 10K messages/sec
 
 **Recommendation:**
 - Application instances: 2-8 cores per instance (depending on interaction rate)
@@ -1550,7 +1550,7 @@ redis-cli DBSIZE
 **WebSocket Traffic:**
 - Idle connection: ~1-5 KB/min (heartbeat)
 - Active connection: 10-500 KB/min (depends on update frequency)
-- Broadcast-heavy: 1-10 MB/min (real-time dashboards, chat)
+- Fan-out heavy: 1-10 MB/min (real-time dashboards, chat)
 
 **Per Instance Bandwidth:**
 ```
@@ -1559,8 +1559,8 @@ redis-cli DBSIZE
 
 **Redis Pub/Sub Bandwidth:**
 ```
-Message size × Broadcast rate × Instance count
-Example: 5 KB message × 100 broadcasts/sec × 10 instances = 5 MB/s
+Message size × Publish rate × Instance count
+Example: 5 KB message × 100 publishes/sec × 10 instances = 5 MB/s
 ```
 
 **Recommendation:**
@@ -1594,7 +1594,7 @@ Use this table to determine when to scale horizontally (add instances) vs vertic
 |----------|--------------|-------------------|
 | Memory at 80% | Single instance | Add more instances (horizontal scale) |
 | CPU at 80% | Single instance | Add more instances or upgrade instance size |
-| High broadcast latency | Multiple instances | Add more Redis resources or optimize broadcasts |
+| High publish/fan-out latency | Multiple instances | Add more Redis resources or optimize peer-fan-out paths |
 | Uneven load | Multiple instances | Enable connection migration (M3) or adjust LB algorithm |
 | Session store slow | Redis at capacity | Upgrade Redis instance or switch to Cluster |
 
@@ -1606,7 +1606,7 @@ Use this table to determine when to scale horizontally (add instances) vs vertic
 - 50,000 WebSocket connections
 - Average state size: 30 KB per session
 - Moderate interaction: 2 actions/min per user
-- 10 broadcasts/min to all users (price updates)
+- 10 fan-out publishes/min to all users (price updates)
 
 **Calculations:**
 
@@ -1716,7 +1716,7 @@ State Size per Session: 20 KB (default)
 ### Before Scaling to Tier 3 (Production HA)
 
 - [ ] Deploy Redis Sentinel (3 nodes minimum)
-- [ ] Add `RedisBroadcaster` for cross-instance broadcasts
+- [ ] Add `RedisBroadcaster` for cross-instance peer fan-out
 - [ ] Configure Kubernetes with 2+ replicas
 - [ ] Set up HorizontalPodAutoscaler
 - [ ] Configure graceful shutdown (connection draining)
@@ -1747,7 +1747,7 @@ State Size per Session: 20 KB (default)
 |--------|----|----|-----|
 | Max Connections | 10K | 20K | 50K+ |
 | Action Latency (p95) | <100ms | <50ms | <20ms |
-| Broadcast Latency (p95) | <50ms | <100ms | <50ms |
+| Publish/Fan-out Latency (p95) | <50ms | <100ms | <50ms |
 | Memory per Connection | 100 KB | 70 KB | 30 KB |
 | Goroutines per Connection | 1 | 1 | 0.5 |
 
@@ -1756,9 +1756,9 @@ State Size per Session: 20 KB (default)
 | Metric | M2 | M3 |
 |--------|----|----|
 | Total Connections | 200K | 500K+ |
-| Broadcast Fan-out Time (10K users) | 200ms | 100ms |
+| Publish Fan-out Time (10K users) | 200ms | 100ms |
 | Session Lookup Latency (Redis) | <5ms | <2ms |
-| Cross-Instance Broadcast Latency | <100ms | <50ms |
+| Cross-Instance Publish Latency | <100ms | <50ms |
 
 **Note:** Benchmarks are approximate and depend on hardware, network, and workload characteristics.
 
@@ -1778,16 +1778,16 @@ State Size per Session: 20 KB (default)
 3. **Optimize:** Review connection lifecycle, reduce memory per connection
 4. **Limit:** Set `MaxConnectionsPerGroup` to prevent single-user exhaustion
 
-### Issue: High Broadcast Latency
+### Issue: High Publish/Fan-out Latency
 
 **Symptoms:**
-- Broadcasts take >500ms to reach all clients
+- Publishes take >500ms to reach all clients
 - Users report stale data
 
 **Solutions:**
 1. **Redis latency:** Check `redis-cli --latency` and network latency
 2. **Fan-out size:** Limit group sizes or shard groups
-3. **Local optimization:** Ensure local broadcasts skip Redis (M2 feature)
+3. **Local optimization:** Ensure local publishes skip Redis (M2 feature)
 4. **Compression:** Enable WebSocket compression (M3)
 
 ### Issue: Sessions Not Persisting
@@ -1829,7 +1829,7 @@ livetemplate_connections_rejected_total > 100
 **Performance:**
 ```
 livetemplate_action_duration_seconds{quantile="0.95"} > 0.200  # 200ms
-livetemplate_broadcasts_sent_total rate(5m) > 10000  # High broadcast rate
+livetemplate_publishes_sent_total rate(5m) > 10000  # High publish/fan-out rate
 ```
 
 **Resource Usage:**
@@ -1854,7 +1854,7 @@ redis_connected_clients{instance="redis1"} > 9000  # 90% of Redis max clients
 
 **Info (metrics only):**
 - Connection count trends
-- Broadcast distribution
+- Publish/fan-out distribution
 - Session count by group
 
 ---
