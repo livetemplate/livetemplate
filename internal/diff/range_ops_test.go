@@ -482,7 +482,7 @@ func TestGenerateInsertionOperations_Prepend(t *testing.T) {
 	statics := []string{`<li data-key="`, `">`, `</li>`}
 	operations := []interface{}{}
 
-	ops := generateInsertionOps(newRangeContext(oldItems, newItems, statics, nil), operations)
+	ops := generateInsertionOps(newRangeContext(oldItems, newItems, statics, nil), operations, false)
 
 	// Should generate prepend operation
 	found := false
@@ -513,7 +513,7 @@ func TestGenerateInsertionOperations_Append(t *testing.T) {
 	statics := []string{`<li data-key="`, `">`, `</li>`}
 	operations := []interface{}{}
 
-	ops := generateInsertionOps(newRangeContext(oldItems, newItems, statics, nil), operations)
+	ops := generateInsertionOps(newRangeContext(oldItems, newItems, statics, nil), operations, false)
 
 	// Should generate append operation
 	found := false
@@ -546,7 +546,7 @@ func TestGenerateInsertionOperations_Complex(t *testing.T) {
 	statics := []string{`<li data-key="`, `">`, `</li>`}
 	operations := []interface{}{}
 
-	ops := generateInsertionOps(newRangeContext(oldItems, newItems, statics, nil), operations)
+	ops := generateInsertionOps(newRangeContext(oldItems, newItems, statics, nil), operations, false)
 
 	// Should generate individual insert operation
 	found := false

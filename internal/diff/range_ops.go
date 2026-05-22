@@ -138,7 +138,10 @@ func GenerateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 
 	operations := make([]interface{}, 0, 4)
 	operations = generateRemovalOps(ctx, operations)
-	operations = generateInsertionOps(ctx, operations)
+	// Legacy path: no per-item homogeneity guarantee, so retain nested item
+	// statics on new inserts. Stream-mode path (below) does carry the
+	// guarantee and may strip them.
+	operations = generateInsertionOps(ctx, operations, false)
 
 	if sameKeySet(ctx.oldKeys, ctx.newKeys) && HasReordering(ctx.oldKeys, ctx.newKeys) {
 		operations = append(operations, []interface{}{"o", ctx.newKeys})
@@ -229,7 +232,13 @@ func GenerateRangeStreamOperations(
 	operations := make([]interface{}, 0, 4)
 	operations = generateStreamRemovalOps(streamState.Keys, ctx.newByKey, operations)
 	operations = generateStreamUpdateOps(newItems, newKeys, newHashes, oldHashByKey, ctx.keyPos, operations)
-	operations = generateInsertionOps(ctx, operations)
+	// Stream-mode inserts: the §5b homogeneity check at the top of this
+	// function guarantees every new item shares streamState.Fingerprint, so
+	// the client has the item's nested statics cached from the previous
+	// render. Pass stripStatics through so per-item nested statics get the
+	// same treatment as the op-envelope statics (consistent with the
+	// stream-mode update path's PrepareTreeForClient(v, true) call). Issue #413.
+	operations = generateInsertionOps(ctx, operations, stripStatics)
 
 	if hasReorder {
 		operations = append(operations, []interface{}{"o", newKeys})
@@ -480,30 +489,39 @@ func hasKeptItemChanged(ctx *rangeContext) bool {
 	return false
 }
 
-func generateInsertionOps(ctx *rangeContext, operations []interface{}) []interface{} {
+// generateInsertionOps emits insert operations for items newly added in the
+// new render. `clientHasItemStatics` says whether the client already has the
+// per-item nested statics cached — true in stream mode (the §5b homogeneity
+// check guarantees every new item shares the previously-rendered statics
+// shape) and false on the legacy path (no such guarantee).
+func generateInsertionOps(ctx *rangeContext, operations []interface{}, clientHasItemStatics bool) []interface{} {
 	if len(ctx.addedKeys) == 0 {
 		return operations
 	}
 
 	if len(ctx.oldKeySet) == 0 {
-		return handleEmptyToItemsTransition(ctx.newItems, ctx.statics, ctx.metadata, operations)
+		return handleEmptyToItemsTransition(ctx.newItems, ctx.statics, ctx.metadata, operations, clientHasItemStatics)
 	}
 
-	return handleIncrementalInsertionsCtx(ctx, operations)
+	return handleIncrementalInsertionsCtx(ctx, operations, clientHasItemStatics)
 }
 
 // handleEmptyToItemsTransition handles the transition from empty range to items.
+// When clientHasItemStatics is true (stream-mode insert with homogeneity
+// guarantee), nested per-item statics that the client already has cached are
+// stripped via PrepareTreeForClient. The static-only conditional-branch case
+// in PrepareTreeForClient still retains those statics so branch identity is
+// preserved on the wire.
 func handleEmptyToItemsTransition(
 	newItems []interface{},
 	statics interface{},
 	metadata map[string]interface{},
 	operations []interface{},
+	clientHasItemStatics bool,
 ) []interface{} {
-	// Build array of items to append, KEEPING nested statics
-	// The client hasn't seen these items before, so they need full structure
 	itemsToAppend := make([]interface{}, 0, len(newItems))
 	for _, item := range newItems {
-		itemsToAppend = append(itemsToAppend, PrepareTreeForClient(item, false))
+		itemsToAppend = append(itemsToAppend, PrepareTreeForClient(item, clientHasItemStatics))
 	}
 
 	// Use 'a' operation with statics and metadata so client can initialize range state
@@ -517,16 +535,16 @@ func handleEmptyToItemsTransition(
 	return operations
 }
 
-func handleIncrementalInsertionsCtx(ctx *rangeContext, operations []interface{}) []interface{} {
+func handleIncrementalInsertionsCtx(ctx *rangeContext, operations []interface{}, clientHasItemStatics bool) []interface{} {
 	if areAllItemsAtStartCtx(ctx) {
-		return handlePrependOperation(ctx.addedKeys, ctx.newByKey, ctx.statics, operations)
+		return handlePrependOperation(ctx.addedKeys, ctx.newByKey, ctx.statics, operations, clientHasItemStatics)
 	}
 
 	if areAllItemsAtEndCtx(ctx) {
-		return handleAppendOperation(ctx.addedKeys, ctx.newByKey, ctx.statics, operations)
+		return handleAppendOperation(ctx.addedKeys, ctx.newByKey, ctx.statics, operations, clientHasItemStatics)
 	}
 
-	return handleIndividualInsertionsCtx(ctx, operations)
+	return handleIndividualInsertionsCtx(ctx, operations, clientHasItemStatics)
 }
 
 // handlePrependOperation generates prepend operations for items at the start.
@@ -535,13 +553,12 @@ func handlePrependOperation(
 	newItemsByKey map[string]interface{},
 	statics interface{},
 	operations []interface{},
+	clientHasItemStatics bool,
 ) []interface{} {
 	itemsToPrepend := make([]interface{}, 0, len(addedKeys))
 	for _, key := range addedKeys {
 		if item, exists := newItemsByKey[key]; exists {
-			// Keep nested statics for new items - client hasn't seen these items before
-			// so nested TreeNode structures (like conditionals) need their statics.
-			itemsToPrepend = append(itemsToPrepend, PrepareTreeForClient(item, false))
+			itemsToPrepend = append(itemsToPrepend, PrepareTreeForClient(item, clientHasItemStatics))
 		}
 	}
 	// Use 'p' operation for prepending (O(1) on client)
@@ -556,13 +573,12 @@ func handleAppendOperation(
 	newItemsByKey map[string]interface{},
 	statics interface{},
 	operations []interface{},
+	clientHasItemStatics bool,
 ) []interface{} {
 	itemsToAppend := make([]interface{}, 0, len(addedKeys))
 	for _, key := range addedKeys {
 		if item, exists := newItemsByKey[key]; exists {
-			// Keep nested statics for new items - client hasn't seen these items before
-			// so nested TreeNode structures (like conditionals) need their statics.
-			itemsToAppend = append(itemsToAppend, PrepareTreeForClient(item, false))
+			itemsToAppend = append(itemsToAppend, PrepareTreeForClient(item, clientHasItemStatics))
 		}
 	}
 	// Use 'a' operation for appending (O(1) on client)
@@ -571,17 +587,17 @@ func handleAppendOperation(
 	return operations
 }
 
-func handleIndividualInsertionsCtx(ctx *rangeContext, operations []interface{}) []interface{} {
+func handleIndividualInsertionsCtx(ctx *rangeContext, operations []interface{}, clientHasItemStatics bool) []interface{} {
 	for _, key := range ctx.addedKeys {
 		if newItem, exists := ctx.newByKey[key]; exists {
 			for i, item := range ctx.newItems {
 				if itemKey, ok := ctx.getItemKey(item); ok && itemKey == key {
 					if i == 0 {
-						preparedItem := PrepareTreeForClient(newItem, false)
+						preparedItem := PrepareTreeForClient(newItem, clientHasItemStatics)
 						operations = append(operations, []interface{}{"p", []interface{}{preparedItem}, ctx.statics})
 					} else {
 						if prevKey, ok := ctx.getItemKey(ctx.newItems[i-1]); ok {
-							preparedItem := PrepareTreeForClient(newItem, false)
+							preparedItem := PrepareTreeForClient(newItem, clientHasItemStatics)
 							operations = append(operations, []interface{}{"i", prevKey, preparedItem})
 						}
 					}
