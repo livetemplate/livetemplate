@@ -229,6 +229,7 @@ func GenerateRangeStreamOperations(
 	operations := make([]interface{}, 0, 4)
 	operations = generateStreamRemovalOps(streamState.Keys, ctx.newByKey, operations)
 	operations = generateStreamUpdateOps(newItems, newKeys, newHashes, oldHashByKey, ctx.keyPos, operations)
+	// Inserts keep nested statics: client renders new DOM without a per-position branch-statics cache.
 	operations = generateInsertionOps(ctx, operations)
 
 	if hasReorder {
@@ -480,6 +481,7 @@ func hasKeptItemChanged(ctx *rangeContext) bool {
 	return false
 }
 
+// generateInsertionOps emits insert ops for newly-added items, keeping nested statics intact.
 func generateInsertionOps(ctx *rangeContext, operations []interface{}) []interface{} {
 	if len(ctx.addedKeys) == 0 {
 		return operations
@@ -492,15 +494,12 @@ func generateInsertionOps(ctx *rangeContext, operations []interface{}) []interfa
 	return handleIncrementalInsertionsCtx(ctx, operations)
 }
 
-// handleEmptyToItemsTransition handles the transition from empty range to items.
 func handleEmptyToItemsTransition(
 	newItems []interface{},
 	statics interface{},
 	metadata map[string]interface{},
 	operations []interface{},
 ) []interface{} {
-	// Build array of items to append, KEEPING nested statics
-	// The client hasn't seen these items before, so they need full structure
 	itemsToAppend := make([]interface{}, 0, len(newItems))
 	for _, item := range newItems {
 		itemsToAppend = append(itemsToAppend, PrepareTreeForClient(item, false))
@@ -539,8 +538,6 @@ func handlePrependOperation(
 	itemsToPrepend := make([]interface{}, 0, len(addedKeys))
 	for _, key := range addedKeys {
 		if item, exists := newItemsByKey[key]; exists {
-			// Keep nested statics for new items - client hasn't seen these items before
-			// so nested TreeNode structures (like conditionals) need their statics.
 			itemsToPrepend = append(itemsToPrepend, PrepareTreeForClient(item, false))
 		}
 	}
@@ -560,8 +557,6 @@ func handleAppendOperation(
 	itemsToAppend := make([]interface{}, 0, len(addedKeys))
 	for _, key := range addedKeys {
 		if item, exists := newItemsByKey[key]; exists {
-			// Keep nested statics for new items - client hasn't seen these items before
-			// so nested TreeNode structures (like conditionals) need their statics.
 			itemsToAppend = append(itemsToAppend, PrepareTreeForClient(item, false))
 		}
 	}
