@@ -85,7 +85,7 @@ func (m *Metrics) TreeDiffed(duration time.Duration) {
 	m.diffDurations.Record(duration)
 }
 
-// PublishSent increments the publishes-sent counter (peer fan-out via ctx.Publish).
+// PublishSent increments the publishes-sent counter (peer-fan-out via ctx.Publish).
 func (m *Metrics) PublishSent() {
 	m.publishesSent.Add(1)
 }

@@ -638,7 +638,7 @@ func WithUpload(name string, config uploadtypes.UploadConfig) Option {
 	}
 }
 
-// WithPubSubBroadcaster enables distributed peer fan-out across multiple application instances.
+// WithPubSubBroadcaster enables distributed peer-fan-out across multiple application instances.
 //
 // When set, ctx.Publish calls (and the framework-internal group/user/global scopes) are
 // republished to Redis Pub/Sub via the configured pubsub.Broadcaster. Each instance subscribes

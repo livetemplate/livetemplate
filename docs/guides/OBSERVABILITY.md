@@ -111,6 +111,8 @@ v0.11.0 renames the broadcast metric family to reflect the new `ctx.Publish`/`ct
 |---|---|
 | `livetemplate_broadcasts_sent_total` | `livetemplate_publishes_sent_total` |
 
+> **Note:** `livetemplate_publishes_sent_total` currently reports 0 in production — the call site will be wired in a follow-up PR. Dashboards querying this metric will show 0 until that lands; this is expected.
+
 The `livetemplate_websocket_dispatch_dropped_total` name is unchanged; only its help text was updated to use "publish dispatch" instead of "broadcast dispatch".
 
 **Renamed alerts:**
