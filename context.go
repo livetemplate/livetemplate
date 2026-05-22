@@ -40,7 +40,7 @@ type ConnectKind int
 
 const (
 	// ConnectKindAction is the default — a user-triggered action
-	// (form submit, button click, peer fan-out via ctx.Publish).
+	// (form submit, button click, peer-fan-out via ctx.Publish).
 	ConnectKindAction ConnectKind = iota
 
 	// ConnectKindInitialMount indicates Mount was invoked on an HTTP GET

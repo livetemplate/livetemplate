@@ -39,7 +39,7 @@ type SessionStore interface {
 	Delete(ctx context.Context, groupID string)
 
 	// List returns all active session group IDs.
-	// Used for peer fan-out and cleanup operations.
+	// Used for peer-fan-out and cleanup operations.
 	// The context can be used for cancellation, timeouts, and tracing.
 	List(ctx context.Context) []string
 }
@@ -516,7 +516,7 @@ func (s *RedisSessionStore) Delete(ctx context.Context, groupID string) {
 }
 
 // List returns all active session group IDs.
-// Used for peer fan-out and cleanup operations.
+// Used for peer-fan-out and cleanup operations.
 // The context is used for Redis operations and can timeout/cancel requests.
 func (s *RedisSessionStore) List(ctx context.Context) []string {
 	pattern := sessionKeyPrefix + "*"
