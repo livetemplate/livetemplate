@@ -89,6 +89,19 @@ func BenchmarkWrapperInjection(b *testing.B) {
 
 	fragment := `<div><h1>Hello</h1><p>World</p></div>`
 
+	stringFallbackHTML := `<!DOCTYPE html>
+<html>
+<head>
+<title>Test</title>
+<style>/* layout sits between <body> and footer */</style>
+<meta property="og:description" content="contains <body literally">
+</head>
+<body>
+<div><h1>{{.Title}}</h1><p>{{.Body}}</p></div>
+<script>console.log("loaded");</script>
+</body>
+</html>`
+
 	b.Run("full-html", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
@@ -100,6 +113,13 @@ func BenchmarkWrapperInjection(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			_ = InjectWrapperDiv(fragment, "test-wrapper", false)
+		}
+	})
+
+	b.Run("string-fallback-tokenizer", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_ = InjectWrapperDiv(stringFallbackHTML, "test-wrapper", false)
 		}
 	})
 }
