@@ -112,25 +112,11 @@ func FindBodyNode(n *html.Node) *html.Node {
 	return nil
 }
 
-// locateBodyAndFirstScript scans htmlDoc once with html.Tokenizer to locate the
-// document body and the first <script> inside it. Unlike strings.Index, the
-// tokenizer correctly skips '<body' / '<script' substrings appearing in HTML
-// comments, RAWTEXT (<script>/<style> content), RCDATA (<title>/<textarea>
-// content), and attribute values.
-//
-// Returns four byte offsets into htmlDoc, or -1 when not found:
-//   - bodyOpenStart:    '<' of the FIRST <body...> start tag
-//   - bodyOpenEnd:      one past '>' of that start tag (start of body content)
-//   - bodyCloseStart:   '<' of the LAST </body> end tag (preserves
-//     strings.LastIndex semantics from the previous implementation for
-//     nested-body malformed inputs)
-//   - firstScriptStart: '<' of the FIRST <script> start tag whose offset lies
-//     within [bodyOpenEnd, bodyCloseStart); -1 if no script appears in body
-//
-// The tokenizer is lenient toward Go template directives ({{...}}) appearing
-// in text and attribute-value positions, which is the common full-HTML case.
-// Pathological patterns where {{...}} emits a literal '>' mid-tag remain
-// mishandled — same as the previous string-based implementation.
+// locateBodyAndFirstScript walks htmlDoc once with html.Tokenizer, returning
+// byte offsets for the body open/close and the first <script> inside body
+// content. bodyCloseStart uses LastIndex semantics to match the previous
+// string-based implementation on malformed nested-body input. All offsets are
+// -1 when not found. Tolerant of {{...}} in text/attribute-value positions.
 func locateBodyAndFirstScript(htmlDoc string) (bodyOpenStart, bodyOpenEnd, bodyCloseStart, firstScriptStart int) {
 	bodyOpenStart, bodyOpenEnd, bodyCloseStart, firstScriptStart = -1, -1, -1, -1
 	z := html.NewTokenizer(strings.NewReader(htmlDoc))

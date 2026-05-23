@@ -742,6 +742,26 @@ func TestLocateBodyAndFirstScript_NestedBody_BehaviorPin(t *testing.T) {
 	}
 }
 
+// TestLocateBodyAndFirstScript_NoscriptDecoyPin pins that html.Tokenizer
+// treats <noscript> content as RAWTEXT in its default scripting-enabled mode,
+// so a literal "<body>" inside <noscript> is text and the real <body> outside
+// is the first start tag returned. If Go ever changes this default (e.g.,
+// gains a scripting-disabled mode that becomes the default), this pin breaks
+// loudly and the property-decoy list in this file must be updated.
+func TestLocateBodyAndFirstScript_NoscriptDecoyPin(t *testing.T) {
+	input := `<head><noscript><body></noscript></head><body>real</body>`
+
+	bodyOpenStart, _, _, _ := locateBodyAndFirstScript(input)
+
+	// The real <body> is the SECOND "<body>" textually in input — the first
+	// is inside <noscript> RAWTEXT and must not match.
+	wantReal := strings.LastIndex(input, "<body>")
+	if bodyOpenStart != wantReal {
+		t.Errorf("bodyOpenStart = %d, want %d (real <body>, not the <noscript> decoy)",
+			bodyOpenStart, wantReal)
+	}
+}
+
 // TestLocateBodyAndFirstScript_TemplateDirectiveInAttrValue_Safe pins the
 // safe template-directive case: a {{...}} inside a quoted attribute value
 // is opaque to html.Tokenizer, and the body open tag is located correctly.
