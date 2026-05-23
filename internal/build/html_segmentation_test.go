@@ -5,6 +5,8 @@ import (
 	"math/rand"
 	"strings"
 	"testing"
+
+	"golang.org/x/net/html"
 )
 
 // blockTagDecoyCases enumerates fragments whose literal text contains block
@@ -150,9 +152,10 @@ func TestFindBlockTagBoundaries_PropertyDecoys(t *testing.T) {
 }
 
 // TestFindBlockTagBoundaries_OffsetCoverage proves the offset accounting
-// (sum(len(z.Raw())) == len(input)) holds across realistic inputs. If this
-// drifts, every offset returned by findBlockTagBoundaries is wrong by the
-// same delta. Mirrors the wrapper.go offset-coverage sanity test.
+// invariant the helper depends on: sum(len(z.Raw())) over a full tokenizer
+// walk equals len(input). If this ever drifts, every offset returned by
+// findBlockTagBoundaries is wrong by the same delta. Mirrors the wrapper.go
+// offset-coverage sanity test.
 func TestFindBlockTagBoundaries_OffsetCoverage(t *testing.T) {
 	inputs := []string{
 		`<div>x</div>`,
@@ -163,12 +166,26 @@ func TestFindBlockTagBoundaries_OffsetCoverage(t *testing.T) {
 	}
 	for i, in := range inputs {
 		t.Run(fmt.Sprintf("input_%d", i), func(t *testing.T) {
-			// Re-walk the tokens the same way findBlockTagBoundaries does
-			// and verify sum(len(raw)) == len(in).
-			boundaries := findBlockTagBoundaries(in)
-			// The boundaries themselves don't reveal the offset coverage,
-			// but every boundary must lie within [0, len(in)).
-			for _, b := range boundaries {
+			// Walk the same tokenizer findBlockTagBoundaries uses and sum
+			// the raw-byte lengths. If the sum diverges from len(in), the
+			// per-token offset accounting in findBlockTagBoundaries is
+			// also wrong.
+			z := html.NewTokenizer(strings.NewReader(in))
+			sum := 0
+			for {
+				tt := z.Next()
+				if tt == html.ErrorToken {
+					break
+				}
+				sum += len(z.Raw())
+			}
+			if sum != len(in) {
+				t.Errorf("offset coverage drift: sum=%d want=%d input=%q", sum, len(in), in)
+			}
+
+			// Belt-and-suspenders: returned boundaries must lie within the
+			// input range.
+			for _, b := range findBlockTagBoundaries(in) {
 				if b < 0 || b >= len(in) {
 					t.Errorf("boundary %d out of range [0, %d)", b, len(in))
 				}

@@ -15,13 +15,10 @@ var htmlBlockTags = map[string]struct{}{
 	"aside": {}, "nav": {}, "ul": {}, "ol": {}, "table": {},
 }
 
-// findBlockTagBoundaries walks htmlDoc once with html.Tokenizer and returns the
+// findBlockTagBoundaries walks htmlDoc once with html.Tokenizer and returns
 // ascending byte offsets of every StartTagToken whose tag name is in
-// htmlBlockTags. Unlike strings.Index, the tokenizer correctly skips "<div"
-// / "<article" / etc. substrings that appear inside HTML comments, RAWTEXT
-// (<script>/<style> content), RCDATA (<title>/<textarea> content), and
-// attribute values — closing the same class of substring-match hazard fixed
-// in wrapper.go's locateBodyAndFirstScript.
+// htmlBlockTags. The tokenizer correctly ignores block-tag-shaped substrings
+// inside comments, RAWTEXT, RCDATA, and attribute values.
 func findBlockTagBoundaries(htmlDoc string) []int {
 	var boundaries []int
 	z := html.NewTokenizer(strings.NewReader(htmlDoc))
@@ -53,10 +50,7 @@ func findBlockTagBoundaries(htmlDoc string) []int {
 // This is used as a fallback when template parsing fails or for initial tree generation
 // without template metadata.
 func CreateHTMLStructureBasedTree(html string) *TreeNode {
-	// Boundaries arrive in ascending byte order from a single forward
-	// tokenizer walk — no sort needed (the previous strings.Index
-	// implementation sorted because it scanned per-tag, interleaving
-	// offsets across tags).
+	// Boundaries are returned in document order by the single forward walk.
 	boundaries := findBlockTagBoundaries(html)
 
 	if len(boundaries) > 0 {
