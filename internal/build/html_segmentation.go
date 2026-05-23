@@ -1,15 +1,46 @@
 package build
 
 import (
-	"sort"
 	"strings"
 
 	"github.com/livetemplate/livetemplate/internal/render"
+	"golang.org/x/net/html"
 )
 
-// htmlBlockTags defines block-level HTML elements that create natural segment boundaries
-// for tree-based HTML structure analysis and segmentation.
-var htmlBlockTags = []string{"<div", "<article", "<section", "<main", "<aside", "<nav", "<ul", "<ol", "<table"}
+// htmlBlockTags defines block-level HTML tag names that create natural segment
+// boundaries for tree-based HTML structure analysis. Stored as bare tag names
+// (no leading "<") to match html.Tokenizer.TagName() output directly.
+var htmlBlockTags = map[string]struct{}{
+	"div": {}, "article": {}, "section": {}, "main": {},
+	"aside": {}, "nav": {}, "ul": {}, "ol": {}, "table": {},
+}
+
+// findBlockTagBoundaries walks htmlDoc once with html.Tokenizer and returns the
+// ascending byte offsets of every StartTagToken whose tag name is in
+// htmlBlockTags. Unlike strings.Index, the tokenizer correctly skips "<div"
+// / "<article" / etc. substrings that appear inside HTML comments, RAWTEXT
+// (<script>/<style> content), RCDATA (<title>/<textarea> content), and
+// attribute values — closing the same class of substring-match hazard fixed
+// in wrapper.go's locateBodyAndFirstScript.
+func findBlockTagBoundaries(htmlDoc string) []int {
+	var boundaries []int
+	z := html.NewTokenizer(strings.NewReader(htmlDoc))
+	offset := 0
+	for {
+		tt := z.Next()
+		if tt == html.ErrorToken {
+			return boundaries
+		}
+		raw := z.Raw()
+		if tt == html.StartTagToken {
+			name, _ := z.TagName()
+			if _, ok := htmlBlockTags[string(name)]; ok {
+				boundaries = append(boundaries, offset)
+			}
+		}
+		offset += len(raw)
+	}
+}
 
 // CreateHTMLStructureBasedTree implements deterministic segmentation strategies for HTML content.
 // It analyzes HTML structure and creates a tree representation with static and dynamic segments.
@@ -22,25 +53,13 @@ var htmlBlockTags = []string{"<div", "<article", "<section", "<main", "<aside", 
 // This is used as a fallback when template parsing fails or for initial tree generation
 // without template metadata.
 func CreateHTMLStructureBasedTree(html string) *TreeNode {
-	// Find the positions of block elements
-	var boundaries []int
-	for _, tag := range htmlBlockTags {
-		idx := 0
-		for {
-			pos := strings.Index(html[idx:], tag)
-			if pos == -1 {
-				break
-			}
-			boundaries = append(boundaries, idx+pos)
-			idx = idx + pos + len(tag)
-		}
-	}
+	// Boundaries arrive in ascending byte order from a single forward
+	// tokenizer walk — no sort needed (the previous strings.Index
+	// implementation sorted because it scanned per-tag, interleaving
+	// offsets across tags).
+	boundaries := findBlockTagBoundaries(html)
 
-	// Sort boundaries
 	if len(boundaries) > 0 {
-		// Sort boundaries using efficient stdlib sort
-		sort.Ints(boundaries)
-
 		// Create segments based on boundaries
 		const maxSegments = 8
 		segmentSize := len(html) / maxSegments
