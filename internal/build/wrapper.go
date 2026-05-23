@@ -112,84 +112,109 @@ func FindBodyNode(n *html.Node) *html.Node {
 	return nil
 }
 
-// injectWrapperDivStringBased is the original string-based implementation used as fallback.
+// locateBodyAndFirstScript scans htmlDoc once with html.Tokenizer to locate the
+// document body and the first <script> inside it. Unlike strings.Index, the
+// tokenizer correctly skips '<body' / '<script' substrings appearing in HTML
+// comments, RAWTEXT (<script>/<style> content), RCDATA (<title>/<textarea>
+// content), and attribute values — the bug behind livetemplate#414.
+//
+// Returns four byte offsets into htmlDoc, or -1 when not found:
+//   - bodyOpenStart:    '<' of the FIRST <body...> start tag
+//   - bodyOpenEnd:      one past '>' of that start tag (start of body content)
+//   - bodyCloseStart:   '<' of the LAST </body> end tag (preserves
+//     strings.LastIndex semantics from the previous implementation for
+//     nested-body malformed inputs)
+//   - firstScriptStart: '<' of the FIRST <script> start tag whose offset lies
+//     within [bodyOpenEnd, bodyCloseStart); -1 if no script appears in body
+//
+// The tokenizer is lenient toward Go template directives ({{...}}) appearing
+// in text and attribute-value positions, which is the common full-HTML case.
+// Pathological patterns where {{...}} emits a literal '>' mid-tag remain
+// mishandled — same as the previous string-based implementation.
+func locateBodyAndFirstScript(htmlDoc string) (bodyOpenStart, bodyOpenEnd, bodyCloseStart, firstScriptStart int) {
+	bodyOpenStart, bodyOpenEnd, bodyCloseStart, firstScriptStart = -1, -1, -1, -1
+	z := html.NewTokenizer(strings.NewReader(htmlDoc))
+	offset := 0
+	for {
+		tt := z.Next()
+		if tt == html.ErrorToken {
+			break
+		}
+		raw := z.Raw()
+		switch tt {
+		case html.StartTagToken:
+			name, _ := z.TagName()
+			switch string(name) {
+			case "body":
+				if bodyOpenStart < 0 {
+					bodyOpenStart = offset
+					bodyOpenEnd = offset + len(raw)
+				}
+			case "script":
+				if firstScriptStart < 0 && bodyOpenEnd >= 0 {
+					firstScriptStart = offset
+				}
+			}
+		case html.EndTagToken:
+			name, _ := z.TagName()
+			if string(name) == "body" {
+				bodyCloseStart = offset
+			}
+		}
+		offset += len(raw)
+	}
+	// Drop a tracked script that ended up after </body> in malformed input.
+	if firstScriptStart >= 0 && bodyCloseStart >= 0 && firstScriptStart >= bodyCloseStart {
+		firstScriptStart = -1
+	}
+	return
+}
+
+// injectWrapperDivStringBased is the string-based implementation used when
+// htmlDoc contains Go template directives (which would be mangled by
+// html.Parse + html.Render). It uses html.Tokenizer for tag-boundary
+// detection so that '<body' / '<script' substrings inside head content
+// don't fool it (livetemplate#414).
 func injectWrapperDivStringBased(htmlDoc string, wrapperID string, loadingDisabled bool) string {
-	// Find the body opening tag and extract the content between <body> and </body>
-	bodyStart := strings.Index(htmlDoc, "<body")
-	if bodyStart == -1 {
-		// No body tag found, return as-is
+	bodyOpenStart, bodyOpenEnd, bodyCloseStart, scriptStart := locateBodyAndFirstScript(htmlDoc)
+	if bodyOpenStart < 0 || bodyCloseStart < 0 || bodyOpenEnd > bodyCloseStart {
 		return htmlDoc
 	}
 
-	// Find the end of the body opening tag
-	bodyTagEnd := strings.Index(htmlDoc[bodyStart:], ">")
-	if bodyTagEnd == -1 {
-		return htmlDoc
-	}
-	bodyTagEnd += bodyStart + 1
+	bodyContent := htmlDoc[bodyOpenEnd:bodyCloseStart]
 
-	// Find the closing body tag
-	bodyEnd := strings.LastIndex(htmlDoc, "</body>")
-	if bodyEnd == -1 {
-		return htmlDoc
-	}
-
-	// Extract the body content
-	bodyContent := htmlDoc[bodyTagEnd:bodyEnd]
-
-	// Find the first <script tag to exclude scripts from the wrapper
-	scriptStart := strings.Index(bodyContent, "<script")
 	var contentToWrap, scriptsSection string
-	if scriptStart != -1 {
-		// Split content: wrap everything before first script, leave scripts outside
-		contentToWrap = bodyContent[:scriptStart]
-		scriptsSection = bodyContent[scriptStart:]
+	if scriptStart >= 0 {
+		split := scriptStart - bodyOpenEnd
+		contentToWrap = bodyContent[:split]
+		scriptsSection = bodyContent[split:]
 	} else {
-		// No scripts found, wrap entire body content
 		contentToWrap = bodyContent
-		scriptsSection = ""
 	}
 
-	// Add loading attribute if not disabled
 	loadingAttr := ""
 	if !loadingDisabled {
 		loadingAttr = ` data-lvt-loading="true"`
 	}
 
 	wrappedContent := fmt.Sprintf(`<div data-lvt-id="%s"%s>%s</div>%s`, wrapperID, loadingAttr, contentToWrap, scriptsSection)
-
-	// Reconstruct the HTML with the wrapper
-	result := htmlDoc[:bodyTagEnd] + wrappedContent + htmlDoc[bodyEnd:]
-
-	return result
+	return htmlDoc[:bodyOpenEnd] + wrappedContent + htmlDoc[bodyCloseStart:]
 }
 
-// ExtractTemplateBodyContent extracts only the body content from a full HTML template.
-// Handles body tags with or without attributes (e.g., <body>, <body class="dark">).
+// ExtractTemplateBodyContent extracts only the body content from a full HTML
+// template. Handles body tags with or without attributes (e.g., <body>,
+// <body class="dark">). Uses html.Tokenizer (see locateBodyAndFirstScript)
+// to avoid being fooled by '<body' substrings in head content
+// (livetemplate#414).
 func ExtractTemplateBodyContent(templateStr string) string {
-	// Find the body opening tag (with or without attributes)
-	bodyStart := strings.Index(templateStr, "<body")
-	if bodyStart == -1 {
-		// No body tag found, return the template as-is
+	bodyOpenStart, bodyOpenEnd, bodyCloseStart, _ := locateBodyAndFirstScript(templateStr)
+	if bodyOpenStart < 0 {
 		return templateStr
 	}
-
-	// Find the end of the body opening tag
-	bodyTagEnd := strings.Index(templateStr[bodyStart:], ">")
-	if bodyTagEnd == -1 {
-		// Malformed body tag, return as-is
-		return templateStr
+	if bodyCloseStart < 0 {
+		return strings.TrimSpace(templateStr[bodyOpenEnd:])
 	}
-	bodyTagEnd += bodyStart + 1 // Position after >
-
-	// Find the closing body tag
-	bodyEnd := strings.LastIndex(templateStr, "</body>")
-	if bodyEnd == -1 {
-		// No closing body tag found, return from body start to end
-		return strings.TrimSpace(templateStr[bodyTagEnd:])
-	}
-
-	return strings.TrimSpace(templateStr[bodyTagEnd:bodyEnd])
+	return strings.TrimSpace(templateStr[bodyOpenEnd:bodyCloseStart])
 }
 
 // ExtractTemplateContent extracts template content using wrapper ID with proper HTML parsing.
