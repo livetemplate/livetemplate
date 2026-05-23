@@ -5,6 +5,15 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.11.1] - 2026-05-23
+
+### Changes
+
+- fix(build): tokenizer-based body/script detection (closes #414) (#435) (b28a8b08)
+- fix(diff): preserve AutoKey in PrepareTreeForClient strip path (5efb576f)
+
+
+
 ## [v0.11.0] - 2026-05-22
 
 ### Changes
