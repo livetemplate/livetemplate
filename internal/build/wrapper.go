@@ -113,12 +113,13 @@ func FindBodyNode(n *html.Node) *html.Node {
 }
 
 // locateBodyAndFirstScript walks htmlDoc once with html.Tokenizer, returning
-// byte offsets for the body open/close and the first <script> inside body
-// content. bodyCloseStart uses LastIndex semantics to match the previous
-// string-based implementation on malformed nested-body input. All offsets are
-// -1 when not found. Tolerant of {{...}} in text/attribute-value positions.
-func locateBodyAndFirstScript(htmlDoc string) (bodyOpenStart, bodyOpenEnd, bodyCloseStart, firstScriptStart int) {
-	bodyOpenStart, bodyOpenEnd, bodyCloseStart, firstScriptStart = -1, -1, -1, -1
+// byte offsets for the body open start, body open end, body close start, and
+// first <script> inside body content. body close uses LastIndex semantics to
+// match the previous string-based implementation on malformed nested-body
+// input. All offsets are -1 when not found. Tolerant of {{...}} in
+// text/attribute-value positions.
+func locateBodyAndFirstScript(htmlDoc string) (int, int, int, int) {
+	bodyOpenStart, bodyOpenEnd, bodyCloseStart, firstScriptStart := -1, -1, -1, -1
 	z := html.NewTokenizer(strings.NewReader(htmlDoc))
 	offset := 0
 	for {
@@ -153,7 +154,7 @@ func locateBodyAndFirstScript(htmlDoc string) (bodyOpenStart, bodyOpenEnd, bodyC
 	if firstScriptStart >= 0 && bodyCloseStart >= 0 && firstScriptStart >= bodyCloseStart {
 		firstScriptStart = -1
 	}
-	return
+	return bodyOpenStart, bodyOpenEnd, bodyCloseStart, firstScriptStart
 }
 
 // injectWrapperDivStringBased is the string-based implementation used when

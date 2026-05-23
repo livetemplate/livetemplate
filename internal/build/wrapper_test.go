@@ -583,12 +583,15 @@ func TestInjectWrapperDiv_HeadDecoys(t *testing.T) {
 				t.Fatalf("sentinel ended up BEFORE wrapper open — wrapper mis-positioned\nsentinelPos=%d wrapperOpen=%d\n%s",
 					sentinelPos, wrapperOpen, result)
 			}
-			// The wrapper's open tag ends at the first '>' after wrapperOpen.
-			relClose := strings.Index(result[wrapperOpen:], "</div>")
-			if relClose < 0 {
-				t.Fatalf("wrapper has no closing </div>:\n%s", result)
+			// The wrapper is the outermost element in the reconstructed body,
+			// so its own closing </div> is the LAST </div> in result. Using
+			// LastIndex makes this assertion robust against future fixtures
+			// that include nested <div> elements.
+			wrapperClose := strings.LastIndex(result, "</div>")
+			if wrapperClose < wrapperOpen {
+				t.Fatalf("wrapper close not found after wrapper open\nwrapperOpen=%d wrapperClose=%d\n%s",
+					wrapperOpen, wrapperClose, result)
 			}
-			wrapperClose := wrapperOpen + relClose
 			if sentinelPos >= wrapperClose {
 				t.Fatalf("sentinel ended up AFTER wrapper close\nsentinelPos=%d wrapperClose=%d\n%s",
 					sentinelPos, wrapperClose, result)
