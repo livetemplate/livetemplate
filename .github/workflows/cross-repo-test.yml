@@ -177,16 +177,9 @@ jobs:
         CGO_ENABLED: 1
         LVT_LOCAL_CLIENT: ${{ github.workspace }}/livetemplate/client/dist/livetemplate-client.browser.js
 
-  # All docs-side recipe + example tests are exercised in a single
-  # job that runs `go test ./examples/...` from the docs checkout.
-  # Before the docs examples/-as-canonical refactor (livetemplate/docs
-  # PR #35), this was 5 separate jobs (test-docs, test-docs-todos,
-  # test-docs-progressive-enhancement, test-docs-login,
-  # test-docs-shared-notepad), one per recipe with its own checkout +
-  # replace-directive setup. The refactor moved every example to
-  # docs/examples/<slug>/ with co-located tests and dissolved the
-  # docs/e2e separate Go module, so one `./examples/...` test target
-  # now covers them all. Adding a new example requires zero CI edits.
+  # Replaces 5 per-recipe jobs dissolved by livetemplate/docs PR #35,
+  # which moved all examples to docs/examples/<slug>/ with co-located
+  # tests. New examples are picked up automatically — no CI edits needed.
   test-docs-examples:
     name: Test Docs Examples against Core Changes
     runs-on: ubuntu-latest
@@ -267,7 +260,11 @@ jobs:
       # patterns app's flash handling. Skip applies to the patterns
       # subset only — go test -skip uses test-name regexes that don't
       # match anything in the other example suites.
-      run: go test -v -count=1 -timeout=20m -skip "Submit_With_No_Changes" ./examples/...
+      #
+      # 30m timeout chosen empirically: the largest suite (patterns)
+      # ran ~8min in the first green run; 30m leaves comfortable
+      # headroom for slow CI runners + chromedp cold-start variance.
+      run: go test -v -count=1 -timeout=30m -skip "Submit_With_No_Changes" ./examples/...
       env:
         CGO_ENABLED: 1
         LVT_LOCAL_CLIENT: ${{ github.workspace }}/livetemplate/client/dist/livetemplate-client.browser.js
