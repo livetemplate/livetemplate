@@ -1,15 +1,43 @@
 package build
 
 import (
-	"sort"
 	"strings"
 
 	"github.com/livetemplate/livetemplate/internal/render"
+	"golang.org/x/net/html"
 )
 
-// htmlBlockTags defines block-level HTML elements that create natural segment boundaries
-// for tree-based HTML structure analysis and segmentation.
-var htmlBlockTags = []string{"<div", "<article", "<section", "<main", "<aside", "<nav", "<ul", "<ol", "<table"}
+// htmlBlockTags defines block-level HTML tag names that create natural segment
+// boundaries for tree-based HTML structure analysis. Stored as bare tag names
+// (no leading "<") to match html.Tokenizer.TagName() output directly.
+var htmlBlockTags = map[string]struct{}{
+	"div": {}, "article": {}, "section": {}, "main": {},
+	"aside": {}, "nav": {}, "ul": {}, "ol": {}, "table": {},
+}
+
+// findBlockTagBoundaries walks htmlDoc once with html.Tokenizer and returns
+// ascending byte offsets of every StartTagToken whose tag name is in
+// htmlBlockTags. The tokenizer correctly ignores block-tag-shaped substrings
+// inside comments, RAWTEXT, RCDATA, and attribute values.
+func findBlockTagBoundaries(htmlDoc string) []int {
+	var boundaries []int
+	z := html.NewTokenizer(strings.NewReader(htmlDoc))
+	offset := 0
+	for {
+		tt := z.Next()
+		if tt == html.ErrorToken {
+			return boundaries
+		}
+		raw := z.Raw()
+		if tt == html.StartTagToken {
+			name, _ := z.TagName()
+			if _, ok := htmlBlockTags[string(name)]; ok {
+				boundaries = append(boundaries, offset)
+			}
+		}
+		offset += len(raw)
+	}
+}
 
 // CreateHTMLStructureBasedTree implements deterministic segmentation strategies for HTML content.
 // It analyzes HTML structure and creates a tree representation with static and dynamic segments.
@@ -21,29 +49,14 @@ var htmlBlockTags = []string{"<div", "<article", "<section", "<main", "<aside", 
 //
 // This is used as a fallback when template parsing fails or for initial tree generation
 // without template metadata.
-func CreateHTMLStructureBasedTree(html string) *TreeNode {
-	// Find the positions of block elements
-	var boundaries []int
-	for _, tag := range htmlBlockTags {
-		idx := 0
-		for {
-			pos := strings.Index(html[idx:], tag)
-			if pos == -1 {
-				break
-			}
-			boundaries = append(boundaries, idx+pos)
-			idx = idx + pos + len(tag)
-		}
-	}
+func CreateHTMLStructureBasedTree(htmlDoc string) *TreeNode {
+	// Boundaries are returned in document order by the single forward walk.
+	boundaries := findBlockTagBoundaries(htmlDoc)
 
-	// Sort boundaries
 	if len(boundaries) > 0 {
-		// Sort boundaries using efficient stdlib sort
-		sort.Ints(boundaries)
-
 		// Create segments based on boundaries
 		const maxSegments = 8
-		segmentSize := len(html) / maxSegments
+		segmentSize := len(htmlDoc) / maxSegments
 
 		var statics []string
 		var dynamics []interface{}
@@ -54,20 +67,20 @@ func CreateHTMLStructureBasedTree(html string) *TreeNode {
 			if boundary-lastPos > segmentSize || i == len(boundaries)-1 {
 				if lastPos == 0 {
 					// First segment is typically more static (head, nav, etc)
-					statics = append(statics, html[lastPos:boundary])
+					statics = append(statics, htmlDoc[lastPos:boundary])
 				} else {
 					// Create a dynamic segment
 					statics = append(statics, "")
-					dynamics = append(dynamics, html[lastPos:boundary])
+					dynamics = append(dynamics, htmlDoc[lastPos:boundary])
 				}
 				lastPos = boundary
 			}
 		}
 
 		// Add the final segment
-		if lastPos < len(html) {
+		if lastPos < len(htmlDoc) {
 			statics = append(statics, "")
-			dynamics = append(dynamics, html[lastPos:])
+			dynamics = append(dynamics, htmlDoc[lastPos:])
 		}
 
 		// Build the tree
@@ -88,6 +101,6 @@ func CreateHTMLStructureBasedTree(html string) *TreeNode {
 
 	// Fallback to single segment strategy
 	fallback := NewTreeNodeWithStatics([]string{"", ""})
-	fallback.SetDynamic(0, render.MinifyHTML(html))
+	fallback.SetDynamic(0, render.MinifyHTML(htmlDoc))
 	return fallback
 }
