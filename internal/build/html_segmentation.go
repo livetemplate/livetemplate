@@ -49,14 +49,14 @@ func findBlockTagBoundaries(htmlDoc string) []int {
 //
 // This is used as a fallback when template parsing fails or for initial tree generation
 // without template metadata.
-func CreateHTMLStructureBasedTree(html string) *TreeNode {
+func CreateHTMLStructureBasedTree(htmlDoc string) *TreeNode {
 	// Boundaries are returned in document order by the single forward walk.
-	boundaries := findBlockTagBoundaries(html)
+	boundaries := findBlockTagBoundaries(htmlDoc)
 
 	if len(boundaries) > 0 {
 		// Create segments based on boundaries
 		const maxSegments = 8
-		segmentSize := len(html) / maxSegments
+		segmentSize := len(htmlDoc) / maxSegments
 
 		var statics []string
 		var dynamics []interface{}
@@ -67,20 +67,20 @@ func CreateHTMLStructureBasedTree(html string) *TreeNode {
 			if boundary-lastPos > segmentSize || i == len(boundaries)-1 {
 				if lastPos == 0 {
 					// First segment is typically more static (head, nav, etc)
-					statics = append(statics, html[lastPos:boundary])
+					statics = append(statics, htmlDoc[lastPos:boundary])
 				} else {
 					// Create a dynamic segment
 					statics = append(statics, "")
-					dynamics = append(dynamics, html[lastPos:boundary])
+					dynamics = append(dynamics, htmlDoc[lastPos:boundary])
 				}
 				lastPos = boundary
 			}
 		}
 
 		// Add the final segment
-		if lastPos < len(html) {
+		if lastPos < len(htmlDoc) {
 			statics = append(statics, "")
-			dynamics = append(dynamics, html[lastPos:])
+			dynamics = append(dynamics, htmlDoc[lastPos:])
 		}
 
 		// Build the tree
@@ -101,6 +101,6 @@ func CreateHTMLStructureBasedTree(html string) *TreeNode {
 
 	// Fallback to single segment strategy
 	fallback := NewTreeNodeWithStatics([]string{"", ""})
-	fallback.SetDynamic(0, render.MinifyHTML(html))
+	fallback.SetDynamic(0, render.MinifyHTML(htmlDoc))
 	return fallback
 }
