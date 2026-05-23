@@ -89,10 +89,6 @@ func BenchmarkWrapperInjection(b *testing.B) {
 
 	fragment := `<div><h1>Hello</h1><p>World</p></div>`
 
-	// String-fallback path (triggered by {{...}} directives) — exercises
-	// the html.Tokenizer-based locateBodyAndFirstScript helper added for
-	// livetemplate#414. Compared against the cleaner full-html path to
-	// guard against regressions from the previous naive strings.Index.
 	stringFallbackHTML := `<!DOCTYPE html>
 <html>
 <head>

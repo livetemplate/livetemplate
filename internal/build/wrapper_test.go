@@ -536,12 +536,11 @@ func TestInjectWrapperDiv_MalformedHTML(t *testing.T) {
 	}
 }
 
-// trickyHeadIssue414Cases enumerates <head> contents whose literal text
-// contains substrings ("<body", "<script", "</body>") that fooled the
-// previous strings.Index-based wrapper injection (livetemplate#414). Each
-// case is mirrored across InjectWrapperDiv and ExtractTemplateBodyContent
-// tests below.
-var trickyHeadIssue414Cases = []struct {
+// trickyHeadDecoyCases enumerates <head> contents whose literal text contains
+// substrings ("<body", "<script", "</body>") that a naive strings.Index scan
+// would mis-match as real tags. Each case is mirrored across InjectWrapperDiv
+// and ExtractTemplateBodyContent tests below.
+var trickyHeadDecoyCases = []struct {
 	name string
 	head string
 }{
@@ -558,14 +557,14 @@ var trickyHeadIssue414Cases = []struct {
 	{"multiple decoy contexts", `<style>/* <body> */</style><meta content="<body"><script>var s="<body";</script><!-- <body> -->`},
 }
 
-// TestInjectWrapperDiv_Issue414_HeadDecoys exercises the string-fallback path
+// TestInjectWrapperDiv_HeadDecoys exercises the string-fallback path
 // (triggered by {{...}} in htmlDoc) with <head> contents that contain
-// literal "<body" / "</body>" substrings. The wrapper must end up around the
-// real <body> content, not at the first text match in <head>.
-func TestInjectWrapperDiv_Issue414_HeadDecoys(t *testing.T) {
+// literal "<body" / "</body>" substrings. The wrapper must end up around
+// the real <body> content, not at the first text match in <head>.
+func TestInjectWrapperDiv_HeadDecoys(t *testing.T) {
 	const sentinel = `<button data-real="x" lvt-on:click="bump">click</button>`
 	const wrapperID = "lvt-test"
-	for _, tc := range trickyHeadIssue414Cases {
+	for _, tc := range trickyHeadDecoyCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// {{.X}} forces the string-fallback path (the one with the bug).
 			doc := `<!DOCTYPE html><html><head>` + tc.head + `</head><body>` + sentinel + `{{.X}}</body></html>`
@@ -598,13 +597,13 @@ func TestInjectWrapperDiv_Issue414_HeadDecoys(t *testing.T) {
 	}
 }
 
-// TestExtractTemplateBodyContent_Issue414_HeadDecoys mirrors the wrapper test
-// for the source-template body-extraction path (called from tree generation).
-// The extracted content must contain the real body content and must NOT
-// include head markup.
-func TestExtractTemplateBodyContent_Issue414_HeadDecoys(t *testing.T) {
+// TestExtractTemplateBodyContent_HeadDecoys mirrors the wrapper test for the
+// source-template body-extraction path (called from tree generation). The
+// extracted content must contain the real body content and must NOT include
+// head markup.
+func TestExtractTemplateBodyContent_HeadDecoys(t *testing.T) {
 	const sentinel = `<button data-real="x">click</button>`
-	for _, tc := range trickyHeadIssue414Cases {
+	for _, tc := range trickyHeadDecoyCases {
 		t.Run(tc.name, func(t *testing.T) {
 			doc := `<!DOCTYPE html><html><head>` + tc.head + `</head><body>` + sentinel + `</body></html>`
 
@@ -621,10 +620,10 @@ func TestExtractTemplateBodyContent_Issue414_HeadDecoys(t *testing.T) {
 	}
 }
 
-// TestInjectWrapperDiv_Issue414_ScriptSubstringInStyle confirms a literal
-// "<script>" appearing inside <style> text in <head> is NOT mis-detected as
-// a script tag when splitting body content from scripts.
-func TestInjectWrapperDiv_Issue414_ScriptSubstringInStyle(t *testing.T) {
+// TestInjectWrapperDiv_ScriptSubstringInStyle confirms a literal "<script>"
+// appearing inside <style> text in <head> is NOT mis-detected as a script
+// tag when splitting body content from scripts.
+func TestInjectWrapperDiv_ScriptSubstringInStyle(t *testing.T) {
 	doc := `<!DOCTYPE html><html><head><style>/* fake <script>alert(1)</script> */</style></head><body><div>content</div>{{.X}}</body></html>`
 
 	result := InjectWrapperDiv(doc, "lvt-test", false)
@@ -636,13 +635,15 @@ func TestInjectWrapperDiv_Issue414_ScriptSubstringInStyle(t *testing.T) {
 	}
 }
 
-// TestInjectWrapperDiv_Issue414_PropertyDecoys is a randomized regression test:
-// no combination of decoy <body /<script substrings in <head> should ever
-// fool the wrapper into mis-positioning. Catches future regressions to naive
-// strings.Index.
-func TestInjectWrapperDiv_Issue414_PropertyDecoys(t *testing.T) {
+// TestInjectWrapperDiv_PropertyDecoys is a randomized regression test:
+// no combination of decoy <body / <script substrings in <head> should ever
+// fool the wrapper into mis-positioning. Catches future regressions toward
+// naive strings.Index by asserting both that the sentinel is wrapped AND
+// that the wrapper appears strictly after the real <body> open tag.
+func TestInjectWrapperDiv_PropertyDecoys(t *testing.T) {
 	const sentinel = `<button data-real="x">go</button>`
 	const wrapperID = "lvt-test"
+	const realBodyMarker = `</head><body>`
 
 	decoys := []string{
 		`<style>/* <body> */</style>`,
@@ -658,7 +659,7 @@ func TestInjectWrapperDiv_Issue414_PropertyDecoys(t *testing.T) {
 	}
 
 	// Deterministic seed so failures reproduce; bump to flush out new patterns.
-	const seed = int64(0x414cafe)
+	const seed = int64(0xc0ffee10)
 	rng := rand.New(rand.NewSource(seed))
 
 	const iterations = 1000
@@ -674,9 +675,22 @@ func TestInjectWrapperDiv_Issue414_PropertyDecoys(t *testing.T) {
 		result := InjectWrapperDiv(doc, wrapperID, false)
 		wrapperOpen := strings.Index(result, `<div data-lvt-id="`+wrapperID+`"`)
 		sentinelPos := strings.Index(result, sentinel)
-		if wrapperOpen < 0 || sentinelPos < 0 || sentinelPos < wrapperOpen {
-			t.Fatalf("iter %d (seed=%#x): wrapper mis-positioned\nhead=%q\nresult=%s",
-				i, seed, head.String(), result)
+		realBodyPos := strings.Index(result, realBodyMarker)
+		if wrapperOpen < 0 || sentinelPos < 0 || realBodyPos < 0 {
+			t.Fatalf("iter %d (seed=%#x): missing landmark — wrapperOpen=%d sentinelPos=%d realBodyPos=%d\nhead=%q\nresult=%s",
+				i, seed, wrapperOpen, sentinelPos, realBodyPos, head.String(), result)
+		}
+		realBodyOpenEnd := realBodyPos + len(realBodyMarker)
+		// The wrapper must appear strictly after the real <body...> open
+		// tag, not inside <head> even if the sentinel happens to also fall
+		// after the wrapper. This is the regression-catching assertion.
+		if wrapperOpen < realBodyOpenEnd {
+			t.Fatalf("iter %d (seed=%#x): wrapper at %d is BEFORE real <body> at %d (mis-positioned inside <head>)\nhead=%q\nresult=%s",
+				i, seed, wrapperOpen, realBodyOpenEnd, head.String(), result)
+		}
+		if sentinelPos < wrapperOpen {
+			t.Fatalf("iter %d (seed=%#x): sentinel at %d is BEFORE wrapper at %d\nhead=%q\nresult=%s",
+				i, seed, sentinelPos, wrapperOpen, head.String(), result)
 		}
 	}
 }
@@ -752,7 +766,7 @@ func TestLocateBodyAndFirstScript_TemplateDirectiveInAttrValue_Safe(t *testing.T
 // today's behavior on a pathological template directive that emits attribute-
 // like text in the body open tag itself. Behavior matches the previous
 // string-based implementation; a robust fix would require Go-template-aware
-// preprocessing, which is out of scope for livetemplate#414.
+// preprocessing, intentionally out of scope here.
 func TestLocateBodyAndFirstScript_TemplateDirectiveInBodyTag_LimitationPin(t *testing.T) {
 	input := `<html><body {{if .Dark}}class="dark"{{end}}><div>x</div></body></html>`
 
@@ -775,7 +789,7 @@ func TestLocateBodyAndFirstScript_TemplateDirectiveInBodyTag_LimitationPin(t *te
 // documented residual limitation: html.Tokenizer is unaware of Go template
 // comments {{/* ... */}}, so a literal "<body>" inside one still matches as
 // a tag. Fixing this would require Go-template-syntax stripping before
-// tokenization, which is out of scope for livetemplate#414.
+// tokenization, intentionally out of scope here.
 func TestLocateBodyAndFirstScript_GoTemplateComment_LimitationPin(t *testing.T) {
 	input := `<html><head>{{/* <body> */}}</head><body>real</body></html>`
 

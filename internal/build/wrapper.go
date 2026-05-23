@@ -116,7 +116,7 @@ func FindBodyNode(n *html.Node) *html.Node {
 // document body and the first <script> inside it. Unlike strings.Index, the
 // tokenizer correctly skips '<body' / '<script' substrings appearing in HTML
 // comments, RAWTEXT (<script>/<style> content), RCDATA (<title>/<textarea>
-// content), and attribute values — the bug behind livetemplate#414.
+// content), and attribute values.
 //
 // Returns four byte offsets into htmlDoc, or -1 when not found:
 //   - bodyOpenStart:    '<' of the FIRST <body...> start tag
@@ -174,7 +174,7 @@ func locateBodyAndFirstScript(htmlDoc string) (bodyOpenStart, bodyOpenEnd, bodyC
 // htmlDoc contains Go template directives (which would be mangled by
 // html.Parse + html.Render). It uses html.Tokenizer for tag-boundary
 // detection so that '<body' / '<script' substrings inside head content
-// don't fool it (livetemplate#414).
+// don't fool it.
 func injectWrapperDivStringBased(htmlDoc string, wrapperID string, loadingDisabled bool) string {
 	bodyOpenStart, bodyOpenEnd, bodyCloseStart, scriptStart := locateBodyAndFirstScript(htmlDoc)
 	if bodyOpenStart < 0 || bodyCloseStart < 0 || bodyOpenEnd > bodyCloseStart {
@@ -204,8 +204,7 @@ func injectWrapperDivStringBased(htmlDoc string, wrapperID string, loadingDisabl
 // ExtractTemplateBodyContent extracts only the body content from a full HTML
 // template. Handles body tags with or without attributes (e.g., <body>,
 // <body class="dark">). Uses html.Tokenizer (see locateBodyAndFirstScript)
-// to avoid being fooled by '<body' substrings in head content
-// (livetemplate#414).
+// to avoid being fooled by '<body' substrings in head content.
 func ExtractTemplateBodyContent(templateStr string) string {
 	bodyOpenStart, bodyOpenEnd, bodyCloseStart, _ := locateBodyAndFirstScript(templateStr)
 	if bodyOpenStart < 0 {
