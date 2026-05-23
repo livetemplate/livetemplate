@@ -615,9 +615,15 @@ func TestExtractTemplateBodyContent_HeadDecoys(t *testing.T) {
 			if !strings.Contains(content, sentinel) {
 				t.Errorf("extracted body content missing sentinel\nhead=%q\ngot=%q", tc.head, content)
 			}
-			// Head markup must not leak into the extracted body content.
-			if strings.Contains(content, "<head>") || strings.Contains(content, "<meta") || strings.Contains(content, "<title>") {
-				t.Errorf("extracted body content contains <head> markup\nhead=%q\ngot=%q", tc.head, content)
+			// Head markup must not leak into the extracted body content. The
+			// fixture set includes <style>, <script>, <meta>, and <title>
+			// decoys; check all four to be exhaustive against the documented
+			// fixtures.
+			for _, leak := range []string{"<head>", "<meta", "<title>", "<style", "<script"} {
+				if strings.Contains(content, leak) {
+					t.Errorf("extracted body content contains <head> markup %q\nhead=%q\ngot=%q",
+						leak, tc.head, content)
+				}
 			}
 		})
 	}

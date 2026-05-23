@@ -197,7 +197,12 @@ func ExtractTemplateBodyContent(templateStr string) string {
 	if bodyOpenStart < 0 {
 		return templateStr
 	}
-	if bodyCloseStart < 0 {
+	// bodyCloseStart < 0 covers "no </body> at all".
+	// bodyOpenEnd > bodyCloseStart covers pathological input like
+	// "</body><body>x" where the only </body> precedes the body open
+	// tag — slicing [open:close] would panic. Treat both as "no usable
+	// close" and fall through to TrimSpace from body open onward.
+	if bodyCloseStart < 0 || bodyOpenEnd > bodyCloseStart {
 		return strings.TrimSpace(templateStr[bodyOpenEnd:])
 	}
 	return strings.TrimSpace(templateStr[bodyOpenEnd:bodyCloseStart])
