@@ -121,7 +121,7 @@ The browser experience (WASM mode):
    }
    ```
 
-   **Import-path resolution.** The AST extractor reads the dev's `main.go` import block (via `go/ast` + `go/types`) and re-emits the resolved import path backing each referenced package alias (e.g., `app` → `"myapp/app"`) in `main_wasm.go` — not just the expression text. Failure to resolve produces a build error with the unresolved package name pointed at, before any Go compilation runs.
+   **Import-path resolution.** The AST extractor reads the dev's `main.go` import block (via `golang.org/x/tools/go/packages`, which wraps `go/ast` + `go/types` and handles workspace mode, build constraints, and import resolution the way `gopls` does — raw `go/types` requires manual configuration of all of these and is brittle in practice) and re-emits the resolved import path backing each referenced package alias (e.g., `app` → `"myapp/app"`) in `main_wasm.go` — not just the expression text. Failure to resolve produces a build error with the unresolved package name pointed at, before any Go compilation runs.
 
    **Build-tag rewrite.** `lvt build wasm` also rewrites the scratch-dir copy of the dev's `main.go` to prepend `//go:build !js` if it's missing — without that constraint, two `main()` functions in the same package would be a compile error. The dev's source tree is not modified; both files coexist only in the scratch dir, and the toolchain picks one based on `GOOS=js`.
 
@@ -136,7 +136,7 @@ The browser experience (WASM mode):
    - `<script src="livetemplate-client-wasm.browser.js"></script>` — the WASM-aware client bundle (vs. the regular `livetemplate-client.browser.js` in server mode).
    - `<script src="lvt-opfs-sw.js" type="module">` — registers the OPFS service worker (see [§4.5](#45-service-worker-for-opfs)).
 
-7. **Pre-compress and assemble `dist/`.** Run `gzip -9` and (if available) `brotli -q 11` on `*.wasm` and `*.js`. Copy `wasm_exec.js` from `$(go env GOROOT)/lib/wasm/` (16.6 KiB raw / 4.3 KiB gzipped as of Go 1.26.x (toolchain 1.26.1; go.mod floor 1.26.0) — see §5's size table). The output directory is a complete static site — drop into Cloudflare Pages, S3+CloudFront, GitHub Pages, or any CDN.
+7. **Pre-compress and assemble `dist/`.** Run `gzip -9` and (if available) `brotli -q 11` on `*.wasm` and `*.js`. Copy `wasm_exec.js` from `$(go env GOROOT)/lib/wasm/` (16.6 KiB raw / 4.3 KiB gzipped — see §5's size table for measurement context). The output directory is a complete static site — drop into Cloudflare Pages, S3+CloudFront, GitHub Pages, or any CDN.
 
 ### 4.2 The client variant
 
@@ -203,10 +203,15 @@ async bootWASM(): Promise<void> {
     // do NOT await it here because WASM main() blocks forever (select{}).
     // We DO need to wait for the WASM-side init to expose __lvtDispatch_<id>
     // on window — go.run() returning doesn't mean main()'s init code has run
-    // yet. The clean signal is for Go's main() to set a "ready" marker on
-    // window after registering __lvtDispatch_<id>; the JS side awaits it.
+    // yet. The clean signal: Go's main() dispatches a CustomEvent
+    // `lvt-wasm-ready-${wrapperID}` on window AFTER registering the dispatch
+    // global. JS subscribes via a Promise; the listener pre-checks the global
+    // in case the event already fired (fast machine / pre-warm cache).
     const runPromise = go.run(result.instance);  // do not await
-    await waitForGlobal(`__lvtDispatch_${wrapperID}`);  // poll/event-based
+    await new Promise<void>((resolve) => {
+        if ((window as any)[`__lvtDispatch_${wrapperID}`]) { resolve(); return; }
+        window.addEventListener(`lvt-wasm-ready-${wrapperID}`, () => resolve(), { once: true });
+    });
 
     // WASM exposes window.__lvtDispatch_<wrapperID>(messageJSON: string) →
     // diffJSON, set during its main() init. messageJSON is the same wire
@@ -271,21 +276,23 @@ The DOM element stays the same — same 3px `position:fixed; top:0; z-index:9999
 
 The dev's `lvt:"persist"` tag and `WithUpload(Accept:..., MaxFileSize:...)` calls work identically in both modes. The divergence is entirely behind build tags inside the framework, never in user code.
 
-**Persist pipeline.** Paired files inside `livetemplate/`:
+**Persist pipeline.** The right architectural seam is *below* mount.go — the `SessionStore` interface, not the persist methods. `mount.go`'s `persistState(ctx, groupID, state)` (line 1568) and `restorePersistedState(ctx, groupID)` (line 1585) stay unchanged: they always call `ExtractPersistFields`/`InjectPersistFields` (methods on the internal `jsonState[T]` type in `state.go` — grep anchor from the livetemplate repo root: `grep -n "func.*ExtractPersistFields\|func.*InjectPersistFields" state.go`) and then delegate to the configured `SessionStore`. Only the **default `SessionStore` selection** and the **set of compiled-in stores** differ by build target:
 
 ```
-state_persist.go         //go:build !js          (today's pipeline — talks to SessionStore)
-state_persist_wasm.go    //go:build js && wasm   (NEW — talks to IndexedDB via syscall/js)
+session_stores.go               //go:build !js          (existing: Memory + Redis)
+session_stores_wasm.go          //go:build js && wasm   (NEW: WASMSessionStore + IndexedDB)
+template_default_store.go       //go:build !js          (existing: New() default = MemorySessionStore)
+template_default_store_wasm.go  //go:build js && wasm   (NEW: New() default = WASMSessionStore)
 ```
 
-Both files expose the same internal `persistFields(state, groupID)` and `restoreFields(state, groupID)` signatures used by `mount.go`. The server build sees only the first; the WASM build sees only the second. The `ExtractPersistFields` and `InjectPersistFields` methods on the internal `jsonState[T]` type (defined in `state.go` — grep anchor from the livetemplate repo root: `grep -n "func.*ExtractPersistFields\|func.*InjectPersistFields" state.go`) are unchanged — they produce/consume `[]byte` JSON regardless of where the bytes ultimately land.
+The dev's `livetemplate.New("counter")` with no explicit `WithSessionStore` gets the right backend automatically per build target. Dev code that passes `WithSessionStore(NewMemorySessionStore(...))` etc. is rejected by [§4.4](#44-what-lvt-build-wasm-rejects-hard-errors)'s AST scan before any Go compilation runs. **No mount.go refactor needed** — the `SessionStore` interface is already the seam.
 
 The IndexedDB schema: one database named `livetemplate`, one object store named `sessions`, key = `groupID` (always `"wasm"` in WASM mode since there's only one user), value = `[]byte` JSON.
 
 **Sync-Go ↔ async-IndexedDB bridge — the load-bearing implementation detail.** `restoreFields` must complete synchronously within `Mount` (the framework's lifecycle is synchronous), but IndexedDB is entirely asynchronous. Two viable techniques exist:
 
 - **(a) Channel-blocked goroutine.** Register a `js.FuncOf` callback for the IndexedDB promise resolution; block a Go channel until the callback fires. The parked goroutine allows the JS event loop to run and fire the callback. This is the pattern `wasm_exec.js` uses internally for `fetch`/`setTimeout` — battle-tested, adds one `js.FuncOf` allocation + one syscall round-trip per persist op.
-- **(b) Native promise-await helper in `syscall/js`.** Hypothetically, a stdlib `Value.Await()` (or `Promise.Await`) would eliminate the manual channel wiring. **As of Go 1.26.x (toolchain 1.26.1; go.mod floor 1.26.0) (verified via `GOOS=js GOARCH=wasm go doc syscall/js` on 2026-05-25), no such helper exists** — `syscall/js` exposes `FuncOf`, `Get`, `Set`, `Call`, `Invoke`, etc., but no `Await`. The package is also marked EXPERIMENTAL and exempt from the Go compatibility promise, so even if (b) lands in a future release the proposal can't depend on it.
+- **(b) Native promise-await helper in `syscall/js`.** Hypothetically, a stdlib `Value.Await()` (or `Promise.Await`) would eliminate the manual channel wiring. **No such helper exists** as of the toolchain measured for this proposal (verified via `GOOS=js GOARCH=wasm go doc syscall/js` on 2026-05-25) — `syscall/js` exposes `FuncOf`, `Get`, `Set`, `Call`, `Invoke`, etc., but no `Await`. The package is also marked EXPERIMENTAL and exempt from the Go compatibility promise, so even if (b) lands in a future release the proposal can't depend on it.
 
 **Phase 1 commits to (a).** This was the round-1 commitment; the proposal briefly flipped to (b) during review iteration based on a third-party suggestion that the helper existed, which turned out to be fictional. (a) is the actual mechanism livetemplate must use because it's the one the stdlib supports. The wrapper lives in a small helper `internal/wasm/promise.go` shared by `WASMSessionStore` and the `WASMFileStore` of [§4.3 uploads](#43-persist--uploads-build-tag-auto-swap); per-op cost is dominated by IndexedDB's own latency (5–50 ms), so the channel hop is in the noise.
 
@@ -362,7 +369,8 @@ WASM mode has two failure modes worth documenting up front; both differ from ser
 - **Panics in action handlers.** Server mode wraps action dispatch with `recover()` and surfaces panics as validation errors; the request fails but the connection survives. WASM mode wraps action dispatch the same way (the same dispatch code runs, with build-tag swaps only on persistence/upload), so action-handler panics also recover and surface to the user. **No regression** vs. server mode on this axis.
 - **Panics in `Mount` or framework init.** A panic before the first action handler runs has nowhere to recover to — it crashes the WASM runtime, which from the JS side looks like a tab crash. The loading indicator stays visible; the page never hydrates. There is no automatic restart. The dev mitigation is the same as for any panic-on-init bug: surface in development (the `lvt build wasm --dev` build target prints stack traces to the JS console; production builds with `-ldflags="-s -w"` strip them) and fix at the source. **Document this as a known limitation; no framework workaround.**
 - **OOM under memory pressure.** iOS Safari kills tabs above ~200 MB of total memory. The WASM heap counts toward this, and Go's GC is conservative about returning memory. Apps that allocate large per-frame data (image processing, big intermediate slices) can OOM the tab in a way that server-mode equivalents never would. The Phase V validation explicitly tests for this; production apps should keep state size in the single-digit MB range and avoid per-action allocations that don't get GC'd before the next user interaction.
-- **IndexedDB unavailable (private browsing).** Safari in Private mode and some older browser configurations block or severely limit IndexedDB. A WASM app that depends on `restoreFields` for initial state will silently start from zero-value on every load in those contexts — the app works, but persists nothing; state resets on reload. This is not a crash; it's surprising UX. Phase 1's `WASMSessionStore` surfaces the IndexedDB-unavailable case to the dev's `Mount` (e.g., via a context flag) so apps can show a "private browsing — state won't persist" banner if they care. Default behavior: silent zero-value, which matches the WASM-mode worst case of "no prior session".
+- **IndexedDB unavailable (private browsing).** Safari in Private mode and some older browser configurations block or severely limit IndexedDB. A WASM app that depends on persisted state for initial render will silently start from zero-value on every load in those contexts — the app works, but persists nothing; state resets on reload. This is not a crash; it's surprising UX. Phase 1's `WASMSessionStore` surfaces the IndexedDB-unavailable case to the dev's `Mount` (e.g., via a context flag) so apps can show a "private browsing — state won't persist" banner if they care. Default behavior: silent zero-value, which matches the WASM-mode worst case of "no prior session".
+- **Concurrent-tab silent data loss.** A WASM app open in two browser tabs is two independent state copies writing under the same `groupID = "wasm"` key. IndexedDB writes are last-write-wins with no coordination: if the user mutates in tab A and tab B at the same moment, one mutation is silently lost. This is true of any browser-storage-backed app (not unique to this design) but `lvt:"persist"` fields make it easy to depend on browser storage as if it were transactional. **v0 mitigation options** (app-level, not framework-provided): (1) use `navigator.locks.request("lvt-session")` in Mount to acquire an exclusive lock and refuse hydration in the second tab; (2) show a "this app supports one tab at a time" UI if the lock is busy; (3) accept the risk for apps where concurrent-tab usage is rare. **Framework fix** is BroadcastChannel-based sync in Phase 2.5 — see [§7.7](#77-broadcastchannel-for-multi-tab-sync) for the design sketch.
 
 ## 5. Validation results (Phase V)
 
@@ -373,13 +381,13 @@ A throwaway prototype built 2026-05-24 at `livetemplate/.worktrees/wasm-validati
 | WASM uncompressed | 16.48 MiB | — | informational |
 | WASM gzip -9 | 3.79 MiB | ≤ 4.0 MiB | ✅ (5% under) |
 | WASM brotli -q11 (est.) | ~2.7 MiB | ≤ 4.0 MiB | ✅ (well under) |
-| `wasm_exec.js` (Go 1.26.x (toolchain 1.26.1; go.mod floor 1.26.0) stdlib) | 16.6 KiB raw / 4.3 KiB gzipped | — | measured 2026-05-25 against `$(go env GOROOT)/lib/wasm/wasm_exec.js` |
+| `wasm_exec.js` (Go stdlib) | 16.6 KiB raw / 4.3 KiB gzipped | — | measured 2026-05-25 against `$(go env GOROOT)/lib/wasm/wasm_exec.js` on toolchain 1.26.1 (go.mod floor: `go 1.26.0`) |
 | `livetemplate-client-wasm.browser.js` (est.) | ~25 KiB minified, gzipped | — | similar to existing `livetemplate-client.browser.js`, +WASM-bridge code |
 | `dist/index.html` (server-prerendered shell) | <10 KiB typical | — | depends on user template; counter ~3 KiB, 50-item dashboard ~30 KiB |
 | Headless smoke (devbox localhost TTI) | 539 ms | informational | correctness check only — localhost has no network latency; the iPhone-over-4G row below is the actual UX benchmark |
 | iPhone over 4G (TTI / idle mem / bg survival) | *in flight* | ≤ 5 s / ≤ 80 MB / survives backgrounding | user testing; results gate Proposed → Accepted, not Phase 0 sign-off |
 
-The prototype uses livetemplate's **real** Build/Render pipeline via a small new `WithRawTemplate(text string)` option (added to `template.go` in the worktree, ~15 lines, all existing tests pass). This option ships as part of Phase 1 because livetemplate's default auto-discovery (`discovery.DiscoverTemplateFiles`) reads from the filesystem at runtime — which doesn't exist in WASM. **Apps using `//go:embed` (which bakes files into the binary at build time) do NOT need to migrate** — they can pass the embedded content via `WithRawTemplate(string(myEmbeddedFile))` (or even keep `WithParseFiles` if the embed presents a real-looking path through an `embed.FS`). Only apps relying on runtime filesystem discovery need the new option. It also has standalone value (any caller wanting to pass a template string without scaffolding), so it can land as a separate small PR.
+The prototype uses livetemplate's **real** Build/Render pipeline via a small new `WithRawTemplate(text string)` option (added to `template.go` in the worktree, ~15 lines, all existing tests pass). **`WithRawTemplate` is a Phase 1 prerequisite** — the WASM build needs it to bypass `discovery.DiscoverTemplateFiles`, which reads from the filesystem at runtime (no filesystem in WASM). Whether it lands as a standalone preliminary PR or inside Phase 1's combined PR is a sequencing detail; the dependency is mandatory either way. **Apps using `//go:embed` (which bakes files into the binary at build time) do NOT need to migrate** — they can pass the embedded content via `WithRawTemplate(string(myEmbeddedFile))` (or even keep `WithParseFiles` if the embed presents a real-looking path through an `embed.FS`). Only apps relying on runtime filesystem discovery need the new option. The option has standalone value beyond WASM (any caller wanting to pass a template string without scaffolding), which makes the standalone-PR sequencing attractive but not required.
 
 Key non-finding from validation: **the framework code compiles cleanly under `GOOS=js GOARCH=wasm` with no build-tag refactoring.** `net/http` is fully supported on `js/wasm` (uses `fetch` as the transport), so `mount.go` and `ws.go` compile fine — they just can't *listen*. The build-tag work in [§4.3](#43-persist--uploads-build-tag-auto-swap) is therefore minimal and targeted (paired files for persist + upload), not a sweeping refactor.
 
@@ -404,7 +412,7 @@ The "any CDN" claim is honestly qualified by the floor set by the most-recent br
 |---|---|---|
 | **V — Validation prototype** | done 2026-05-24 | iPhone smoke pending; sizes pass thresholds; framework compiles to WASM with no refactor needed; `WithRawTemplate` option verified |
 | **0 — This proposal** | done with reviewer signoff | This document; close [#440](https://github.com/livetemplate/livetemplate/issues/440); open Phase 1 tracking issue |
-| **1 — Framework implementation** | ~4 weeks | `livetemplate/internal/wasm/` package (`Run`, `syscall/js` dispatch shim, IndexedDB `WASMSessionStore`, OPFS `WASMFileStore`); paired build-tag files for persist + upload; `LoadingIndicator.setProgress`; new client esbuild target for `livetemplate-client-wasm.browser.js`; reuses existing test infra (chromedp via lvt) for E2E |
+| **1 — Framework implementation** | ~4 weeks | `livetemplate/internal/wasm/` package (`Run`, `syscall/js` dispatch shim, IndexedDB `WASMSessionStore`, OPFS `WASMFileStore`); paired build-tag files for store-default + upload; `LoadingIndicator.setProgress`; new client esbuild target for `livetemplate-client-wasm.browser.js`; **WASM E2E test harness** — existing chromedp infra hits a Go HTTP server, but service workers (§4.5) require a secure context, so this needs a local TLS server (caddy + mkcert or equivalent) loading a built `dist/` over HTTPS. Non-trivial scaffolding lift; budgeted in this phase |
 | **2 — `lvt build wasm` CLI** | ~2 weeks | `lvt/commands/build_wasm.go`; AST parse of `main.go`; synthesize `main_wasm.go` + prerender binary; assemble `dist/`; service-worker generation; pre-compression |
 | **3 — Docs + examples + deploy guide** | ~1 week | `examples/wasm-counter/` deployed to a CDN; `docs/guides/wasm-target.md`; caching/CDN guidance (Cache-Control, content-hashed filenames, service-worker patterns); **CSP guidance** (instantiating WASM requires `script-src 'wasm-unsafe-eval'` if a strict CSP is set — a late discovery on CSP-enforcing CDNs); READMEs for both repos updated |
 | **3.5 — checklistkit M1 dogfood** | (consumer) | checklistkit Personal mode ships on WASM-livetemplate as the canonical real-app example |
