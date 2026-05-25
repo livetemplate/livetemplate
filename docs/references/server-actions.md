@@ -581,8 +581,10 @@ Two rules cover the gap:
    ```
 
 The `ctx.IsReconnect()` helper returns `true` whenever persisted state
-was restored — **including the normal initial-HTTP-GET → WS flow**, not
-only post-blip reconnects. (The framework persists state at the end of
+was restored (this requires at least one `lvt:"persist"` field on the
+state struct; states with no persist fields always produce
+`IsReconnect()==false` because there is nothing to restore) — **including
+the normal initial-HTTP-GET → WS flow**, not only post-blip reconnects. (The framework persists state at the end of
 the HTTP-path `Mount` and restores it when the WS opens, so the first
 WS `OnConnect` after a fresh page load also sees `IsReconnect() == true`.)
 See the [Controller Pattern reference](controller-pattern.md) for the
