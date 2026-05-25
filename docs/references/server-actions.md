@@ -485,13 +485,15 @@ func (c *Ctrl) OnConnect(state State, ctx *livetemplate.Context) (State, error) 
         const maxTicks = 60 // pick a horizon appropriate to the job
         for i := 0; i < maxTicks; i++ {
             time.Sleep(tickRate)
-            // Discarding the return is safe ONLY in multi-instance mode:
-            // TriggerAction returns nil with zero local connections, so the
-            // error isn't a useful stop signal here (publish-failure warnings
-            // are logged server-side). Single-instance callers MUST check
-            // for ErrSessionDisconnected — see the example earlier in this
-            // section.
-            _ = session.TriggerAction("tick", payload)
+            // In multi-instance mode the error return is not a stop signal
+            // (TriggerAction returns nil with zero local connections), but
+            // it IS an observability hook for transient pubsub failures.
+            // Log at warn level rather than discarding. Single-instance
+            // callers MUST check for ErrSessionDisconnected and exit on
+            // it — see the example earlier in this section.
+            if err := session.TriggerAction("tick", payload); err != nil {
+                slog.Warn("TriggerAction failed", "err", err)
+            }
         }
     }()
     return state, nil
@@ -563,12 +565,6 @@ Two rules cover the gap:
        // of the work. No need to store on the controller like the timer
        // examples above; this re-spawn is one-shot per OnConnect call.
        session := ctx.Session()
-       if session == nil {
-           // ctx.Session() is always non-nil in lifecycle methods (Mount,
-           // OnConnect). This guard exists so the snippet is safe to copy
-           // into other call sites where Session() may return nil.
-           return state, nil
-       }
        // runWork must (a) be idempotent across multiple OnConnect re-spawns
        // (the same JobID may be respawned if the client reconnects mid-flight)
        // and (b) terminate cleanly — either by exiting on
@@ -580,21 +576,26 @@ Two rules cover the gap:
    }
    ```
 
-The `ctx.IsReconnect()` helper returns `true` whenever persisted state
-was restored (this requires at least one `lvt:"persist"` field on the
-state struct; states with no persist fields always produce
-`IsReconnect()==false` because there is nothing to restore) — **including
-the normal initial-HTTP-GET → WS flow**, not only post-blip reconnects. (The framework persists state at the end of
+**Prefer the `state.InProgress()` check in the recipe above over
+`ctx.IsReconnect()`.** The state-predicate check covers both fresh
+connects and reconnects without needing to disambiguate them, and
+sidesteps the subtle helper semantics described below.
+
+`ctx.IsReconnect()` has non-obvious semantics worth knowing if you do
+reach for it directly: it returns `true` whenever any persisted state
+was restored, **including the normal initial-HTTP-GET → WS flow** — not
+only post-blip reconnects. (The framework persists state at the end of
 the HTTP-path `Mount` and restores it when the WS opens, so the first
 WS `OnConnect` after a fresh page load also sees `IsReconnect() == true`.)
-See the [Controller Pattern reference](controller-pattern.md) for the
-full semantics. Pairing with `ctx.IsNewConnect()` only distinguishes
-**"brand-new WS session with no persisted history at all"** from
-"any persisted state was restored" — it does **not** separate
-"first WS after page load" from "WS resumed after a blip," since both
-have persisted state and so both produce
-`IsReconnect()==true, IsNewConnect()==false`. The recipe above sidesteps
-the question entirely by checking `state.InProgress()` directly.
+This behavior requires at least one `lvt:"persist"` field on the state
+struct; states with no persist fields always produce
+`IsReconnect()==false` because there is nothing to restore. Pairing with
+`ctx.IsNewConnect()` only distinguishes "brand-new WS session with no
+persisted history at all" from "any persisted state was restored" — it
+does **not** separate "first WS after page load" from "WS resumed after
+a blip," since both have persisted state and so both produce
+`IsReconnect()==true, IsNewConnect()==false`. See the [Controller
+Pattern reference](controller-pattern.md) for the full semantics.
 
 ### When the contract is not enough
 

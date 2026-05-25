@@ -206,7 +206,7 @@ Captured here so a follow-up does not re-derive it:
 5. **Tests:**
    - Single-connection disconnect → buffered TriggerAction → reconnect → replay arrives in order.
    - Buffer overflow → oldest dropped → metric incremented → reconnect missed dispatches → caller's idempotent handler reconciles.
-   - Multi-tab (multiple connections in same group) — confirm whether buffer is shared (yes — keyed by groupID) and that replay does not double-fire to a tab that was connected during the dispatch.
+   - Multi-tab (multiple connections in same group) — confirm whether buffer is shared (yes — keyed by groupID) and that replay does not double-fire to a tab that was connected during the dispatch. Explicit assertion: a tab where `lastSeq >= dispatchedSeq` MUST receive no replay for that dispatch, because it already saw the live emission.
    - Concurrent TriggerAction + Unregister — confirm the buffer push happens regardless of registry state.
 
 Most subtle invariant: a `TriggerAction` fired while a tab is still connected must be buffered *and* delivered live to that tab; reconnect replay must not duplicate-deliver to a tab whose `lastSeq` already covers the dispatch.
