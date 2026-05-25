@@ -477,10 +477,7 @@ required:
 
 ```go
 func (c *Ctrl) OnConnect(state State, ctx *livetemplate.Context) (State, error) {
-    session := ctx.Session()
-    if session == nil {
-        return state, nil
-    }
+    session := ctx.Session() // always non-nil in lifecycle methods (mount.go wires it)
     go func() {
         const maxTicks = 60 // pick a horizon appropriate to the job
         for i := 0; i < maxTicks; i++ {

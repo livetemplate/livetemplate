@@ -133,10 +133,7 @@ Ship as part of this option:
       if !state.InProgress() {
           return state, nil
       }
-      session := ctx.Session()
-      if session == nil {
-          return state, nil
-      }
+      session := ctx.Session() // always non-nil in lifecycle methods
       go runWork(session, state.JobID) // must be idempotent by construction
       return state, nil
   }
