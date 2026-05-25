@@ -199,9 +199,10 @@ Captured here so a follow-up does not re-derive it:
    - After `Mount`/`OnConnect`/`persistState`, before the initial-tree send, call `dispatchBuffer.ReplayAfter(lastSeq)` and emit each replayed dispatch using the existing `writeUpdateWebSocket` path (with its original seq).
    - Then emit the initial tree (also seq-tagged).
 4. **Metrics** — new counters in `internal/observe`:
-   - `livetemplate_dispatch_buffer_size{group_id="..."}` gauge
+   - `livetemplate_dispatch_buffer_size` gauge (aggregate across all groups — **no `group_id` label**; cardinality of per-session labels is unbounded and breaks Prometheus at deployment scale)
    - `livetemplate_dispatch_buffer_overflow_total` counter
    - `livetemplate_dispatch_buffer_replays_total` counter
+   - If per-group observability is needed for debugging, expose it via a separate non-Prometheus debug endpoint, not as a labelled gauge.
 5. **Tests:**
    - Single-connection disconnect → buffered TriggerAction → reconnect → replay arrives in order.
    - Buffer overflow → oldest dropped → metric incremented → reconnect missed dispatches → caller's idempotent handler reconciles.
@@ -234,7 +235,7 @@ When/if A is later adopted, the test plan in "Implementation sketch" applies.
 | 0. Draft proposal (this doc) | Done | This PR |
 | 1. (C) Document the contract in caller-facing reference | Done | "Disconnect & Reconnect Contract" section in `docs/references/server-actions.md` |
 | 2. (C) Cross-link from `patterns.md` | Done | "Reconnect-during-loading double-fire" prose updated |
-| 3. PR review + merge | Pending | Tracked by the PR itself, not this doc |
+| 3. PR review + merge | Done (on merge) | Tracked by the PR itself; this row reads "Done" once the merge commit lands |
 | 4. (A/B) Implementation | Deferred | Open new issue with a concrete non-idempotent use case before starting (see §Triggers) |
 
 ## References
