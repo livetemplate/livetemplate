@@ -100,7 +100,9 @@ The browser experience (WASM mode):
 
 `lvt build wasm <pkg>` runs seven steps:
 
-1. **Parse `main.go` AST** to discover the single `tmpl.Handle(controllerExpr, asStateExpr)` call. Fail with a helpful error if there are zero or more than one (the latter is a multi-page app — see [§7.1](#71-multi-page-apps)). Provide a `--entry=<expr>` flag for the multi-Handle case as a v0 escape hatch. The expressions extracted (e.g. `&app.CounterController{}` and `livetemplate.AsState(&app.CounterState{})`) are emitted verbatim into the generated wrapper, so the dev's existing types and constructors are honored.
+1. **Parse `main.go` AST** to discover the single `tmpl.Handle(controllerExpr, asStateExpr)` call. Fail with a helpful error if there are zero or more than one (the latter is a multi-page app — see [§7.1](#71-multi-page-apps)). Provide a `--entry=<pkg.Var>` flag for the multi-Handle case as a v0 escape hatch. The expressions extracted (e.g. `&app.CounterController{}` and `livetemplate.AsState(&app.CounterState{})`) are emitted verbatim into the generated wrapper, so the dev's existing types and constructors are honored.
+
+   **Brittle by design (acknowledged):** the AST scan walks the `main()` function body and finds `Handle()` calls *that appear there directly*. Common patterns it does NOT find: a factory like `mux.Handle("/", buildHandler())` where `buildHandler()` calls `tmpl.Handle(...)` internally; a slice of route registrations built dynamically; conditional registration behind an `if`. For these, the error message is actionable: `"no tmpl.Handle(...) call found in main(). If your handler is built in a helper, pass --entry=<pkg.Var> pointing at the controller + state."` Devs with helper-built handlers add a single flag; the dev's source stays unchanged.
 
 2. **Synthesize `main_wasm.go`** in a build-cache scratch dir (not in the dev's source tree) with build tag `//go:build js && wasm`:
 
@@ -134,7 +136,7 @@ The browser experience (WASM mode):
    - `<script src="livetemplate-client-wasm.browser.js"></script>` — the WASM-aware client bundle (vs. the regular `livetemplate-client.browser.js` in server mode).
    - `<script src="lvt-opfs-sw.js" type="module">` — registers the OPFS service worker (see [§4.5](#45-service-worker-for-opfs)).
 
-7. **Pre-compress and assemble `dist/`.** Run `gzip -9` and (if available) `brotli -q 11` on `*.wasm` and `*.js`. Copy `wasm_exec.js` from `$(go env GOROOT)/lib/wasm/` (16.6 KiB raw / 4.3 KiB gzipped as of Go 1.26.1 — see §5's size table). The output directory is a complete static site — drop into Cloudflare Pages, S3+CloudFront, GitHub Pages, or any CDN.
+7. **Pre-compress and assemble `dist/`.** Run `gzip -9` and (if available) `brotli -q 11` on `*.wasm` and `*.js`. Copy `wasm_exec.js` from `$(go env GOROOT)/lib/wasm/` (16.6 KiB raw / 4.3 KiB gzipped as of Go 1.26.x (toolchain 1.26.1; go.mod floor 1.26.0) — see §5's size table). The output directory is a complete static site — drop into Cloudflare Pages, S3+CloudFront, GitHub Pages, or any CDN.
 
 ### 4.2 The client variant
 
@@ -172,14 +174,18 @@ async bootWASM(): Promise<void> {
 
     // Progress is tracked against the COMPRESSED response stream — Content-Length
     // is the on-wire byte count, which is what "bytes arrived" actually
-    // corresponds to. If the CDN strips Content-Length (rare), drop to the
-    // existing indeterminate shimmer instead of using a wrong denominator
-    // (the uncompressed size in data-wasm-size would let the bar overshoot
-    // 100% during decompression catch-up — strictly worse UX than shimmer).
+    // corresponds to. Many CDNs (notably Cloudflare) strip Content-Length for
+    // brotli/gzip responses, which means determinate progress is the exception
+    // in practice. The fallback (indeterminate shimmer) is what server-mode
+    // shows today — no regression, just no improvement over baseline.
     const response = await fetch(wasmUrl);
     const contentLength = parseInt(response.headers.get("Content-Length") || "", 10);
     let wasmResponse: Response;
     if (Number.isFinite(contentLength) && contentLength > 0) {
+        // teeWithProgress MUST use response.body.tee() to split into two
+        // ReadableStream branches: one for the progress counter, one wrapped
+        // back into a new Response for instantiateStreaming. The original
+        // `response` is consumed by tee() and can't be passed on directly.
         wasmResponse = teeWithProgress(response, contentLength, (fraction) => {
             this.loadingIndicator.setProgress(fraction);
         });
@@ -192,17 +198,29 @@ async bootWASM(): Promise<void> {
     const result = await WebAssembly.instantiateStreaming(wasmResponse, go.importObject);
     this.loadingIndicator.setProgress(1.0);
     this.loadingIndicator.transitionToIndeterminate();  // shimmer during first render
-    go.run(result.instance);  // does not await; WASM main() blocks forever
+
+    // go.run() returns a Promise that resolves only when main() returns; we
+    // do NOT await it here because WASM main() blocks forever (select{}).
+    // We DO need to wait for the WASM-side init to expose __lvtDispatch_<id>
+    // on window — go.run() returning doesn't mean main()'s init code has run
+    // yet. The clean signal is for Go's main() to set a "ready" marker on
+    // window after registering __lvtDispatch_<id>; the JS side awaits it.
+    const runPromise = go.run(result.instance);  // do not await
+    await waitForGlobal(`__lvtDispatch_${wrapperID}`);  // poll/event-based
 
     // WASM exposes window.__lvtDispatch_<wrapperID>(messageJSON: string) →
-    // diffJSON, set during its init. messageJSON is the same wire format
-    // the WS/HTTP paths emit today (e.g. {"action":"Increment","data":{...}}),
-    // so the WASM side parses out action+data once. Namespacing by wrapperID
-    // prevents collisions when multiple WASM bundles run on the same page
-    // (test harnesses, the multi-page bundle case sketched in §7.1, per-route
-    // bundles via --entry).
+    // diffJSON, set during its main() init. messageJSON is the same wire
+    // format the WS/HTTP paths emit today (e.g. {"action":"Increment",
+    // "data":{...}}), so the WASM side parses out action+data once.
+    // Namespacing by wrapperID prevents collisions when multiple WASM
+    // bundles run on the same page (test harnesses, the multi-page bundle
+    // case sketched in §7.1, per-route bundles via --entry).
     this.wasmDispatch = (window as any)[`__lvtDispatch_${wrapperID}`];
     this.loadingIndicator.hide();
+
+    // runPromise rejecting (a Go panic in main()) is the §4.6 "Mount/init
+    // panic" failure mode — surface it to the dev console; can't recover.
+    runPromise.catch(err => console.error("[livetemplate-wasm] crashed:", err));
 }
 ```
 
@@ -266,10 +284,10 @@ The IndexedDB schema: one database named `livetemplate`, one object store named 
 
 **Sync-Go ↔ async-IndexedDB bridge — the load-bearing implementation detail.** `restoreFields` must complete synchronously within `Mount` (the framework's lifecycle is synchronous), but IndexedDB is entirely asynchronous. Two viable techniques exist:
 
-- **(a) Channel-blocked goroutine.** Register a JS callback for the IndexedDB promise resolution; block a Go channel until the callback fires. This is the pattern `wasm_exec.js` uses internally for `fetch`/`setTimeout` — battle-tested across Go versions, adds one syscall round-trip per persist op.
-- **(b) Native promise-await in `syscall/js`.** Go 1.24+ provides a way to synchronously await a JS Promise from Go without manually wiring `then/catch` callbacks through a channel — Phase 1 will commit to the specific helper available in the Go version `go.mod` declares (currently `go 1.26.0`; exact symbol — likely a `js.Value` method along the lines of `.Await()`, or `js.Promise.Await` — will be selected once Phase 1 reads the current `syscall/js` package docs). The point is that the surface exists in stdlib and compiles cleaner than the channel pattern, with no third-party dep.
+- **(a) Channel-blocked goroutine.** Register a `js.FuncOf` callback for the IndexedDB promise resolution; block a Go channel until the callback fires. The parked goroutine allows the JS event loop to run and fire the callback. This is the pattern `wasm_exec.js` uses internally for `fetch`/`setTimeout` — battle-tested, adds one `js.FuncOf` allocation + one syscall round-trip per persist op.
+- **(b) Native promise-await helper in `syscall/js`.** Hypothetically, a stdlib `Value.Await()` (or `Promise.Await`) would eliminate the manual channel wiring. **As of Go 1.26.x (toolchain 1.26.1; go.mod floor 1.26.0) (verified via `GOOS=js GOARCH=wasm go doc syscall/js` on 2026-05-25), no such helper exists** — `syscall/js` exposes `FuncOf`, `Get`, `Set`, `Call`, `Invoke`, etc., but no `Await`. The package is also marked EXPERIMENTAL and exempt from the Go compatibility promise, so even if (b) lands in a future release the proposal can't depend on it.
 
-**Phase 1 commits to (b).** livetemplate's `go.mod` already declares `go 1.26.0`, so any 1.24+ floor is moot. (b) is the strict improvement on (a): less boilerplate, no manual channel management, the stdlib handles cancellation semantics. (a) remains documented as the fallback pattern for any out-of-tree code that needs broader portability. The promise wrapper lives in a small helper `internal/wasm/promise.go` shared by `WASMSessionStore` and the `WASMFileStore` of [§4.3 uploads](#43-persist--uploads-build-tag-auto-swap).
+**Phase 1 commits to (a).** This was the round-1 commitment; the proposal briefly flipped to (b) during review iteration based on a third-party suggestion that the helper existed, which turned out to be fictional. (a) is the actual mechanism livetemplate must use because it's the one the stdlib supports. The wrapper lives in a small helper `internal/wasm/promise.go` shared by `WASMSessionStore` and the `WASMFileStore` of [§4.3 uploads](#43-persist--uploads-build-tag-auto-swap); per-op cost is dominated by IndexedDB's own latency (5–50 ms), so the channel hop is in the noise.
 
 **Upload pipeline.** Paired files inside `livetemplate/internal/upload/`:
 
@@ -278,9 +296,14 @@ handler.go         //go:build !js          (today's multipart-to-server flow)
 handler_wasm.go    //go:build js && wasm   (NEW — file picker → OPFS write → metadata-only signal)
 ```
 
-In WASM mode, the dev's `WithUpload("avatar", UploadConfig{Accept:..., MaxFileSize:...})` registers the same field, but the `<input type=file>` handler is wired to write bytes directly to OPFS at `opfs:/lvt-uploads/<file_id>` instead of streaming chunks to a server endpoint. The `UploadEntry` returned to the dev's handler has `TempPath = "opfs:<file_id>"` (sentinel). The dev's existing `ctx.GetCompletedUploads("avatar")` code works unchanged; new helper methods (Phase 2):
+In WASM mode, the dev's `WithUpload("avatar", UploadConfig{Accept:..., MaxFileSize:...})` registers the same field, but the `<input type=file>` handler is wired to write bytes directly to OPFS at `opfs:/lvt-uploads/<file_id>` instead of streaming chunks to a server endpoint. The `UploadEntry` returned to the dev's handler has `TempPath = "opfs:<file_id>"` (sentinel). The dev's existing `ctx.GetCompletedUploads("avatar")` code works unchanged; new helpers (Phase 1):
 
 ```go
+// Shape illustrative; Phase 1 picks methods-on-type vs package-level helpers
+// based on the existing convention in internal/upload/. Today UploadEntry has
+// zero methods (it's a pure data struct in internal/uploadtypes/types.go) and
+// utilities live as package-level funcs like ValidateEntry; methods are an
+// equally valid choice for a public type — either works at the call site.
 func (e *UploadEntry) IsOPFS() bool      { return strings.HasPrefix(e.TempPath, "opfs:") }
 func (e *UploadEntry) OPFSFileID() string { return strings.TrimPrefix(e.TempPath, "opfs:") }
 ```
@@ -339,6 +362,7 @@ WASM mode has two failure modes worth documenting up front; both differ from ser
 - **Panics in action handlers.** Server mode wraps action dispatch with `recover()` and surfaces panics as validation errors; the request fails but the connection survives. WASM mode wraps action dispatch the same way (the same dispatch code runs, with build-tag swaps only on persistence/upload), so action-handler panics also recover and surface to the user. **No regression** vs. server mode on this axis.
 - **Panics in `Mount` or framework init.** A panic before the first action handler runs has nowhere to recover to — it crashes the WASM runtime, which from the JS side looks like a tab crash. The loading indicator stays visible; the page never hydrates. There is no automatic restart. The dev mitigation is the same as for any panic-on-init bug: surface in development (the `lvt build wasm --dev` build target prints stack traces to the JS console; production builds with `-ldflags="-s -w"` strip them) and fix at the source. **Document this as a known limitation; no framework workaround.**
 - **OOM under memory pressure.** iOS Safari kills tabs above ~200 MB of total memory. The WASM heap counts toward this, and Go's GC is conservative about returning memory. Apps that allocate large per-frame data (image processing, big intermediate slices) can OOM the tab in a way that server-mode equivalents never would. The Phase V validation explicitly tests for this; production apps should keep state size in the single-digit MB range and avoid per-action allocations that don't get GC'd before the next user interaction.
+- **IndexedDB unavailable (private browsing).** Safari in Private mode and some older browser configurations block or severely limit IndexedDB. A WASM app that depends on `restoreFields` for initial state will silently start from zero-value on every load in those contexts — the app works, but persists nothing; state resets on reload. This is not a crash; it's surprising UX. Phase 1's `WASMSessionStore` surfaces the IndexedDB-unavailable case to the dev's `Mount` (e.g., via a context flag) so apps can show a "private browsing — state won't persist" banner if they care. Default behavior: silent zero-value, which matches the WASM-mode worst case of "no prior session".
 
 ## 5. Validation results (Phase V)
 
@@ -349,10 +373,10 @@ A throwaway prototype built 2026-05-24 at `livetemplate/.worktrees/wasm-validati
 | WASM uncompressed | 16.48 MiB | — | informational |
 | WASM gzip -9 | 3.79 MiB | ≤ 4.0 MiB | ✅ (5% under) |
 | WASM brotli -q11 (est.) | ~2.7 MiB | ≤ 4.0 MiB | ✅ (well under) |
-| `wasm_exec.js` (Go 1.26.1 stdlib) | 16.6 KiB raw / 4.3 KiB gzipped | — | measured 2026-05-25 against `$(go env GOROOT)/lib/wasm/wasm_exec.js` |
+| `wasm_exec.js` (Go 1.26.x (toolchain 1.26.1; go.mod floor 1.26.0) stdlib) | 16.6 KiB raw / 4.3 KiB gzipped | — | measured 2026-05-25 against `$(go env GOROOT)/lib/wasm/wasm_exec.js` |
 | `livetemplate-client-wasm.browser.js` (est.) | ~25 KiB minified, gzipped | — | similar to existing `livetemplate-client.browser.js`, +WASM-bridge code |
 | `dist/index.html` (server-prerendered shell) | <10 KiB typical | — | depends on user template; counter ~3 KiB, 50-item dashboard ~30 KiB |
-| Headless smoke (devbox localhost TTI) | 539 ms | informational | initial render + click round-trip + persist pipeline all work |
+| Headless smoke (devbox localhost TTI) | 539 ms | informational | correctness check only — localhost has no network latency; the iPhone-over-4G row below is the actual UX benchmark |
 | iPhone over 4G (TTI / idle mem / bg survival) | *in flight* | ≤ 5 s / ≤ 80 MB / survives backgrounding | user testing; results gate Proposed → Accepted, not Phase 0 sign-off |
 
 The prototype uses livetemplate's **real** Build/Render pipeline via a small new `WithRawTemplate(text string)` option (added to `template.go` in the worktree, ~15 lines, all existing tests pass). This option ships as part of Phase 1 because livetemplate's default auto-discovery (`discovery.DiscoverTemplateFiles`) reads from the filesystem at runtime — which doesn't exist in WASM. **Apps using `//go:embed` (which bakes files into the binary at build time) do NOT need to migrate** — they can pass the embedded content via `WithRawTemplate(string(myEmbeddedFile))` (or even keep `WithParseFiles` if the embed presents a real-looking path through an `embed.FS`). Only apps relying on runtime filesystem discovery need the new option. It also has standalone value (any caller wanting to pass a template string without scaffolding), so it can land as a separate small PR.
@@ -382,7 +406,7 @@ The "any CDN" claim is honestly qualified by the floor set by the most-recent br
 | **0 — This proposal** | done with reviewer signoff | This document; close [#440](https://github.com/livetemplate/livetemplate/issues/440); open Phase 1 tracking issue |
 | **1 — Framework implementation** | ~4 weeks | `livetemplate/internal/wasm/` package (`Run`, `syscall/js` dispatch shim, IndexedDB `WASMSessionStore`, OPFS `WASMFileStore`); paired build-tag files for persist + upload; `LoadingIndicator.setProgress`; new client esbuild target for `livetemplate-client-wasm.browser.js`; reuses existing test infra (chromedp via lvt) for E2E |
 | **2 — `lvt build wasm` CLI** | ~2 weeks | `lvt/commands/build_wasm.go`; AST parse of `main.go`; synthesize `main_wasm.go` + prerender binary; assemble `dist/`; service-worker generation; pre-compression |
-| **3 — Docs + examples + deploy guide** | ~1 week | `examples/wasm-counter/` deployed to a CDN; `docs/guides/wasm-target.md`; caching/CDN guidance; READMEs for both repos updated |
+| **3 — Docs + examples + deploy guide** | ~1 week | `examples/wasm-counter/` deployed to a CDN; `docs/guides/wasm-target.md`; caching/CDN guidance (Cache-Control, content-hashed filenames, service-worker patterns); **CSP guidance** (instantiating WASM requires `script-src 'wasm-unsafe-eval'` if a strict CSP is set — a late discovery on CSP-enforcing CDNs); READMEs for both repos updated |
 | **3.5 — checklistkit M1 dogfood** | (consumer) | checklistkit Personal mode ships on WASM-livetemplate as the canonical real-app example |
 
 Total framework + CLI work: ~7 weeks. Phases 1 and 2 are sequenceable in parallel by different contributors if available; Phase 2 only depends on Phase 1's stable internal `Run` signature, which can be agreed up-front.
@@ -420,7 +444,7 @@ Tinkerdown is explicitly out of scope (see [§2 Scope](#2-design-philosophy) and
 
 ### 7.7 BroadcastChannel for multi-tab sync
 
-A WASM app open in two tabs of the same browser is currently two independent state copies. The `BroadcastChannel` API (Chrome 54+, Safari 15.4+, Firefox 38+) enables tab-to-tab messaging trivially. Sketch for a future Phase 2.5: `ctx.Publish(topic, action, data)` in WASM mode posts to a same-origin BroadcastChannel; other tabs' subscribers (`ctx.Subscribe(topic)`) receive and re-render. The dev's Subscribe/Publish code works identically across server-mode peers and WASM-mode tab peers. Out of scope for v0; called out so the design doesn't preclude it.
+A WASM app open in two tabs of the same browser is currently two independent state copies. **This has a load-bearing data-loss risk that motivates the work beyond "sync is nice":** both tabs write to IndexedDB under the same `groupID = "wasm"` key, so concurrent mutations are last-write-wins with no coordination — if the user clicks "increment" in tab A and "decrement" in tab B at the same moment, one of those mutations is silently lost. This is true of any browser-storage-backed app (not unique to this design), but `lvt:"persist"` fields make it easy to accidentally rely on browser storage as if it were transactional. The `BroadcastChannel` API (Chrome 54+, Safari 15.4+, Firefox 38+) is the standard mitigation. Sketch for a future Phase 2.5: `ctx.Publish(topic, action, data)` in WASM mode posts to a same-origin BroadcastChannel; other tabs' subscribers (`ctx.Subscribe(topic)`) receive and re-render against the same IndexedDB read. The dev's Subscribe/Publish code works identically across server-mode peers and WASM-mode tab peers. Out of scope for v0; documented loudly here so v0 adopters know to either constrain users to one tab (`navigator.locks` API or a UI prompt) or accept the data-loss risk until Phase 2.5 lands.
 
 ### 7.8 Worker isolation for CPU-heavy action handlers
 
