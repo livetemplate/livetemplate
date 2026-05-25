@@ -466,7 +466,22 @@ hard lifetime bound in this mode must implement their own termination
 signal: a `context.Context` you control, or a bounded iteration count.
 A persistent PubSub outage logs publish-failure warnings but
 `TriggerAction` keeps returning `nil`, so the error return is **not** a
-reliable stop signal under multi-instance deployments.
+reliable stop signal under multi-instance deployments. A minimal sketch:
+
+```go
+go func() {
+    ticker := time.NewTicker(tickRate)
+    defer ticker.Stop()
+    for {
+        select {
+        case <-ctx.Done():
+            return // your own cancellation source — required under multi-instance
+        case <-ticker.C:
+            _ = session.TriggerAction("tick", payload) // return value is not load-bearing here
+        }
+    }
+}()
+```
 
 ### Recovery contract: idempotent handlers + `OnConnect` re-spawn
 
@@ -497,6 +512,9 @@ Two rules cover the gap:
        if !state.InProgress() {
            return state, nil
        }
+       // Local capture — the goroutine holds this reference for the duration
+       // of the work. No need to store on the controller like the timer
+       // examples above; this re-spawn is one-shot per OnConnect call.
        session := ctx.Session()
        if session == nil {
            return state, nil

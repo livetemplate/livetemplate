@@ -164,6 +164,8 @@ A hybrid that ships C now and reserves the API name `TriggerActionDurable` for B
 
 **Adopt Option C now. Defer A and B until a concrete non-idempotent use case demands buffering.**
 
+Throughout this doc "Option C+" is used as shorthand for **Option C plus the canonical `OnConnect` re-spawn recipe shipped in `docs/references/server-actions.md`** — the recipe is what turns C from "wait, that's just what we already do" into a callable contract.
+
 Rationale:
 
 - The codebase already commits to Option C semantics (see `docs/proposals/patterns.md` "Reconnect-during-loading double-fire" — the framework does *not* invalidate old sessions, idempotency is the explicit contract). Making this explicit eliminates a hidden contract without changing behavior.
@@ -190,8 +192,8 @@ Captured here so a follow-up does not re-derive it:
    - `Push(payload) seq` and `ReplayAfter(seq) []bufferedDispatch`. Bounded by size *and* age.
    - Reaper goroutine evicts empty buffers after `ephemeralSweepTTL`.
 2. **Wire format** — bump `protocol_version`:
-   - Server: `UpdateResponse` gains `Seq uint64`. Emitted for both action responses and dispatched actions, monotonic per group.
-   - Client (separate repo coordination): tracks `lastSeq`; sends as `?lvt_seq=` in the upgrade URL.
+   - Server: `UpdateResponse` gains `Seq uint64`. Emitted for both action responses and dispatched actions, **monotonic per group** (not per connection, not per instance). The per-group scope is load-bearing for the multi-tab test in §Tests: a tab's `lastSeq` must compare against the same counter the buffer uses to key its ring. **This is distinct from pubsub.md's `Seq`**, which is per-instance and exists for cross-instance dedup of `GroupActionMessage` envelopes (see [pubsub.md § Seq is monotonic per-instance](../references/pubsub.md)). Both schemes can coexist on the wire as separate fields with separate purposes.
+   - Client (separate repo coordination): tracks `lastSeq`; sends as `?lvt_seq=` in the upgrade URL. Note this is at-most-once over the gap, not at-least-once: a buffer overflow eats the dispatch, and the client's idempotent handler must reconcile via state restoration. (Strict at-least-once requires either an ack handshake, which is outside this sketch, or a client-side dedup key on every emitted dispatch.)
 3. **WS handshake** — `handleWebSocket`:
    - Parse `lvt_seq` from `r.URL.Query()`.
    - After `Mount`/`OnConnect`/`persistState`, before the initial-tree send, call `dispatchBuffer.ReplayAfter(lastSeq)` and emit each replayed dispatch using the existing `writeUpdateWebSocket` path (with its original seq).
