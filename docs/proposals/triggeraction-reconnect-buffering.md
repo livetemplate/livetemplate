@@ -1,6 +1,6 @@
 # TriggerAction Updates Across the WebSocket Reconnect Gap
 
-**Status:** Under review — Option C+ adopting in this PR (reference doc + idempotency contract). Flip to `Accepted` on merge.
+**Status:** Accepted — Option C+ adopted in this PR (reference doc + idempotency contract). See progress tracker for follow-up state.
 **Date:** 2026-05-25
 **Issue:** [livetemplate#342](https://github.com/livetemplate/livetemplate/issues/342)
 **Related landed work:** PR #336 (Session wiring), PR #337-followup (depth limiting), PR #339-followup (`ErrSessionDisconnected` sentinel)
@@ -230,9 +230,9 @@ When/if A is later adopted, the test plan in "Implementation sketch" applies.
 | Phase | Status | Notes |
 |-------|--------|-------|
 | 0. Draft proposal (this doc) | Done | This PR |
-| 1. User review + merge | In progress | Option C+ adopted in this same PR |
-| 2. (C) Document the contract in caller-facing reference | Done | Added "Disconnect & Reconnect Contract" section to `docs/references/server-actions.md` |
-| 3. (C) Cross-link from `patterns.md` | Done | "Reconnect-during-loading double-fire" prose updated |
+| 1. (C) Document the contract in caller-facing reference | Done | "Disconnect & Reconnect Contract" section in `docs/references/server-actions.md` |
+| 2. (C) Cross-link from `patterns.md` | Done | "Reconnect-during-loading double-fire" prose updated |
+| 3. PR review + merge | Pending | Tracked by the PR itself, not this doc |
 | 4. (A/B) Implementation | Deferred | Open new issue with a concrete non-idempotent use case before starting (see §Triggers) |
 
 ## References
