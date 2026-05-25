@@ -184,8 +184,10 @@ async bootWASM(): Promise<void> {
     if (Number.isFinite(contentLength) && contentLength > 0) {
         // teeWithProgress MUST use response.body.tee() to split into two
         // ReadableStream branches: one for the progress counter, one wrapped
-        // back into a new Response for instantiateStreaming. The original
+        // back into a NEW Response for instantiateStreaming. The original
         // `response` is consumed by tee() and can't be passed on directly.
+        // The new Response MUST propagate `response.headers` (especially
+        // Content-Type: application/wasm) or instantiateStreaming throws.
         wasmResponse = teeWithProgress(response, contentLength, (fraction) => {
             this.loadingIndicator.setProgress(fraction);
         });
@@ -196,8 +198,7 @@ async bootWASM(): Promise<void> {
 
     const go = new Go();
     const result = await WebAssembly.instantiateStreaming(wasmResponse, go.importObject);
-    this.loadingIndicator.setProgress(1.0);
-    this.loadingIndicator.transitionToIndeterminate();  // shimmer during first render
+    this.loadingIndicator.setProgress(1.0);  // hold full bar through WASM init
 
     // go.run() returns a Promise that resolves only when main() returns; we
     // do NOT await it here because WASM main() blocks forever (select{}).
@@ -221,7 +222,7 @@ async bootWASM(): Promise<void> {
     // bundles run on the same page (test harnesses, the multi-page bundle
     // case sketched in §7.1, per-route bundles via --entry).
     this.wasmDispatch = (window as any)[`__lvtDispatch_${wrapperID}`];
-    this.loadingIndicator.hide();
+    this.loadingIndicator.hide();  // full bar → gone in one transition
 
     // runPromise rejecting (a Go panic in main()) is the §4.6 "Mount/init
     // panic" failure mode — surface it to the dev console; can't recover.
@@ -229,7 +230,7 @@ async bootWASM(): Promise<void> {
 }
 ```
 
-**On `data-wasm-size`:** the emitted meta attr carries the uncompressed blob size for §5's size table and developer observability only — *not* for progress tracking. The pseudocode above never reads it. Progress is always derived from `response.headers.get("Content-Length")` (the on-wire byte count); if that's missing, the bar falls back to the existing indeterminate shimmer rather than to a wrong denominator.
+**On `data-wasm-size`:** the meta attr carries the uncompressed blob size for developer observability — *not* for progress tracking. The pseudocode above never reads it. Progress is always derived from `response.headers.get("Content-Length")` (the on-wire byte count); if that's missing, the bar falls back to indeterminate shimmer rather than to a wrong denominator. **Production-mode emission**: `lvt build wasm` emits `data-wasm-size` only when `--dev` is set (since the production HTML otherwise exposes an implementation detail to every client — low-risk, but the dev observability value is real only in dev iteration). Production deploys omit it.
 
 **The third dispatch path.** Today, the `send()` method on `LiveTemplateClient` (grep anchor, from the [@livetemplate/client](https://github.com/livetemplate/client) repo root: `grep -n "  send(message:" livetemplate-client.ts`) branches on `useHTTP` and `webSocketManager.getReadyState()`. The WASM bundle adds a branch (`this.wasmDispatch` was bound to `window.__lvtDispatch_<wrapperID>` during `bootWASM`):
 
@@ -276,7 +277,7 @@ The DOM element stays the same — same 3px `position:fixed; top:0; z-index:9999
 
 The dev's `lvt:"persist"` tag and `WithUpload(Accept:..., MaxFileSize:...)` calls work identically in both modes. The divergence is entirely behind build tags inside the framework, never in user code.
 
-**Persist pipeline.** The right architectural seam is *below* mount.go — the `SessionStore` interface, not the persist methods. `mount.go`'s `persistState(ctx, groupID, state)` (line 1568) and `restorePersistedState(ctx, groupID)` (line 1585) stay unchanged: they always call `ExtractPersistFields`/`InjectPersistFields` (methods on the internal `jsonState[T]` type in `state.go` — grep anchor from the livetemplate repo root: `grep -n "func.*ExtractPersistFields\|func.*InjectPersistFields" state.go`) and then delegate to the configured `SessionStore`. Only the **default `SessionStore` selection** and the **set of compiled-in stores** differ by build target:
+**Persist pipeline.** The right architectural seam is *below* mount.go — the `SessionStore` interface, not the persist methods. `mount.go`'s `persistState` and `restorePersistedState` (grep anchor, from the livetemplate repo root: `grep -n "func.*persistState\|func.*restorePersistedState" mount.go`) stay unchanged: they always call `ExtractPersistFields`/`InjectPersistFields` (methods on the internal `jsonState[T]` type in `state.go` — grep anchor: `grep -n "func.*ExtractPersistFields\|func.*InjectPersistFields" state.go`) and then delegate to the configured `SessionStore`. Only the **default `SessionStore` selection** and the **set of compiled-in stores** differ by build target:
 
 ```
 session_stores.go               //go:build !js          (existing: Memory + Redis)
@@ -356,15 +357,15 @@ Alternative considered and rejected: dev plumbs `URL.createObjectURL(blob)` in t
 
 Service worker lifecycle gotchas the proposal owns:
 
-- **Scope.** The SW is registered at the site root (`scope: "/"`) so it can intercept any path the dev chose. The SW only handles `/lvt/opfs-blob/*` (or `--upload-prefix=...`); other requests pass through.
-- **Update.** When `lvt build wasm` regenerates the SW (e.g., bumped upload prefix), the new bundle has a versioned filename; the static shell references the new name; the browser fetches and activates the new SW on next navigation.
+- **Scope is `/lvt/` (not site root).** The SW is registered at `scope: "/lvt/"` and intercepts only `/lvt/opfs-blob/*`. Narrow scope is required so it doesn't collide with an app's existing SW (PWA caching, Workbox, Next.js SW plugin, etc.) — two service workers cannot coexist at the same scope; one would silently displace the other. The `/lvt/` namespace is reserved by the framework; apps must not use that prefix for their own routes. The earlier `--upload-prefix=` flag idea is **dropped** because it would re-introduce the collision risk if the dev pointed it at `/`.
+- **Update.** When `lvt build wasm` regenerates the SW (e.g., bug fix to the OPFS interception), the new bundle has a versioned filename; the static shell references the new name; the browser fetches and activates the new SW on next navigation. The SW itself contains no business logic — it's a thin OPFS-to-fetch shim — so update friction is low.
 - **First-load race.** If the user reloads immediately after first install, the SW may not be active yet for the OPFS-blob requests on that page. The shell defers OPFS-referencing renders until `navigator.serviceWorker.ready` resolves (added to the bootstrap sequence in [§4.2](#42-the-client-variant)).
 - **Secure-context requirement.** Service workers register only over HTTPS or on `localhost`. Production CDN deploys satisfy this trivially; **local testing of the built `dist/` via a plain-HTTP server silently fails to register the SW**, which then breaks OPFS-blob URLs in a confusing way. `lvt build wasm` will print a one-line warning to the dev when it detects no `dist/` has been served over HTTPS, suggesting `caddy file-server` or similar.
 - **File-ID unguessability.** OPFS-stored file IDs (the `<id>` in `/lvt/opfs-blob/<id>`) are UUID v4 generated via `crypto/rand` — opaque, cryptographically unpredictable. Any third-party script the page loads (analytics, embeds) cannot enumerate uploaded files by probing the namespace because the IDs are not derivable without already knowing them. This matches the existing server-mode `UploadEntry.ID` scheme, which is also `crypto/rand`-derived; the WASM path uses the same generator (no new format, no new randomness source).
 
 ### 4.6 Failure modes
 
-WASM mode has two failure modes worth documenting up front; both differ from server mode and shape what the dev needs to defend against.
+WASM mode has several failure modes worth documenting up front; they differ from server mode and shape what the dev needs to defend against.
 
 - **Panics in action handlers.** Server mode wraps action dispatch with `recover()` and surfaces panics as validation errors; the request fails but the connection survives. WASM mode wraps action dispatch the same way (the same dispatch code runs, with build-tag swaps only on persistence/upload), so action-handler panics also recover and surface to the user. **No regression** vs. server mode on this axis.
 - **Panics in `Mount` or framework init.** A panic before the first action handler runs has nowhere to recover to — it crashes the WASM runtime, which from the JS side looks like a tab crash. The loading indicator stays visible; the page never hydrates. There is no automatic restart. The dev mitigation is the same as for any panic-on-init bug: surface in development (the `lvt build wasm --dev` build target prints stack traces to the JS console; production builds with `-ldflags="-s -w"` strip them) and fix at the source. **Document this as a known limitation; no framework workaround.**
@@ -374,7 +375,7 @@ WASM mode has two failure modes worth documenting up front; both differ from ser
 
 ## 5. Validation results (Phase V)
 
-A throwaway prototype built 2026-05-24 at `livetemplate/.worktrees/wasm-validation/` measures the deployment-cost shape. **All devbox thresholds met; iPhone measurement in flight as of writing.** Full results in `validation/README.md` in that worktree; this section will be updated with iPhone numbers before the proposal moves from Proposed → Accepted.
+A throwaway prototype built 2026-05-24 at `livetemplate/.worktrees/wasm-validation/` measures the deployment-cost shape. **All devbox thresholds met; iPhone measurement in flight as of writing.** Full results in `validation/README.md` in that worktree; this section will be updated with iPhone numbers before the proposal moves from Draft → Proposed (the lifecycle is Draft → Proposed → Accepted; iPhone numbers gate the first transition because they're the load-bearing viability check).
 
 | Metric | Value | Threshold | Status |
 |---|---|---|---|
@@ -387,7 +388,11 @@ A throwaway prototype built 2026-05-24 at `livetemplate/.worktrees/wasm-validati
 | Headless smoke (devbox localhost TTI) | 539 ms | informational | correctness check only — localhost has no network latency; the iPhone-over-4G row below is the actual UX benchmark |
 | iPhone over 4G (TTI / idle mem / bg survival) | *in flight* | ≤ 5 s / ≤ 80 MB / survives backgrounding | user testing; results gate Proposed → Accepted, not Phase 0 sign-off |
 
-The prototype uses livetemplate's **real** Build/Render pipeline via a small new `WithRawTemplate(text string)` option (added to `template.go` in the worktree, ~15 lines, all existing tests pass). **`WithRawTemplate` is a Phase 1 prerequisite** — the WASM build needs it to bypass `discovery.DiscoverTemplateFiles`, which reads from the filesystem at runtime (no filesystem in WASM). Whether it lands as a standalone preliminary PR or inside Phase 1's combined PR is a sequencing detail; the dependency is mandatory either way. **Apps using `//go:embed` (which bakes files into the binary at build time) do NOT need to migrate** — they can pass the embedded content via `WithRawTemplate(string(myEmbeddedFile))` (or even keep `WithParseFiles` if the embed presents a real-looking path through an `embed.FS`). Only apps relying on runtime filesystem discovery need the new option. The option has standalone value beyond WASM (any caller wanting to pass a template string without scaffolding), which makes the standalone-PR sequencing attractive but not required.
+The prototype uses livetemplate's **real** Build/Render pipeline via a small new `WithRawTemplate(text string)` option (added to `template.go` in the worktree, ~15 lines, all existing tests pass). **`WithRawTemplate` is a Phase 1 prerequisite** — the WASM build needs it to bypass `discovery.DiscoverTemplateFiles`, which reads from the filesystem at runtime (no filesystem in WASM). Whether it lands as a standalone preliminary PR or inside Phase 1's combined PR is a sequencing detail; the dependency is mandatory either way.
+
+**Multi-template scope.** The option takes one string, which is passed directly to the underlying `Template.Parse(text)` (`template.go`, grep anchor: `grep -n "func.*Template.*Parse" template.go` → line 1032). That delegates to `html/template`'s standard parser, which **already handles multiple `{{define "name"}}...{{end}}` blocks in a single string** — the conventional pattern for apps with partials. So `WithRawTemplate(string(myEmbed))` works when `myEmbed` contains a base template plus any number of named partial defines. Apps that prefer file-per-template still have two paths: `WithParseFiles(...)` for explicit file lists, or `//go:embed *.tmpl` with `embed.FS` if they want the files in the binary (the `embed.FS` can be passed by concatenating its files into one string for `WithRawTemplate`, or via `WithParseFiles` if a future `embed.FS`-friendly variant is added — out of scope for v0).
+
+**Apps using `//go:embed`** (which bakes files into the binary at build time) do NOT need to migrate — they pass the embedded content via `WithRawTemplate(string(myEmbeddedFile))`. Only apps relying on runtime filesystem discovery need the new option for any reason. The option has standalone value beyond WASM (any caller wanting to pass a template string without scaffolding), which makes the standalone-PR sequencing attractive but not required.
 
 Key non-finding from validation: **the framework code compiles cleanly under `GOOS=js GOARCH=wasm` with no build-tag refactoring.** `net/http` is fully supported on `js/wasm` (uses `fetch` as the transport), so `mount.go` and `ws.go` compile fine — they just can't *listen*. The build-tag work in [§4.3](#43-persist--uploads-build-tag-auto-swap) is therefore minimal and targeted (paired files for persist + upload), not a sweeping refactor.
 
@@ -412,9 +417,9 @@ The "any CDN" claim is honestly qualified by the floor set by the most-recent br
 |---|---|---|
 | **V — Validation prototype** | done 2026-05-24 | iPhone smoke pending; sizes pass thresholds; framework compiles to WASM with no refactor needed; `WithRawTemplate` option verified |
 | **0 — This proposal** | done with reviewer signoff | This document; close [#440](https://github.com/livetemplate/livetemplate/issues/440); open Phase 1 tracking issue |
-| **1 — Framework implementation** | ~4 weeks | `livetemplate/internal/wasm/` package (`Run`, `syscall/js` dispatch shim, IndexedDB `WASMSessionStore`, OPFS `WASMFileStore`); paired build-tag files for store-default + upload; `LoadingIndicator.setProgress`; new client esbuild target for `livetemplate-client-wasm.browser.js`; **WASM E2E test harness** — existing chromedp infra hits a Go HTTP server, but service workers (§4.5) require a secure context, so this needs a local TLS server (caddy + mkcert or equivalent) loading a built `dist/` over HTTPS. Non-trivial scaffolding lift; budgeted in this phase |
+| **1 — Framework implementation** | ~4 weeks | `livetemplate/internal/wasm/` package (`Run`, `syscall/js` dispatch shim, IndexedDB `WASMSessionStore`, OPFS `WASMFileStore`); paired build-tag files for store-default + upload; `LoadingIndicator.setProgress`; new client esbuild target for `livetemplate-client-wasm.browser.js`; **WASM E2E test harness** — existing chromedp infra hits a Go HTTP server, but service workers (§4.5) require a secure context, so this needs a local TLS server (caddy + mkcert or equivalent) loading a built `dist/` over HTTPS, with **CSP headers enforced** (`script-src 'wasm-unsafe-eval'` is required for WASM instantiation under a strict CSP — must be in the test harness, not discovered in Phase 3); `lvt build wasm` also emits a build-time warning if the deploy target's CSP couldn't be detected. Non-trivial scaffolding lift; budgeted in this phase |
 | **2 — `lvt build wasm` CLI** | ~2 weeks | `lvt/commands/build_wasm.go`; AST parse of `main.go`; synthesize `main_wasm.go` + prerender binary; assemble `dist/`; service-worker generation; pre-compression |
-| **3 — Docs + examples + deploy guide** | ~1 week | `examples/wasm-counter/` deployed to a CDN; `docs/guides/wasm-target.md`; caching/CDN guidance (Cache-Control, content-hashed filenames, service-worker patterns); **CSP guidance** (instantiating WASM requires `script-src 'wasm-unsafe-eval'` if a strict CSP is set — a late discovery on CSP-enforcing CDNs); READMEs for both repos updated |
+| **3 — Docs + examples + deploy guide** | ~1 week | `examples/wasm-counter/` deployed to a CDN; `docs/guides/wasm-target.md`; caching/CDN guidance (Cache-Control, content-hashed filenames, service-worker patterns); **CSP deploy guide** (the `'wasm-unsafe-eval'` requirement is already enforced in Phase 1's test harness; this docs phase translates that into per-CDN snippets — Cloudflare Pages headers file, Vercel `vercel.json`, etc.); READMEs for both repos updated |
 | **3.5 — checklistkit M1 dogfood** | (consumer) | checklistkit Personal mode ships on WASM-livetemplate as the canonical real-app example |
 
 Total framework + CLI work: ~7 weeks. Phases 1 and 2 are sequenceable in parallel by different contributors if available; Phase 2 only depends on Phase 1's stable internal `Run` signature, which can be agreed up-front.
