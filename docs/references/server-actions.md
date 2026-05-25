@@ -485,8 +485,12 @@ func (c *Ctrl) OnConnect(state State, ctx *livetemplate.Context) (State, error) 
         const maxTicks = 60 // pick a horizon appropriate to the job
         for i := 0; i < maxTicks; i++ {
             time.Sleep(tickRate)
-            // Return is nil with zero local connections — publish-failure
-            // warnings are logged server-side; not a useful stop signal.
+            // Discarding the return is safe ONLY in multi-instance mode:
+            // TriggerAction returns nil with zero local connections, so the
+            // error isn't a useful stop signal here (publish-failure warnings
+            // are logged server-side). Single-instance callers MUST check
+            // for ErrSessionDisconnected — see the example earlier in this
+            // section.
             _ = session.TriggerAction("tick", payload)
         }
     }()
@@ -554,16 +558,28 @@ Two rules cover the gap:
            // call site, the guard is what saves you.
            return state, nil
        }
-       go runWork(session, state.JobID) // must be idempotent by construction
+       // runWork must (a) be idempotent across multiple OnConnect re-spawns
+       // (the same JobID may be respawned if the client reconnects mid-flight)
+       // and (b) terminate cleanly — either by exiting on
+       // ErrSessionDisconnected (single-instance) or by bounding its
+       // iteration count (multi-instance). See the canonical goroutine
+       // patterns earlier in this section.
+       go runWork(session, state.JobID)
        return state, nil
    }
    ```
 
-The `ctx.IsReconnect()` helper exists if you need to distinguish the
-"restored after a prior disconnect" case from a fresh new-connect — see
-the [Controller Pattern reference](controller-pattern.md). It is not
-needed in the recipe above because the `state.InProgress()` check covers
-both shapes.
+The `ctx.IsReconnect()` helper returns `true` whenever persisted state
+was restored — **including the normal initial-HTTP-GET → WS flow**, not
+only post-blip reconnects. (The framework persists state at the end of
+the HTTP-path `Mount` and restores it when the WS opens, so the first
+WS `OnConnect` after a fresh page load also sees `IsReconnect() == true`.)
+See the [Controller Pattern reference](controller-pattern.md) for the
+full semantics and how to pair it with `ctx.IsNewConnect()` if you need
+to distinguish "first WS after page load" from "WS resumed after a blip."
+The recipe above does not use `IsReconnect()` because the
+`state.InProgress()` check covers both shapes without needing to
+disambiguate.
 
 ### When the contract is not enough
 
