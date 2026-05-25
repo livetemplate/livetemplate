@@ -464,7 +464,7 @@ returns `nil` even with zero local connections — the PubSubBroadcaster
 may deliver the dispatch to another instance. Goroutines that need a
 hard lifetime bound in this mode must implement their own termination
 signal: a `context.Context` you control, or a bounded iteration count.
-A persistent PubSub outage produces silent publish-failure warnings and
+A persistent PubSub outage logs publish-failure warnings but
 `TriggerAction` keeps returning `nil`, so the error return is **not** a
 reliable stop signal under multi-instance deployments.
 

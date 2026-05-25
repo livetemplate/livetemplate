@@ -121,7 +121,7 @@ Treat what the framework currently does as the contract:
 4. All push handlers must be idempotent so the documented double-fire race is benign.
 
 Ship as part of this option:
-- A short reference doc (`docs/references/triggeraction.md` or a section in `docs/references/server-api.md`) covering the gap behavior, the `ErrSessionDisconnected` sentinel, the idempotency requirement, and the `OnConnect` re-spawn recipe.
+- A new "Disconnect & Reconnect Contract" section in `docs/references/server-actions.md` covering the gap behavior, the `ErrSessionDisconnected` sentinel, the idempotency requirement, and the `OnConnect` re-spawn recipe.
 - A canonical helper recipe — *not* a framework helper. Document the shape inline. The sketch below uses stand-in names (`State`, `InProgress()`, `runWork`, `JobID`); substitute your concrete state type and predicate:
 
   ```go
