@@ -531,6 +531,10 @@ Two rules cover the gap:
        // examples above; this re-spawn is one-shot per OnConnect call.
        session := ctx.Session()
        if session == nil {
+           // Session is always non-nil in OnConnect (the framework wires
+           // it before invoking lifecycle methods). Belt-and-suspenders
+           // for safety — if you copy this pattern into a non-OnConnect
+           // call site, the guard is what saves you.
            return state, nil
        }
        go runWork(session, state.JobID) // must be idempotent by construction
