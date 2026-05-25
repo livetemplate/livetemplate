@@ -441,8 +441,12 @@ This is a deliberate design — see the [TriggerAction reconnect-buffering propo
 ### Detecting the gap
 
 In **single-instance** mode, `TriggerAction` returns the typed sentinel
-`ErrSessionDisconnected` when the session has no local connections and no
-`PubSubBroadcaster` is configured:
+`ErrSessionDisconnected` when the session has no local connections *and*
+the configured broadcaster (if any) does not implement
+`pubsub.GroupActionBroadcaster`. A plain `pubsub.Broadcaster` that lacks
+the `GroupActionBroadcaster` capability still triggers this sentinel —
+the type-assertion gate, not the presence of a broadcaster, is what
+matters:
 
 ```go
 go func() {
@@ -459,9 +463,10 @@ go func() {
 }()
 ```
 
-In **multi-instance** mode (with a `PubSubBroadcaster`), `TriggerAction`
-returns `nil` even with zero local connections — the PubSubBroadcaster
-may deliver the dispatch to another instance. Goroutines that need a
+In **multi-instance** mode (with a broadcaster that implements
+`pubsub.GroupActionBroadcaster`), `TriggerAction` returns `nil` even
+with zero local connections — the broadcaster may deliver the dispatch
+to another instance. Goroutines that need a
 hard lifetime bound in this mode must implement their own termination
 signal: a `context.Context` you control, or a bounded iteration count.
 A persistent PubSub outage logs publish-failure warnings but
