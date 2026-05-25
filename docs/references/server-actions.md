@@ -552,10 +552,9 @@ Two rules cover the gap:
        // examples above; this re-spawn is one-shot per OnConnect call.
        session := ctx.Session()
        if session == nil {
-           // Session is always non-nil in OnConnect (the framework wires
-           // it before invoking lifecycle methods). Belt-and-suspenders
-           // for safety — if you copy this pattern into a non-OnConnect
-           // call site, the guard is what saves you.
+           // ctx.Session() is always non-nil in lifecycle methods (Mount,
+           // OnConnect). This guard exists so the snippet is safe to copy
+           // into other call sites where Session() may return nil.
            return state, nil
        }
        // runWork must (a) be idempotent across multiple OnConnect re-spawns
