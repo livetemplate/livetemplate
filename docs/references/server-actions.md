@@ -517,7 +517,7 @@ Two rules cover the gap:
 
 1. **Push handlers must be idempotent.** A handler that runs once must
    produce the same final state as one that runs twice. The
-   [reconnect-during-loading double-fire race in `docs/proposals/patterns.md`](../proposals/patterns.md)
+   [reconnect-during-loading double-fire race documented under Implementation Notes in `patterns.md`](../proposals/patterns.md#implementation-notes-accumulated-from-completed-sessions)
    makes this concrete: if the client disconnects and reconnects while a
    goroutine is still sleeping, two goroutines may race to dispatch — both
    land successfully on the new connection. Idempotent handlers absorb
@@ -539,6 +539,18 @@ Two rules cover the gap:
    ```go
    // Sketch with stand-in names — substitute your concrete state type
    // and predicate (InProgress, runWork, JobID).
+
+   type State struct {
+       JobID   string `lvt:"persist"` // identifies the in-flight job
+       Loading bool   `lvt:"persist"` // backing field for the predicate below
+       // ... other fields ...
+   }
+
+   // Both fields above MUST carry lvt:"persist" or this method returns
+   // false on every reconnect (Loading would reset to its zero value)
+   // and the re-spawn guard never fires.
+   func (s State) InProgress() bool { return s.Loading }
+
    func (c *Ctrl) OnConnect(state State, ctx *livetemplate.Context) (State, error) {
        // Re-spawn whenever state shows in-flight work. On a fresh new-connect,
        // InProgress() is the zero value (false), so this is a no-op. On
