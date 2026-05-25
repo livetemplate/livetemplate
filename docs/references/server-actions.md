@@ -466,60 +466,46 @@ go func() {
 In **multi-instance** mode (with a broadcaster that implements
 `pubsub.GroupActionBroadcaster`), `TriggerAction` returns `nil` even
 with zero local connections — the broadcaster may deliver the dispatch
-to another instance. Goroutines that need a
-hard lifetime bound in this mode must implement their own termination
-signal: a `context.Context` you control, or a bounded iteration count.
-A persistent PubSub outage logs publish-failure warnings but
-`TriggerAction` keeps returning `nil`, so the error return is **not** a
-reliable stop signal under multi-instance deployments. A minimal sketch (controller scaffolding shown so the snippet compiles
-end-to-end — do not pass `*livetemplate.Context` here; that only lives
-for the duration of a single action call):
+to another instance. A persistent PubSub outage logs publish-failure
+warnings but `TriggerAction` keeps returning `nil`, so the error return
+is **not** a reliable stop signal under multi-instance deployments.
+Goroutines must therefore impose their own lifetime bound.
+
+The simplest pattern is a **self-bounded** goroutine — finite
+iterations, no controller state, no `OnDisconnect` coordination
+required:
 
 ```go
-type Ctrl struct {
-    mu       sync.Mutex
-    stopWork context.CancelFunc
-}
-
 func (c *Ctrl) OnConnect(state State, ctx *livetemplate.Context) (State, error) {
     session := ctx.Session()
     if session == nil {
         return state, nil
     }
-    stopCtx, cancel := context.WithCancel(context.Background())
-    c.mu.Lock()
-    if c.stopWork != nil {
-        c.stopWork() // cancel any prior connection's worker
-    }
-    c.stopWork = cancel
-    c.mu.Unlock()
-
     go func() {
-        ticker := time.NewTicker(tickRate)
-        defer ticker.Stop()
-        for {
-            select {
-            case <-stopCtx.Done():
-                return
-            case <-ticker.C:
-                // Return is nil with zero local connections — publish-failure
-                // warnings are logged server-side; not a useful stop signal.
-                _ = session.TriggerAction("tick", payload)
-            }
+        const maxTicks = 60 // pick a horizon appropriate to the job
+        for i := 0; i < maxTicks; i++ {
+            time.Sleep(tickRate)
+            // Return is nil with zero local connections — publish-failure
+            // warnings are logged server-side; not a useful stop signal.
+            _ = session.TriggerAction("tick", payload)
         }
     }()
     return state, nil
 }
-
-func (c *Ctrl) OnDisconnect() {
-    c.mu.Lock()
-    defer c.mu.Unlock()
-    if c.stopWork != nil {
-        c.stopWork()
-        c.stopWork = nil
-    }
-}
 ```
+
+For unbounded or externally-cancellable work, the goroutine needs a
+`context.CancelFunc` — but **do not** store that cancel on the
+controller as a single field. Controllers are singletons (one
+`*Controller` serves every session — see
+[controller-pattern.md](controller-pattern.md)), so a single `stopWork`
+slot is overwritten by the next user's `OnConnect`, and `OnDisconnect()`
+has no parameter to identify which session is disconnecting. Cancel
+funcs must be keyed by `groupID` (or similar per-session identifier) in
+a `sync.Map`, mirroring the `NotificationController` pattern in
+[controller-pattern.md](controller-pattern.md). Do **not** pass
+`*livetemplate.Context` to the goroutine — that context lives only for
+the duration of one action call.
 
 ### Recovery contract: idempotent handlers + `OnConnect` re-spawn
 
