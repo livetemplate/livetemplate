@@ -134,7 +134,7 @@ The browser experience (WASM mode):
    - `<script src="livetemplate-client-wasm.browser.js"></script>` — the WASM-aware client bundle (vs. the regular `livetemplate-client.browser.js` in server mode).
    - `<script src="lvt-opfs-sw.js" type="module">` — registers the OPFS service worker (see [§4.5](#45-service-worker-for-opfs)).
 
-7. **Pre-compress and assemble `dist/`.** Run `gzip -9` and (if available) `brotli -q 11` on `*.wasm` and `*.js`. Copy `wasm_exec.js` from `$(go env GOROOT)/lib/wasm/` (~19 KiB minified as of Go 1.22 — small but accounted for in §5's size table). The output directory is a complete static site — drop into Cloudflare Pages, S3+CloudFront, GitHub Pages, or any CDN.
+7. **Pre-compress and assemble `dist/`.** Run `gzip -9` and (if available) `brotli -q 11` on `*.wasm` and `*.js`. Copy `wasm_exec.js` from `$(go env GOROOT)/lib/wasm/` (16.6 KiB raw / 4.3 KiB gzipped as of Go 1.26.1 — see §5's size table). The output directory is a complete static site — drop into Cloudflare Pages, S3+CloudFront, GitHub Pages, or any CDN.
 
 ### 4.2 The client variant
 
@@ -163,20 +163,30 @@ async bootWASM(): Promise<void> {
     const wrapperID = this.wrapperElement.getAttribute("data-lvt-id");  // e.g., "lvt-a1b2c3d4..."
     const wasmUrl = meta.getAttribute("data-wasm-url");
 
+    // The service worker must be active before any OPFS-blob URL can be
+    // served (§4.5). Wait here so first-paint hydration can resolve them.
+    await navigator.serviceWorker.ready;
+
     this.loadingIndicator.show();
     this.loadingIndicator.setProgress(0);  // NEW mode — see §4.2.1
 
-    // Progress is tracked against the COMPRESSED response stream (Content-Length
-    // is the on-wire byte count; instantiateStreaming consumes decompressed bytes
-    // separately). data-wasm-size is a fallback hint when the CDN doesn't send
-    // Content-Length (rare but possible behind some proxies).
+    // Progress is tracked against the COMPRESSED response stream — Content-Length
+    // is the on-wire byte count, which is what "bytes arrived" actually
+    // corresponds to. If the CDN strips Content-Length (rare), drop to the
+    // existing indeterminate shimmer instead of using a wrong denominator
+    // (the uncompressed size in data-wasm-size would let the bar overshoot
+    // 100% during decompression catch-up — strictly worse UX than shimmer).
     const response = await fetch(wasmUrl);
-    const expectedSize =
-        parseInt(response.headers.get("Content-Length") || "", 10) ||
-        parseInt(meta.getAttribute("data-wasm-size") || "0", 10);  // fallback
-    const wasmResponse = teeWithProgress(response, expectedSize, (fraction) => {
-        this.loadingIndicator.setProgress(fraction);
-    });
+    const contentLength = parseInt(response.headers.get("Content-Length") || "", 10);
+    let wasmResponse: Response;
+    if (Number.isFinite(contentLength) && contentLength > 0) {
+        wasmResponse = teeWithProgress(response, contentLength, (fraction) => {
+            this.loadingIndicator.setProgress(fraction);
+        });
+    } else {
+        this.loadingIndicator.transitionToIndeterminate();  // unknown size → shimmer
+        wasmResponse = response;
+    }
 
     const go = new Go();
     const result = await WebAssembly.instantiateStreaming(wasmResponse, go.importObject);
@@ -184,16 +194,19 @@ async bootWASM(): Promise<void> {
     this.loadingIndicator.transitionToIndeterminate();  // shimmer during first render
     go.run(result.instance);  // does not await; WASM main() blocks forever
 
-    // WASM exposes window.__lvtDispatch_<wrapperID>(action, dataJSON) → diffJSON,
-    // set during its init. Namespacing by wrapperID prevents collisions when
-    // multiple WASM bundles run on the same page (test harnesses, the
-    // multi-page bundle case sketched in §7.1, per-route bundles via --entry).
+    // WASM exposes window.__lvtDispatch_<wrapperID>(messageJSON: string) →
+    // diffJSON, set during its init. messageJSON is the same wire format
+    // the WS/HTTP paths emit today (e.g. {"action":"Increment","data":{...}}),
+    // so the WASM side parses out action+data once. Namespacing by wrapperID
+    // prevents collisions when multiple WASM bundles run on the same page
+    // (test harnesses, the multi-page bundle case sketched in §7.1, per-route
+    // bundles via --entry).
     this.wasmDispatch = (window as any)[`__lvtDispatch_${wrapperID}`];
     this.loadingIndicator.hide();
 }
 ```
 
-**`data-wasm-size` is the uncompressed blob size**, emitted by `lvt build wasm` for §5's size table and as a fallback for the rare CDN that strips `Content-Length`. Progress tracking always prefers `response.headers.get("Content-Length")` (the on-wire compressed size) since that's what bytes-arrived actually corresponds to; using the uncompressed size for progress would let the bar overshoot 100% as decompression catches up.
+**On `data-wasm-size`:** the emitted meta attr carries the uncompressed blob size for §5's size table and developer observability only — *not* for progress tracking. The pseudocode above never reads it. Progress is always derived from `response.headers.get("Content-Length")` (the on-wire byte count); if that's missing, the bar falls back to the existing indeterminate shimmer rather than to a wrong denominator.
 
 **The third dispatch path.** Today, the `send()` method on `LiveTemplateClient` (grep anchor, from the [@livetemplate/client](https://github.com/livetemplate/client) repo root: `grep -n "  send(message:" livetemplate-client.ts`) branches on `useHTTP` and `webSocketManager.getReadyState()`. The WASM bundle adds a branch (`this.wasmDispatch` was bound to `window.__lvtDispatch_<wrapperID>` during `bootWASM`):
 
@@ -247,16 +260,16 @@ state_persist.go         //go:build !js          (today's pipeline — talks to 
 state_persist_wasm.go    //go:build js && wasm   (NEW — talks to IndexedDB via syscall/js)
 ```
 
-Both files expose the same internal `persistFields(state, groupID)` and `restoreFields(state, groupID)` signatures used by `mount.go`. The server build sees only the first; the WASM build sees only the second. `ExtractPersistFields` and `InjectPersistFields` in `state.go` (grep anchor, from the livetemplate repo root: `grep -n "func.*ExtractPersistFields\|func.*InjectPersistFields" state.go`) are unchanged — they produce/consume `[]byte` JSON regardless of where the bytes ultimately land.
+Both files expose the same internal `persistFields(state, groupID)` and `restoreFields(state, groupID)` signatures used by `mount.go`. The server build sees only the first; the WASM build sees only the second. The `ExtractPersistFields` and `InjectPersistFields` methods on the internal `jsonState[T]` type (defined in `state.go` — grep anchor from the livetemplate repo root: `grep -n "func.*ExtractPersistFields\|func.*InjectPersistFields" state.go`) are unchanged — they produce/consume `[]byte` JSON regardless of where the bytes ultimately land.
 
 The IndexedDB schema: one database named `livetemplate`, one object store named `sessions`, key = `groupID` (always `"wasm"` in WASM mode since there's only one user), value = `[]byte` JSON.
 
 **Sync-Go ↔ async-IndexedDB bridge — the load-bearing implementation detail.** `restoreFields` must complete synchronously within `Mount` (the framework's lifecycle is synchronous), but IndexedDB is entirely asynchronous. Two viable techniques exist:
 
 - **(a) Channel-blocked goroutine.** Register a JS callback for the IndexedDB promise resolution; block a Go channel until the callback fires. This is the pattern `wasm_exec.js` uses internally for `fetch`/`setTimeout` — battle-tested across Go versions, adds one syscall round-trip per persist op.
-- **(b) `syscall/js.Promise.Await`.** Go 1.24 added promise helpers that compile cleaner and match stdlib idioms.
+- **(b) Native promise-await in `syscall/js`.** Go 1.24+ provides a way to synchronously await a JS Promise from Go without manually wiring `then/catch` callbacks through a channel — Phase 1 will commit to the specific helper available in the Go version `go.mod` declares (currently `go 1.26.0`; exact symbol — likely a `js.Value` method along the lines of `.Await()`, or `js.Promise.Await` — will be selected once Phase 1 reads the current `syscall/js` package docs). The point is that the surface exists in stdlib and compiles cleaner than the channel pattern, with no third-party dep.
 
-**Phase 1 commits to (b).** livetemplate's `go.mod` already declares `go 1.26.0`, so the Go 1.24 floor required by `Promise.Await` is moot. (b) is the strict improvement on (a): less boilerplate, no manual channel management, the stdlib handles cancellation semantics. (a) remains documented as the fallback pattern for any out-of-tree code that needs broader portability. The promise wrapper lives in a small helper `internal/wasm/promise.go` shared by `WASMSessionStore` and the `WASMFileStore` of [§4.3 uploads](#43-persist--uploads-build-tag-auto-swap).
+**Phase 1 commits to (b).** livetemplate's `go.mod` already declares `go 1.26.0`, so any 1.24+ floor is moot. (b) is the strict improvement on (a): less boilerplate, no manual channel management, the stdlib handles cancellation semantics. (a) remains documented as the fallback pattern for any out-of-tree code that needs broader portability. The promise wrapper lives in a small helper `internal/wasm/promise.go` shared by `WASMSessionStore` and the `WASMFileStore` of [§4.3 uploads](#43-persist--uploads-build-tag-auto-swap).
 
 **Upload pipeline.** Paired files inside `livetemplate/internal/upload/`:
 
@@ -336,7 +349,7 @@ A throwaway prototype built 2026-05-24 at `livetemplate/.worktrees/wasm-validati
 | WASM uncompressed | 16.48 MiB | — | informational |
 | WASM gzip -9 | 3.79 MiB | ≤ 4.0 MiB | ✅ (5% under) |
 | WASM brotli -q11 (est.) | ~2.7 MiB | ≤ 4.0 MiB | ✅ (well under) |
-| `wasm_exec.js` (Go 1.22 stdlib) | ~19 KiB minified | — | small but included |
+| `wasm_exec.js` (Go 1.26.1 stdlib) | 16.6 KiB raw / 4.3 KiB gzipped | — | measured 2026-05-25 against `$(go env GOROOT)/lib/wasm/wasm_exec.js` |
 | `livetemplate-client-wasm.browser.js` (est.) | ~25 KiB minified, gzipped | — | similar to existing `livetemplate-client.browser.js`, +WASM-bridge code |
 | `dist/index.html` (server-prerendered shell) | <10 KiB typical | — | depends on user template; counter ~3 KiB, 50-item dashboard ~30 KiB |
 | Headless smoke (devbox localhost TTI) | 539 ms | informational | initial render + click round-trip + persist pipeline all work |
