@@ -574,11 +574,13 @@ only post-blip reconnects. (The framework persists state at the end of
 the HTTP-path `Mount` and restores it when the WS opens, so the first
 WS `OnConnect` after a fresh page load also sees `IsReconnect() == true`.)
 See the [Controller Pattern reference](controller-pattern.md) for the
-full semantics and how to pair it with `ctx.IsNewConnect()` if you need
-to distinguish "first WS after page load" from "WS resumed after a blip."
-The recipe above does not use `IsReconnect()` because the
-`state.InProgress()` check covers both shapes without needing to
-disambiguate.
+full semantics. Pairing with `ctx.IsNewConnect()` only distinguishes
+**"brand-new WS session with no persisted history at all"** from
+"any persisted state was restored" — it does **not** separate
+"first WS after page load" from "WS resumed after a blip," since both
+have persisted state and so both produce
+`IsReconnect()==true, IsNewConnect()==false`. The recipe above sidesteps
+the question entirely by checking `state.InProgress()` directly.
 
 ### When the contract is not enough
 
