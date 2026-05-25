@@ -473,11 +473,12 @@ Goroutines must therefore impose their own lifetime bound.
 
 The simplest pattern is a **self-bounded** goroutine — finite
 iterations, no controller state, no `OnDisconnect` coordination
-required:
+required. The sketch below uses stand-in names (`tickRate`, `payload`);
+substitute your concrete tick interval and action data:
 
 ```go
 func (c *Ctrl) OnConnect(state State, ctx *livetemplate.Context) (State, error) {
-    session := ctx.Session() // always non-nil in lifecycle methods (mount.go wires it)
+    session := ctx.Session() // always non-nil in lifecycle methods; see handleWebSocket in mount.go
     go func() {
         const maxTicks = 60 // pick a horizon appropriate to the job
         for i := 0; i < maxTicks; i++ {
