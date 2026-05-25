@@ -471,30 +471,54 @@ hard lifetime bound in this mode must implement their own termination
 signal: a `context.Context` you control, or a bounded iteration count.
 A persistent PubSub outage logs publish-failure warnings but
 `TriggerAction` keeps returning `nil`, so the error return is **not** a
-reliable stop signal under multi-instance deployments. A minimal sketch:
+reliable stop signal under multi-instance deployments. A minimal sketch (controller scaffolding shown so the snippet compiles
+end-to-end — do not pass `*livetemplate.Context` here; that only lives
+for the duration of a single action call):
 
 ```go
-// stopCtx is a context.Context the caller owns — e.g. one derived from
-// context.WithCancel and stored on the controller so OnDisconnect can
-// cancel it. Do NOT pass *livetemplate.Context here; that only lives
-// for the duration of a single action call.
-stopCtx, cancel := context.WithCancel(context.Background())
-// c.stopWork = cancel  // stash on controller so OnDisconnect cancels it
+type Ctrl struct {
+    mu       sync.Mutex
+    stopWork context.CancelFunc
+}
 
-go func() {
-    ticker := time.NewTicker(tickRate)
-    defer ticker.Stop()
-    for {
-        select {
-        case <-stopCtx.Done():
-            return
-        case <-ticker.C:
-            // Return is nil with zero local connections — publish-failure
-            // warnings are logged server-side; not a useful stop signal.
-            _ = session.TriggerAction("tick", payload)
-        }
+func (c *Ctrl) OnConnect(state State, ctx *livetemplate.Context) (State, error) {
+    session := ctx.Session()
+    if session == nil {
+        return state, nil
     }
-}()
+    stopCtx, cancel := context.WithCancel(context.Background())
+    c.mu.Lock()
+    if c.stopWork != nil {
+        c.stopWork() // cancel any prior connection's worker
+    }
+    c.stopWork = cancel
+    c.mu.Unlock()
+
+    go func() {
+        ticker := time.NewTicker(tickRate)
+        defer ticker.Stop()
+        for {
+            select {
+            case <-stopCtx.Done():
+                return
+            case <-ticker.C:
+                // Return is nil with zero local connections — publish-failure
+                // warnings are logged server-side; not a useful stop signal.
+                _ = session.TriggerAction("tick", payload)
+            }
+        }
+    }()
+    return state, nil
+}
+
+func (c *Ctrl) OnDisconnect() {
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    if c.stopWork != nil {
+        c.stopWork()
+        c.stopWork = nil
+    }
+}
 ```
 
 ### Recovery contract: idempotent handlers + `OnConnect` re-spawn
@@ -513,7 +537,14 @@ Two rules cover the gap:
 2. **Reconnect recovery lives in `OnConnect`.** Persisted state (any field
    tagged `lvt:"persist"`) is restored before `OnConnect` runs on the new
    connection. Use that state to detect "work was in flight when the prior
-   connection dropped" and re-spawn:
+   connection dropped" and re-spawn.
+
+   **Load-bearing requirement:** the field backing the predicate below
+   (`state.InProgress()` in the sketch) **must** carry the `lvt:"persist"`
+   tag. Unpersisted fields reset to their zero value on reconnect, so the
+   re-spawn guard would never fire — a silent footgun that makes the
+   recovery pattern look like it's working in single-render tests but
+   silently fail in production.
 
    ```go
    // Sketch with stand-in names — substitute your concrete state type

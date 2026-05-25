@@ -3,7 +3,7 @@
 **Status:** Accepted — Option C+ adopted in this PR (reference doc + idempotency contract). See progress tracker for follow-up state.
 **Date:** 2026-05-25
 **Issue:** [livetemplate#342](https://github.com/livetemplate/livetemplate/issues/342)
-**Related landed work:** PR #336 (Session wiring), PR #337-followup (depth limiting), PR #339-followup (`ErrSessionDisconnected` sentinel)
+**Related landed work:** PR #336 (Session wiring), PR #393 (closes #337 — depth/observability for chained TriggerAction), PR #408 (closes #339 — `ErrSessionDisconnected` sentinel)
 **Adoption record:** The "Disconnect & Reconnect Contract" section in [docs/references/server-actions.md](../references/server-actions.md#disconnect--reconnect-contract) is the canonical caller-facing version of this contract. Options A and B remain deferred per the triggers in §Recommendation.
 
 ## TL;DR
