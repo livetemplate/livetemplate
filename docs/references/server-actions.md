@@ -474,15 +474,24 @@ A persistent PubSub outage logs publish-failure warnings but
 reliable stop signal under multi-instance deployments. A minimal sketch:
 
 ```go
+// stopCtx is a context.Context the caller owns — e.g. one derived from
+// context.WithCancel and stored on the controller so OnDisconnect can
+// cancel it. Do NOT pass *livetemplate.Context here; that only lives
+// for the duration of a single action call.
+stopCtx, cancel := context.WithCancel(context.Background())
+// c.stopWork = cancel  // stash on controller so OnDisconnect cancels it
+
 go func() {
     ticker := time.NewTicker(tickRate)
     defer ticker.Stop()
     for {
         select {
-        case <-ctx.Done():
-            return // your own cancellation source — required under multi-instance
+        case <-stopCtx.Done():
+            return
         case <-ticker.C:
-            _ = session.TriggerAction("tick", payload) // return value is not load-bearing here
+            // Return is nil with zero local connections — publish-failure
+            // warnings are logged server-side; not a useful stop signal.
+            _ = session.TriggerAction("tick", payload)
         }
     }
 }()
