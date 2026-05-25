@@ -436,7 +436,7 @@ buffer or replay it. The cookie-bound `groupID` is stable across reconnects,
 so the *next* `TriggerAction` after the WebSocket comes back will reach the
 user, but the dispatch that fired during the gap is gone.
 
-This is a deliberate design — see [proposal #441](../proposals/triggeraction-reconnect-buffering.md).
+This is a deliberate design — see the [TriggerAction reconnect-buffering proposal](../proposals/triggeraction-reconnect-buffering.md).
 
 ### Detecting the gap
 
@@ -460,11 +460,13 @@ go func() {
 ```
 
 In **multi-instance** mode (with a `PubSubBroadcaster`), `TriggerAction`
-returns `nil` even with zero local connections because the user may be
-connected to another instance. Goroutines that need a hard lifetime bound
-must implement their own termination signal — a `context.Context` you
-control, or a bounded iteration count. See the `TriggerAction` godoc for
-the full multi-instance contract.
+returns `nil` even with zero local connections — the PubSubBroadcaster
+may deliver the dispatch to another instance. Goroutines that need a
+hard lifetime bound in this mode must implement their own termination
+signal: a `context.Context` you control, or a bounded iteration count.
+A persistent PubSub outage produces silent publish-failure warnings and
+`TriggerAction` keeps returning `nil`, so the error return is **not** a
+reliable stop signal under multi-instance deployments.
 
 ### Recovery contract: idempotent handlers + `OnConnect` re-spawn
 
@@ -514,9 +516,9 @@ both shapes.
 
 If you have a push that genuinely *cannot* be made idempotent (strict
 once-only audit log, paid-API result stream, etc.) the implicit contract
-is not enough. File an issue against
-[#342](https://github.com/livetemplate/livetemplate/issues/342) describing
-the exact non-idempotency. The
+is not enough. Open a new issue referencing
+[#342](https://github.com/livetemplate/livetemplate/issues/342) and
+describing the exact non-idempotency. The
 [buffering proposal](../proposals/triggeraction-reconnect-buffering.md)
 captures the design sketch for the durable variant that would solve it,
 gated on a real use case.

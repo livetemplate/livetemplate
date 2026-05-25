@@ -1,6 +1,6 @@
 # TriggerAction Updates Across the WebSocket Reconnect Gap
 
-**Status:** Accepted — Option C+ adopted in this PR (reference doc + idempotency contract).
+**Status:** Under review — Option C+ adopting in this PR (reference doc + idempotency contract). Flip to `Accepted` on merge.
 **Date:** 2026-05-25
 **Issue:** [livetemplate#342](https://github.com/livetemplate/livetemplate/issues/342)
 **Related landed work:** PR #336 (Session wiring), PR #337-followup (depth limiting), PR #339-followup (`ErrSessionDisconnected` sentinel)
