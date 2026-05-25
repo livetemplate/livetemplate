@@ -88,7 +88,7 @@ The browser experience (WASM mode):
 
 1. User loads `index.html`. The shell contains a server-prerendered initial render — the wrapper div with zero-value state already rendered inside, no flash of blank.
 2. The WASM-aware client lib boots (existing `autoInit()` from `livetemplate-client.ts` in the [@livetemplate/client](https://github.com/livetemplate/client) repo — unchanged). The existing 3px shimmer bar (`dom/loading-indicator.ts` in the same repo) shows progress as the WASM blob streams in (new `setProgress(fraction)` mode).
-3. Once instantiated, WASM hydrates state from IndexedDB and runs the dev's `Mount`. The diff against the prerendered initial HTML is usually empty — no flicker — or a small patch.
+3. Once instantiated, WASM hydrates state from IndexedDB and runs the dev's `Mount`. The diff against the prerendered initial HTML is usually empty on **first visit** (zero-value state ≈ prerendered HTML) — no flicker. On **return visit** (persisted state diverges from zero-value), the diff is non-trivial: the user sees the zero-value HTML briefly before WASM patches it to the persisted state. This is a known trade-off — prerender is a first-visit win, return-visit-neutral-to-negative. Apps where return visits dominate can opt out via `lvt build wasm --no-prerender` (the loading bar covers the gap; the dist `index.html` is just the empty wrapper). See [§4.1 step 6](#41-the-lvt-build-wasm-pipeline) for the toggle.
 4. User clicks `Increment`. The click handler dispatches `wasm.__lvtDispatch("Increment", null)` instead of `fetch(POST)` or `ws.send(...)`. WASM runs the dev's `Increment` method, returns a tree diff. The client applies the diff via the existing `client/state/tree-renderer.ts` morphdom path — unchanged.
 5. The mutated state is written through to IndexedDB (the `lvt:"persist"` field). Persists across reloads, across tabs (within the origin), across days. The "server" never saw it because there is no server.
 
@@ -160,13 +160,20 @@ A second build target in `client/package.json`:
 // A ReadableStream tee keeps the byte-progress callback feeding the bar.
 async bootWASM(): Promise<void> {
     const meta = document.querySelector('meta[name="lvt-target"][content="wasm"]');
+    const wrapperID = this.wrapperElement.getAttribute("data-lvt-id");  // e.g., "lvt-a1b2c3d4..."
     const wasmUrl = meta.getAttribute("data-wasm-url");
-    const expectedSize = parseInt(meta.getAttribute("data-wasm-size") || "0", 10);
 
     this.loadingIndicator.show();
     this.loadingIndicator.setProgress(0);  // NEW mode — see §4.2.1
 
+    // Progress is tracked against the COMPRESSED response stream (Content-Length
+    // is the on-wire byte count; instantiateStreaming consumes decompressed bytes
+    // separately). data-wasm-size is a fallback hint when the CDN doesn't send
+    // Content-Length (rare but possible behind some proxies).
     const response = await fetch(wasmUrl);
+    const expectedSize =
+        parseInt(response.headers.get("Content-Length") || "", 10) ||
+        parseInt(meta.getAttribute("data-wasm-size") || "0", 10);  // fallback
     const wasmResponse = teeWithProgress(response, expectedSize, (fraction) => {
         this.loadingIndicator.setProgress(fraction);
     });
@@ -177,13 +184,18 @@ async bootWASM(): Promise<void> {
     this.loadingIndicator.transitionToIndeterminate();  // shimmer during first render
     go.run(result.instance);  // does not await; WASM main() blocks forever
 
-    // WASM exposes window.__lvtDispatch(action, dataJSON) → diffJSON, set during its init.
-    this.wasmDispatch = (window as any).__lvtDispatch;
+    // WASM exposes window.__lvtDispatch_<wrapperID>(action, dataJSON) → diffJSON,
+    // set during its init. Namespacing by wrapperID prevents collisions when
+    // multiple WASM bundles run on the same page (test harnesses, the
+    // multi-page bundle case sketched in §7.1, per-route bundles via --entry).
+    this.wasmDispatch = (window as any)[`__lvtDispatch_${wrapperID}`];
     this.loadingIndicator.hide();
 }
 ```
 
-**The third dispatch path.** Today, the `send()` method on `LiveTemplateClient` (grep anchor, from the [@livetemplate/client](https://github.com/livetemplate/client) repo root: `grep -n "  send(message:" livetemplate-client.ts`) branches on `useHTTP` and `webSocketManager.getReadyState()`. The WASM bundle adds a branch:
+**`data-wasm-size` is the uncompressed blob size**, emitted by `lvt build wasm` for §5's size table and as a fallback for the rare CDN that strips `Content-Length`. Progress tracking always prefers `response.headers.get("Content-Length")` (the on-wire compressed size) since that's what bytes-arrived actually corresponds to; using the uncompressed size for progress would let the bar overshoot 100% as decompression catches up.
+
+**The third dispatch path.** Today, the `send()` method on `LiveTemplateClient` (grep anchor, from the [@livetemplate/client](https://github.com/livetemplate/client) repo root: `grep -n "  send(message:" livetemplate-client.ts`) branches on `useHTTP` and `webSocketManager.getReadyState()`. The WASM bundle adds a branch (`this.wasmDispatch` was bound to `window.__lvtDispatch_<wrapperID>` during `bootWASM`):
 
 ```typescript
 send(message: any): void {
@@ -242,9 +254,9 @@ The IndexedDB schema: one database named `livetemplate`, one object store named 
 **Sync-Go ↔ async-IndexedDB bridge — the load-bearing implementation detail.** `restoreFields` must complete synchronously within `Mount` (the framework's lifecycle is synchronous), but IndexedDB is entirely asynchronous. Two viable techniques exist:
 
 - **(a) Channel-blocked goroutine.** Register a JS callback for the IndexedDB promise resolution; block a Go channel until the callback fires. This is the pattern `wasm_exec.js` uses internally for `fetch`/`setTimeout` — battle-tested across Go versions, adds one syscall round-trip per persist op.
-- **(b) `syscall/js.Promise.Await`.** Go 1.24 added promise helpers that compile cleaner. Requires a Go 1.24+ floor for any app using WASM mode.
+- **(b) `syscall/js.Promise.Await`.** Go 1.24 added promise helpers that compile cleaner and match stdlib idioms.
 
-**Phase 1 commits to (a)** — broader compatibility, no version floor, and the round-trip cost is negligible relative to IndexedDB's own latency (IDB ops are typically 5–50 ms on modern devices). The promise wrapper lives in a small helper `internal/wasm/promise.go` shared by `WASMSessionStore` and the `WASMFileStore` of [§4.3 uploads](#43-persist--uploads-build-tag-auto-swap). Migrating to (b) when Go 1.24 becomes the floor is a mechanical refactor of one file; no API change.
+**Phase 1 commits to (b).** livetemplate's `go.mod` already declares `go 1.26.0`, so the Go 1.24 floor required by `Promise.Await` is moot. (b) is the strict improvement on (a): less boilerplate, no manual channel management, the stdlib handles cancellation semantics. (a) remains documented as the fallback pattern for any out-of-tree code that needs broader portability. The promise wrapper lives in a small helper `internal/wasm/promise.go` shared by `WASMSessionStore` and the `WASMFileStore` of [§4.3 uploads](#43-persist--uploads-build-tag-auto-swap).
 
 **Upload pipeline.** Paired files inside `livetemplate/internal/upload/`:
 
@@ -305,6 +317,7 @@ Service worker lifecycle gotchas the proposal owns:
 - **Update.** When `lvt build wasm` regenerates the SW (e.g., bumped upload prefix), the new bundle has a versioned filename; the static shell references the new name; the browser fetches and activates the new SW on next navigation.
 - **First-load race.** If the user reloads immediately after first install, the SW may not be active yet for the OPFS-blob requests on that page. The shell defers OPFS-referencing renders until `navigator.serviceWorker.ready` resolves (added to the bootstrap sequence in [§4.2](#42-the-client-variant)).
 - **Secure-context requirement.** Service workers register only over HTTPS or on `localhost`. Production CDN deploys satisfy this trivially; **local testing of the built `dist/` via a plain-HTTP server silently fails to register the SW**, which then breaks OPFS-blob URLs in a confusing way. `lvt build wasm` will print a one-line warning to the dev when it detects no `dist/` has been served over HTTPS, suggesting `caddy file-server` or similar.
+- **File-ID unguessability.** OPFS-stored file IDs (the `<id>` in `/lvt/opfs-blob/<id>`) are UUID v4 generated via `crypto/rand` — opaque, cryptographically unpredictable. Any third-party script the page loads (analytics, embeds) cannot enumerate uploaded files by probing the namespace because the IDs are not derivable without already knowing them. This matches the existing server-mode `UploadEntry.ID` scheme, which is also `crypto/rand`-derived; the WASM path uses the same generator (no new format, no new randomness source).
 
 ### 4.6 Failure modes
 
@@ -329,7 +342,7 @@ A throwaway prototype built 2026-05-24 at `livetemplate/.worktrees/wasm-validati
 | Headless smoke (devbox localhost TTI) | 539 ms | informational | initial render + click round-trip + persist pipeline all work |
 | iPhone over 4G (TTI / idle mem / bg survival) | *in flight* | ≤ 5 s / ≤ 80 MB / survives backgrounding | user testing; results gate Proposed → Accepted, not Phase 0 sign-off |
 
-The prototype uses livetemplate's **real** Build/Render pipeline via a small new `WithRawTemplate(text string)` option (added to `template.go` in the worktree, ~15 lines, all existing tests pass). This option ships as part of Phase 1 because the WASM target needs it — there is no filesystem to auto-discover templates from. It also has standalone value (any caller wanting to pass a template string without scaffolding), so it can land as a separate small PR.
+The prototype uses livetemplate's **real** Build/Render pipeline via a small new `WithRawTemplate(text string)` option (added to `template.go` in the worktree, ~15 lines, all existing tests pass). This option ships as part of Phase 1 because livetemplate's default auto-discovery (`discovery.DiscoverTemplateFiles`) reads from the filesystem at runtime — which doesn't exist in WASM. **Apps using `//go:embed` (which bakes files into the binary at build time) do NOT need to migrate** — they can pass the embedded content via `WithRawTemplate(string(myEmbeddedFile))` (or even keep `WithParseFiles` if the embed presents a real-looking path through an `embed.FS`). Only apps relying on runtime filesystem discovery need the new option. It also has standalone value (any caller wanting to pass a template string without scaffolding), so it can land as a separate small PR.
 
 Key non-finding from validation: **the framework code compiles cleanly under `GOOS=js GOARCH=wasm` with no build-tag refactoring.** `net/http` is fully supported on `js/wasm` (uses `fetch` as the transport), so `mount.go` and `ws.go` compile fine — they just can't *listen*. The build-tag work in [§4.3](#43-persist--uploads-build-tag-auto-swap) is therefore minimal and targeted (paired files for persist + upload), not a sweeping refactor.
 
