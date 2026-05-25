@@ -1,17 +1,20 @@
 # TriggerAction Updates Across the WebSocket Reconnect Gap
 
-**Status:** Proposed (design-only — implementation deferred to a follow-up)
+**Status:** Accepted — Option C+ adopted in this PR (reference doc + idempotency contract).
 **Date:** 2026-05-25
 **Issue:** [livetemplate#342](https://github.com/livetemplate/livetemplate/issues/342)
 **Related landed work:** PR #336 (Session wiring), PR #337-followup (depth limiting), PR #339-followup (`ErrSessionDisconnected` sentinel)
+**Adoption record:** The "Disconnect & Reconnect Contract" section in [docs/references/server-actions.md](../references/server-actions.md#disconnect--reconnect-contract) is the canonical caller-facing version of this contract. Options A and B remain deferred per the triggers in §Recommendation.
 
 ## TL;DR
 
 `Session.TriggerAction` calls that fire during a WebSocket disconnect gap are dropped: the goroutine sees `ErrSessionDisconnected`, exits cleanly, and the payload is lost — even though the client reconnects moments later with the same `groupID`. The patterns examples paper over this by having `OnConnect` re-spawn the work on reconnect, which only works when the dispatch is idempotent and cheap.
 
-This proposal makes the implicit contract explicit, ships a small documentation/ergonomics improvement, and defers protocol-level buffering until a real non-idempotent caller surfaces. It does not propose code changes in this PR; it proposes which changes to make and which to defer.
+This proposal makes the implicit contract explicit and defers protocol-level buffering until a real non-idempotent caller surfaces.
 
-**Recommendation: Option C+ (document the contract, add a `RespawnIfPending` recipe) now; defer Options A/B until a use case demands them.** The implicit "make your handler idempotent and re-spawn on reconnect" contract is already what the codebase relies on (see `docs/proposals/patterns.md` "Reconnect-during-loading double-fire") — formalize it before adding API surface.
+**Recommendation: Option C+ (document the contract, add a re-spawn recipe) now; defer Options A/B until a use case demands them.** The implicit "make your handler idempotent and re-spawn on reconnect" contract is already what the codebase relies on (see `docs/proposals/patterns.md` "Reconnect-during-loading double-fire") — formalize it before adding API surface.
+
+**Adopted in this PR:** the canonical version of the contract now lives in [docs/references/server-actions.md § Disconnect & Reconnect Contract](../references/server-actions.md#disconnect--reconnect-contract). Options A and B remain deferred.
 
 ---
 
@@ -226,11 +229,11 @@ When/if A is later adopted, the test plan in "Implementation sketch" applies.
 
 | Phase | Status | Notes |
 |-------|--------|-------|
-| 0. Draft proposal (this doc) | In progress | This PR |
-| 1. User review + merge | Pending | Adopt C or pick A/B with rationale |
-| 2. (C) Write `docs/references/triggeraction.md` | Pending | Follow-up PR |
-| 3. (C) Cross-link from `patterns.md` and `controller-pattern.md` | Pending | Follow-up PR |
-| 4. (A/B) Implementation | Deferred | Open new issue with concrete use case before starting |
+| 0. Draft proposal (this doc) | Done | This PR |
+| 1. User review + merge | In progress | Option C+ adopted in this same PR |
+| 2. (C) Document the contract in caller-facing reference | Done | Added "Disconnect & Reconnect Contract" section to `docs/references/server-actions.md` |
+| 3. (C) Cross-link from `patterns.md` | Done | "Reconnect-during-loading double-fire" prose updated |
+| 4. (A/B) Implementation | Deferred | Open new issue with a concrete non-idempotent use case before starting (see §Triggers) |
 
 ## References
 

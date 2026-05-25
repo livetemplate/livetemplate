@@ -427,6 +427,100 @@ Background job completes
         └─► ALL tabs are updated simultaneously
 ```
 
+## Disconnect & Reconnect Contract
+
+`TriggerAction` is **best-effort, not durable.** When a background goroutine
+calls `TriggerAction` during a brief WebSocket disconnect (network blip, tab
+throttling, cellular handoff), the payload is lost — the framework does not
+buffer or replay it. The cookie-bound `groupID` is stable across reconnects,
+so the *next* `TriggerAction` after the WebSocket comes back will reach the
+user, but the dispatch that fired during the gap is gone.
+
+This is a deliberate design — see [proposal #441](../proposals/triggeraction-reconnect-buffering.md).
+
+### Detecting the gap
+
+In **single-instance** mode, `TriggerAction` returns the typed sentinel
+`ErrSessionDisconnected` when the session has no local connections and no
+`PubSubBroadcaster` is configured:
+
+```go
+go func() {
+    for {
+        time.Sleep(tickRate)
+        if err := session.TriggerAction("tick", payload); err != nil {
+            if errors.Is(err, livetemplate.ErrSessionDisconnected) {
+                return // Clean shutdown — session is gone.
+            }
+            slog.Warn("TriggerAction transient failure", "err", err)
+            // continue or return depending on caller policy
+        }
+    }
+}()
+```
+
+In **multi-instance** mode (with a `PubSubBroadcaster`), `TriggerAction`
+returns `nil` even with zero local connections because the user may be
+connected to another instance. Goroutines that need a hard lifetime bound
+must implement their own termination signal — a `context.Context` you
+control, or a bounded iteration count. See the `TriggerAction` godoc for
+the full multi-instance contract.
+
+### Recovery contract: idempotent handlers + `OnConnect` re-spawn
+
+Two rules cover the gap:
+
+1. **Push handlers must be idempotent.** A handler that runs once must
+   produce the same final state as one that runs twice. The
+   [reconnect-during-loading double-fire race in `docs/proposals/patterns.md`](../proposals/patterns.md)
+   makes this concrete: if the client disconnects and reconnects while a
+   goroutine is still sleeping, two goroutines may race to dispatch — both
+   land successfully on the new connection. Idempotent handlers absorb
+   this; non-idempotent ones (counter increments, list appends, side
+   effects) corrupt state.
+
+2. **Reconnect recovery lives in `OnConnect`.** Persisted state (any field
+   tagged `lvt:"persist"`) is restored before `OnConnect` runs on the new
+   connection. Use that state to detect "work was in flight when the prior
+   connection dropped" and re-spawn:
+
+   ```go
+   // Sketch with stand-in names — substitute your concrete state type
+   // and predicate (InProgress, runWork, JobID).
+   func (c *Ctrl) OnConnect(state State, ctx *livetemplate.Context) (State, error) {
+       // Re-spawn whenever state shows in-flight work. On a fresh new-connect,
+       // InProgress() is the zero value (false), so this is a no-op. On
+       // reconnect, restored persisted state reflects whatever the prior
+       // connection committed.
+       if !state.InProgress() {
+           return state, nil
+       }
+       session := ctx.Session()
+       if session == nil {
+           return state, nil
+       }
+       go runWork(session, state.JobID) // must be idempotent by construction
+       return state, nil
+   }
+   ```
+
+The `ctx.IsReconnect()` helper exists if you need to distinguish the
+"restored after a prior disconnect" case from a fresh new-connect — see
+the [Controller Pattern reference](controller-pattern.md). It is not
+needed in the recipe above because the `state.InProgress()` check covers
+both shapes.
+
+### When the contract is not enough
+
+If you have a push that genuinely *cannot* be made idempotent (strict
+once-only audit log, paid-API result stream, etc.) the implicit contract
+is not enough. File an issue against
+[#342](https://github.com/livetemplate/livetemplate/issues/342) describing
+the exact non-idempotency. The
+[buffering proposal](../proposals/triggeraction-reconnect-buffering.md)
+captures the design sketch for the durable variant that would solve it,
+gated on a real use case.
+
 ## Distributed Deployments
 
 In multi-instance deployments, `TriggerAction()` automatically publishes to Redis so all instances can update their local connections. See the [PubSub Reference](pubsub.md) for setup, channel schema, and subscription lifecycle.
