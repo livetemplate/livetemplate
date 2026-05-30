@@ -3279,7 +3279,7 @@ func TestRedirect_RelativeBranch(t *testing.T) {
 		return NewContext(req.Context(), "Act", nil).WithHTTP(rec, req), rec
 	}
 
-	t.Run("self reloads via ./<segment>", func(t *testing.T) {
+	t.Run("trailing-slash self reload yields ./", func(t *testing.T) {
 		ctx, rec := newCtx(http.MethodPost, "/apps/login/")
 		if err := ctx.Redirect("", http.StatusSeeOther); err != nil {
 			t.Fatalf("Redirect returned error: %v", err)
@@ -3330,6 +3330,17 @@ func TestRedirect_RelativeBranch(t *testing.T) {
 		}
 		if got := rec.Header().Get("Location"); got != "." {
 			t.Errorf("Location = %q, want %q", got, ".")
+		}
+	})
+
+	t.Run("non-ASCII target percent-encoded in Location", func(t *testing.T) {
+		ctx, rec := newCtx(http.MethodPost, "/apps/login/")
+		if err := ctx.Redirect("./résumé", http.StatusSeeOther); err != nil {
+			t.Fatalf("Redirect returned error: %v", err)
+		}
+		// é is U+00E9 → UTF-8 0xC3 0xA9; the header must stay ASCII.
+		if got := rec.Header().Get("Location"); got != "./r%C3%A9sum%C3%A9" {
+			t.Errorf("Location = %q, want %q", got, "./r%C3%A9sum%C3%A9")
 		}
 	})
 

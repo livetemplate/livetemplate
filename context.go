@@ -354,7 +354,10 @@ func (c *Context) Redirect(url string, code int) error {
 		// (the action / PRG path), unless the caller already set a Content-Type.
 		h := c.w.Header()
 		_, hadCT := h["Content-Type"]
-		h.Set("Location", target)
+		// Percent-encode non-ASCII bytes so the Location stays within HTTP's
+		// ASCII header constraint — http.Redirect does this for the absolute
+		// branch via its own (unexported) helper.
+		h.Set("Location", hexEscapeNonASCII(target))
 		if !hadCT && (c.r.Method == http.MethodGet || c.r.Method == http.MethodHead) {
 			h.Set("Content-Type", "text/html; charset=utf-8")
 		}
@@ -372,6 +375,34 @@ func (c *Context) Redirect(url string, code int) error {
 		*c.redirected = true
 	}
 	return nil
+}
+
+// hexEscapeNonASCII percent-encodes bytes >= 0x80 so a relative Location value
+// stays within HTTP's ASCII header constraint. It mirrors the unexported
+// net/http helper http.Redirect applies to the absolute-path branch, and only
+// touches non-ASCII bytes — ASCII path delimiters ("/", ".", "?") are preserved,
+// unlike url.PathEscape which would mangle them.
+func hexEscapeNonASCII(s string) string {
+	const upperhex = "0123456789ABCDEF"
+	hasNonASCII := false
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			hasNonASCII = true
+			break
+		}
+	}
+	if !hasNonASCII {
+		return s
+	}
+	var b []byte
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; c >= 0x80 {
+			b = append(b, '%', upperhex[c>>4], upperhex[c&0x0f])
+		} else {
+			b = append(b, c)
+		}
+	}
+	return string(b)
 }
 
 // WithHTTP returns a new Context with HTTP request/response.

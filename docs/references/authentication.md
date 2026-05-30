@@ -245,7 +245,7 @@ var (
     ErrInvalidRedirectCode = errors.New("invalid redirect status code (must be 3xx)")
 
     // Returned when Redirect URL could cause open redirect vulnerability
-    ErrInvalidRedirectURL = errors.New("invalid redirect URL (must be a relative reference with no scheme or host)")
+    ErrInvalidRedirectURL = errors.New("invalid redirect URL (must be a path or relative reference with no scheme or host)")
 )
 ```
 

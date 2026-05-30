@@ -31,7 +31,7 @@ var (
 
 	// ErrInvalidRedirectURL is returned when Redirect is called with a potentially
 	// unsafe URL that could lead to open redirect vulnerabilities.
-	ErrInvalidRedirectURL = errors.New("invalid redirect URL (must be a relative reference with no scheme or host)")
+	ErrInvalidRedirectURL = errors.New("invalid redirect URL (must be a path or relative reference with no scheme or host)")
 )
 
 // message is an alias for internal/send.ActionMessage for backward compatibility
