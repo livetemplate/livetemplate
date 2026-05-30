@@ -3251,7 +3251,7 @@ func TestIsValidRedirectURL(t *testing.T) {
 		{"./settings", true},
 		{"../list", true},
 		{"dashboard", true},
-		{"./foo:bar", true}, // colon in a path segment, escaped with leading ./
+		{"./foo:bar", true}, // colon in a path segment; leading ./ prevents scheme parsing
 		// Reject: protocol-relative and the backslash bypass variants.
 		{"//evil.com", false},
 		{"/\\evil.com", false},
@@ -3320,6 +3320,16 @@ func TestRedirect_RelativeBranch(t *testing.T) {
 		}
 		if got := rec.Header().Get("Location"); got != "dashboard" {
 			t.Errorf("Location = %q, want %q", got, "dashboard")
+		}
+	})
+
+	t.Run("dot target emitted raw", func(t *testing.T) {
+		ctx, rec := newCtx(http.MethodPost, "/apps/login/")
+		if err := ctx.Redirect(".", http.StatusSeeOther); err != nil {
+			t.Fatalf("Redirect returned error: %v", err)
+		}
+		if got := rec.Header().Get("Location"); got != "." {
+			t.Errorf("Location = %q, want %q", got, ".")
 		}
 	})
 

@@ -309,7 +309,12 @@ func (c *Context) GetCookie(name string) (*http.Cookie, error) {
 // (un-stripped) request URL — this lets a recipe mounted behind
 // http.StripPrefix redirect back to its own mount without knowing the prefix.
 // The empty string means "reload self": Redirect("", http.StatusSeeOther) is
-// the canonical POST-Redirect-GET target for a recipe's own mount.
+// the canonical POST-Redirect-GET target for a recipe's own mount. This assumes
+// a trailing-slash mount — the canonical http.StripPrefix("/apps/login/", …)
+// pattern — because "" resolves to "./", the current directory. An exact-match
+// mount without a trailing slash (http.StripPrefix("/apps/login", …) serving
+// /apps/login) would resolve "./" to the parent path; mount with a trailing
+// slash to use the reload-self form.
 //
 // Returns ErrNoHTTPContext if called from a WebSocket action.
 // Returns ErrInvalidRedirectCode if code is not 3xx.

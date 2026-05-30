@@ -212,6 +212,12 @@ return state, ctx.Redirect("", http.StatusSeeOther)
 This lands back at `/apps/login/` in production and at `/` under a root-mounted
 test server — no `mountPath` argument needs threading through the handler.
 
+> **Mount with a trailing slash.** The empty-string "reload self" form resolves
+> to `./` (the current directory), so it relies on the canonical trailing-slash
+> mount `http.StripPrefix("/apps/login/", …)`. An exact-match mount *without* a
+> trailing slash (`http.StripPrefix("/apps/login", …)` serving `/apps/login`)
+> would resolve `./` to the parent path.
+
 **Security:** Relative references are origin-confined (RFC 3986 resolution
 keeps the current scheme+host), so they can't be open-redirect vectors. The
 guard rejects anything that could escape the current origin:
