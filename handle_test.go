@@ -3290,6 +3290,10 @@ func TestRedirect_RelativeBranch(t *testing.T) {
 		if rec.Code != http.StatusSeeOther {
 			t.Errorf("code = %d, want %d", rec.Code, http.StatusSeeOther)
 		}
+		// The redirected flag must be set so mount.go skips the PRG re-render.
+		if ctx.redirected == nil || !*ctx.redirected {
+			t.Error("redirected flag not set after relative redirect")
+		}
 		// POST mirrors http.Redirect: no courtesy body, no Content-Type.
 		if rec.Body.Len() != 0 {
 			t.Errorf("POST redirect body = %q, want empty", rec.Body.String())
@@ -3329,6 +3333,19 @@ func TestRedirect_RelativeBranch(t *testing.T) {
 		}
 		if body := rec.Body.String(); !strings.Contains(body, `<a href="dashboard">`) {
 			t.Errorf("GET redirect body = %q, want an <a href> courtesy link", body)
+		}
+	})
+
+	t.Run("HEAD sets Content-Type but writes no body", func(t *testing.T) {
+		ctx, rec := newCtx(http.MethodHead, "/apps/login/")
+		if err := ctx.Redirect("dashboard", http.StatusSeeOther); err != nil {
+			t.Fatalf("Redirect returned error: %v", err)
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "text/html; charset=utf-8" {
+			t.Errorf("HEAD redirect Content-Type = %q, want text/html; charset=utf-8", ct)
+		}
+		if rec.Body.Len() != 0 {
+			t.Errorf("HEAD redirect body = %q, want empty", rec.Body.String())
 		}
 	})
 
