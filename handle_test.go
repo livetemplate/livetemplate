@@ -3162,3 +3162,159 @@ func TestIsReconnect_OnWSReconnect(t *testing.T) {
 		t.Errorf("WS reconnect: rc want true after state restored, got %q. Full msg: %s", v, string(reconnectMsg))
 	}
 }
+
+// ============================================================================
+// Relative redirect support (issue #434)
+// ============================================================================
+
+type reloadSelfController struct{}
+type reloadSelfState struct{ Hits int }
+
+func (reloadSelfController) Mount(s reloadSelfState, ctx *Context) (reloadSelfState, error) {
+	return s, nil
+}
+
+func (reloadSelfController) ReloadSelf(s reloadSelfState, ctx *Context) (reloadSelfState, error) {
+	s.Hits++
+	return s, ctx.Redirect("", http.StatusSeeOther)
+}
+
+// TestRedirect_RelativeSelf_UnderStripPrefix is the regression guard for
+// issue #434: a recipe mounted behind http.StripPrefix must be able to
+// redirect back to its own mount without being told the prefix. The recipe
+// calls ctx.Redirect("", 303); the framework emits a relative Location the
+// client resolves against the full (un-stripped) request URL, landing back at
+// the mount. Before the fix, "" failed validation, the action errored, and the
+// POST re-rendered in place with no redirect at all.
+func TestRedirect_RelativeSelf_UnderStripPrefix(t *testing.T) {
+	tmpl, err := New("test")
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse(`<div>hits {{.Hits}}</div>`)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+	handler := tmpl.Handle(&reloadSelfController{}, AsState(&reloadSelfState{}))
+
+	const prefix = "/apps/login/"
+	mux := http.NewServeMux()
+	mux.Handle(prefix, http.StripPrefix(prefix, handler))
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	var followed []*http.Request
+	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		followed = append(followed, req) // req.URL is the client-resolved Location
+		if len(via) >= 10 {
+			return errors.New("too many redirects")
+		}
+		return nil
+	}}
+
+	form := url.Values{}
+	form.Set("lvt-action", "ReloadSelf")
+	req, err := http.NewRequest("POST", ts.URL+prefix, strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatalf("NewRequest failed: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "text/html")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("client.Do failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if len(followed) == 0 {
+		t.Fatal("expected a self-redirect, got none (relative Location not emitted)")
+	}
+	if got := followed[0].URL.Path; got != prefix {
+		t.Errorf("redirect resolved to %q, want %q", got, prefix)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("final status = %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestIsValidRedirectURL(t *testing.T) {
+	tests := []struct {
+		url  string
+		want bool
+	}{
+		// Accept: absolute-path and relative references (origin-confined).
+		{"/dashboard", true},
+		{"/", true},
+		{"", true},
+		{".", true},
+		{"./settings", true},
+		{"../list", true},
+		{"dashboard", true},
+		// Reject: protocol-relative and the backslash bypass variants.
+		{"//evil.com", false},
+		{"/\\evil.com", false},
+		{"\\\\evil.com", false},
+		{"\\/evil.com", false},
+		// Reject: anything carrying a scheme or host.
+		{"https://evil.com", false},
+		{"http://evil.com/path", false},
+		{"javascript:alert(1)", false},
+		{"mailto:x@example.com", false},
+		{"data:text/html,x", false},
+		{"foo:bar", false},
+	}
+	for _, tt := range tests {
+		if got := isValidRedirectURL(tt.url); got != tt.want {
+			t.Errorf("isValidRedirectURL(%q) = %v, want %v", tt.url, got, tt.want)
+		}
+	}
+}
+
+func TestRedirect_RelativeBranch(t *testing.T) {
+	newCtx := func(reqPath string) (*Context, *httptest.ResponseRecorder) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("POST", reqPath, nil)
+		return NewContext(req.Context(), "Act", nil).WithHTTP(rec, req), rec
+	}
+
+	t.Run("self reloads via ./<segment>", func(t *testing.T) {
+		ctx, rec := newCtx("/apps/login/")
+		if err := ctx.Redirect("", http.StatusSeeOther); err != nil {
+			t.Fatalf("Redirect returned error: %v", err)
+		}
+		if got := rec.Header().Get("Location"); got != "./" {
+			t.Errorf("Location = %q, want %q", got, "./")
+		}
+		if rec.Code != http.StatusSeeOther {
+			t.Errorf("code = %d, want %d", rec.Code, http.StatusSeeOther)
+		}
+	})
+
+	t.Run("self on a sub-path keeps the segment", func(t *testing.T) {
+		ctx, rec := newCtx("/foo")
+		if err := ctx.Redirect("", http.StatusSeeOther); err != nil {
+			t.Fatalf("Redirect returned error: %v", err)
+		}
+		if got := rec.Header().Get("Location"); got != "./foo" {
+			t.Errorf("Location = %q, want %q", got, "./foo")
+		}
+	})
+
+	t.Run("relative target emitted raw", func(t *testing.T) {
+		ctx, rec := newCtx("/apps/login/")
+		if err := ctx.Redirect("dashboard", http.StatusSeeOther); err != nil {
+			t.Fatalf("Redirect returned error: %v", err)
+		}
+		if got := rec.Header().Get("Location"); got != "dashboard" {
+			t.Errorf("Location = %q, want %q", got, "dashboard")
+		}
+	})
+
+	t.Run("cross-origin target rejected", func(t *testing.T) {
+		ctx, _ := newCtx("/apps/login/")
+		if err := ctx.Redirect("https://evil.com", http.StatusSeeOther); !errors.Is(err, ErrInvalidRedirectURL) {
+			t.Errorf("Redirect error = %v, want ErrInvalidRedirectURL", err)
+		}
+	})
+}

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/go-playground/validator/v10"
@@ -299,9 +301,19 @@ func (c *Context) GetCookie(name string) (*http.Cookie, error) {
 }
 
 // Redirect sends an HTTP redirect response.
+//
+// The target may be an absolute-path reference ("/dashboard") or a relative
+// reference ("", ".", "./settings", "../list"). Relative references are emitted
+// as-is in the Location header so the browser resolves them against its own
+// (un-stripped) request URL — this lets a recipe mounted behind
+// http.StripPrefix redirect back to its own mount without knowing the prefix.
+// The empty string means "reload self": Redirect("", http.StatusSeeOther) is
+// the canonical POST-Redirect-GET target for a recipe's own mount.
+//
 // Returns ErrNoHTTPContext if called from a WebSocket action.
 // Returns ErrInvalidRedirectCode if code is not 3xx.
-// Returns ErrInvalidRedirectURL if URL is not a valid relative path.
+// Returns ErrInvalidRedirectURL if the target carries a scheme or host, or is a
+// protocol-relative URL (open-redirect guards — see isValidRedirectURL).
 func (c *Context) Redirect(url string, code int) error {
 	if c.w == nil || c.r == nil {
 		return ErrNoHTTPContext
@@ -312,7 +324,27 @@ func (c *Context) Redirect(url string, code int) error {
 	if !isValidRedirectURL(url) {
 		return ErrInvalidRedirectURL
 	}
-	http.Redirect(c.w, c.r, url, code)
+
+	if strings.HasPrefix(url, "/") {
+		// Absolute-path target: unchanged behaviour. http.Redirect does not
+		// resolve absolute paths, so the stripped request path is irrelevant.
+		http.Redirect(c.w, c.r, url, code)
+	} else {
+		// Relative target: emit the reference RAW so the client resolves it
+		// against its effective (un-stripped) request URI. http.Redirect would
+		// resolve it server-side against the http.StripPrefix-stripped path —
+		// the bug we're avoiding. "" means "reload self": translate to
+		// "./<last-segment>" so the Location is non-empty (an empty Location
+		// breaks clients) and resolves back to the current URL.
+		target := url
+		if target == "" {
+			_, last := path.Split(c.r.URL.EscapedPath())
+			target = "./" + last
+		}
+		c.w.Header().Set("Location", target)
+		c.w.WriteHeader(code)
+	}
+
 	if c.redirected != nil {
 		*c.redirected = true
 	}
