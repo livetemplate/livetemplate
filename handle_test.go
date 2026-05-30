@@ -3251,6 +3251,7 @@ func TestIsValidRedirectURL(t *testing.T) {
 		{"./settings", true},
 		{"../list", true},
 		{"dashboard", true},
+		{"./foo:bar", true}, // colon in a path segment, escaped with leading ./
 		// Reject: protocol-relative and the backslash bypass variants.
 		{"//evil.com", false},
 		{"/\\evil.com", false},
@@ -3272,14 +3273,14 @@ func TestIsValidRedirectURL(t *testing.T) {
 }
 
 func TestRedirect_RelativeBranch(t *testing.T) {
-	newCtx := func(reqPath string) (*Context, *httptest.ResponseRecorder) {
+	newCtx := func(method, reqPath string) (*Context, *httptest.ResponseRecorder) {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest("POST", reqPath, nil)
+		req := httptest.NewRequest(method, reqPath, nil)
 		return NewContext(req.Context(), "Act", nil).WithHTTP(rec, req), rec
 	}
 
 	t.Run("self reloads via ./<segment>", func(t *testing.T) {
-		ctx, rec := newCtx("/apps/login/")
+		ctx, rec := newCtx(http.MethodPost, "/apps/login/")
 		if err := ctx.Redirect("", http.StatusSeeOther); err != nil {
 			t.Fatalf("Redirect returned error: %v", err)
 		}
@@ -3289,10 +3290,17 @@ func TestRedirect_RelativeBranch(t *testing.T) {
 		if rec.Code != http.StatusSeeOther {
 			t.Errorf("code = %d, want %d", rec.Code, http.StatusSeeOther)
 		}
+		// POST mirrors http.Redirect: no courtesy body, no Content-Type.
+		if rec.Body.Len() != 0 {
+			t.Errorf("POST redirect body = %q, want empty", rec.Body.String())
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "" {
+			t.Errorf("POST redirect Content-Type = %q, want empty", ct)
+		}
 	})
 
 	t.Run("self on a sub-path keeps the segment", func(t *testing.T) {
-		ctx, rec := newCtx("/foo")
+		ctx, rec := newCtx(http.MethodPost, "/foo")
 		if err := ctx.Redirect("", http.StatusSeeOther); err != nil {
 			t.Fatalf("Redirect returned error: %v", err)
 		}
@@ -3302,7 +3310,7 @@ func TestRedirect_RelativeBranch(t *testing.T) {
 	})
 
 	t.Run("relative target emitted raw", func(t *testing.T) {
-		ctx, rec := newCtx("/apps/login/")
+		ctx, rec := newCtx(http.MethodPost, "/apps/login/")
 		if err := ctx.Redirect("dashboard", http.StatusSeeOther); err != nil {
 			t.Fatalf("Redirect returned error: %v", err)
 		}
@@ -3311,8 +3319,21 @@ func TestRedirect_RelativeBranch(t *testing.T) {
 		}
 	})
 
+	t.Run("GET mirrors http.Redirect body and Content-Type", func(t *testing.T) {
+		ctx, rec := newCtx(http.MethodGet, "/apps/login/")
+		if err := ctx.Redirect("dashboard", http.StatusSeeOther); err != nil {
+			t.Fatalf("Redirect returned error: %v", err)
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "text/html; charset=utf-8" {
+			t.Errorf("GET redirect Content-Type = %q, want text/html; charset=utf-8", ct)
+		}
+		if body := rec.Body.String(); !strings.Contains(body, `<a href="dashboard">`) {
+			t.Errorf("GET redirect body = %q, want an <a href> courtesy link", body)
+		}
+	})
+
 	t.Run("cross-origin target rejected", func(t *testing.T) {
-		ctx, _ := newCtx("/apps/login/")
+		ctx, _ := newCtx(http.MethodPost, "/apps/login/")
 		if err := ctx.Redirect("https://evil.com", http.StatusSeeOther); !errors.Is(err, ErrInvalidRedirectURL) {
 			t.Errorf("Redirect error = %v, want ErrInvalidRedirectURL", err)
 		}

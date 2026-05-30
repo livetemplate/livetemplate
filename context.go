@@ -3,6 +3,7 @@ package livetemplate
 import (
 	"context"
 	"fmt"
+	"html"
 	"log/slog"
 	"net/http"
 	"path"
@@ -341,8 +342,24 @@ func (c *Context) Redirect(url string, code int) error {
 			_, last := path.Split(c.r.URL.EscapedPath())
 			target = "./" + last
 		}
-		c.w.Header().Set("Location", target)
+		// Mirror http.Redirect's method-aware tail so the two branches behave
+		// identically apart from URL resolution: a short HTML body plus
+		// Content-Type for GET, Content-Type only for HEAD, neither for POST
+		// (the action / PRG path), unless the caller already set a Content-Type.
+		h := c.w.Header()
+		_, hadCT := h["Content-Type"]
+		h.Set("Location", target)
+		if !hadCT && (c.r.Method == http.MethodGet || c.r.Method == http.MethodHead) {
+			h.Set("Content-Type", "text/html; charset=utf-8")
+		}
 		c.w.WriteHeader(code)
+		if !hadCT && c.r.Method == http.MethodGet {
+			if _, err := fmt.Fprintf(c.w, "<a href=\"%s\">%s</a>.\n", html.EscapeString(target), http.StatusText(code)); err != nil {
+				slog.Warn("Failed to write redirect body",
+					slog.String("component", "context"),
+					slog.Any("error", err))
+			}
+		}
 	}
 
 	if c.redirected != nil {
