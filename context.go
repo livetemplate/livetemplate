@@ -3,8 +3,11 @@ package livetemplate
 import (
 	"context"
 	"fmt"
+	"html"
 	"log/slog"
 	"net/http"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/go-playground/validator/v10"
@@ -299,9 +302,25 @@ func (c *Context) GetCookie(name string) (*http.Cookie, error) {
 }
 
 // Redirect sends an HTTP redirect response.
+//
+// The target may be an absolute-path reference ("/dashboard") or a relative
+// reference — including a bare segment ("dashboard"), dot forms (".", "./settings",
+// "../list"), and the empty string. Relative references are emitted
+// as-is in the Location header so the browser resolves them against its own
+// (un-stripped) request URL — this lets a recipe mounted behind
+// http.StripPrefix redirect back to its own mount without knowing the prefix.
+// The empty string means "reload self": Redirect("", http.StatusSeeOther) is
+// the canonical POST-Redirect-GET target for a recipe's own mount. This assumes
+// a trailing-slash mount — the canonical http.StripPrefix("/apps/login/", …)
+// pattern — because "" resolves to "./", the current directory. An exact-match
+// mount without a trailing slash (http.StripPrefix("/apps/login", …) serving
+// /apps/login) would resolve "./" to the parent path; mount with a trailing
+// slash to use the reload-self form.
+//
 // Returns ErrNoHTTPContext if called from a WebSocket action.
 // Returns ErrInvalidRedirectCode if code is not 3xx.
-// Returns ErrInvalidRedirectURL if URL is not a valid relative path.
+// Returns ErrInvalidRedirectURL if the target carries a scheme or host, or is a
+// protocol-relative URL (open-redirect guards — see isValidRedirectURL).
 func (c *Context) Redirect(url string, code int) error {
 	if c.w == nil || c.r == nil {
 		return ErrNoHTTPContext
@@ -312,11 +331,78 @@ func (c *Context) Redirect(url string, code int) error {
 	if !isValidRedirectURL(url) {
 		return ErrInvalidRedirectURL
 	}
-	http.Redirect(c.w, c.r, url, code)
+
+	if strings.HasPrefix(url, "/") {
+		// Absolute-path target: unchanged behaviour. http.Redirect does not
+		// resolve absolute paths, so the stripped request path is irrelevant.
+		http.Redirect(c.w, c.r, url, code)
+	} else {
+		// Relative target: emit the reference RAW so the client resolves it
+		// against its effective (un-stripped) request URI. http.Redirect would
+		// resolve it server-side against the http.StripPrefix-stripped path —
+		// the bug we're avoiding. "" means "reload self": translate to
+		// "./<last-segment>" so the Location is non-empty (an empty Location
+		// breaks clients) and resolves back to the current URL.
+		target := url
+		if target == "" {
+			_, last := path.Split(c.r.URL.EscapedPath())
+			target = "./" + last
+		}
+		// Mirror http.Redirect's method-aware tail so the two branches behave
+		// identically apart from URL resolution: a short HTML body plus
+		// Content-Type for GET, Content-Type only for HEAD, neither for POST
+		// (the action / PRG path), unless the caller already set a Content-Type.
+		h := c.w.Header()
+		_, hadCT := h["Content-Type"]
+		// Percent-encode non-ASCII bytes so the Location stays within HTTP's
+		// ASCII header constraint — http.Redirect does this for the absolute
+		// branch via its own (unexported) helper.
+		h.Set("Location", hexEscapeNonASCII(target))
+		if !hadCT && (c.r.Method == http.MethodGet || c.r.Method == http.MethodHead) {
+			h.Set("Content-Type", "text/html; charset=utf-8")
+		}
+		c.w.WriteHeader(code)
+		if !hadCT && c.r.Method == http.MethodGet {
+			if _, err := fmt.Fprintf(c.w, "<a href=\"%s\">%s</a>.\n", html.EscapeString(target), http.StatusText(code)); err != nil {
+				slog.Warn("Failed to write redirect body",
+					slog.String("component", "context"),
+					slog.Any("error", err))
+			}
+		}
+	}
+
 	if c.redirected != nil {
 		*c.redirected = true
 	}
 	return nil
+}
+
+// hexEscapeNonASCII percent-encodes bytes >= 0x80 so a relative Location value
+// stays within HTTP's ASCII header constraint. It mirrors the unexported
+// net/http helper http.Redirect applies to the absolute-path branch, and only
+// touches non-ASCII bytes — ASCII path delimiters ("/", ".", "?") are preserved,
+// unlike url.PathEscape which would mangle them.
+func hexEscapeNonASCII(s string) string {
+	const upperhex = "0123456789ABCDEF"
+	hasNonASCII := false
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			hasNonASCII = true
+			break
+		}
+	}
+	if !hasNonASCII {
+		return s
+	}
+	var b []byte
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; c >= 0x80 {
+			b = append(b, '%', upperhex[c>>4], upperhex[c&0x0f])
+		} else {
+			b = append(b, c)
+		}
+	}
+	return string(b)
 }
 
 // WithHTTP returns a new Context with HTTP request/response.

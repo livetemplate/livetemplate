@@ -193,16 +193,45 @@ ctx.DeleteCookie("session_token") // Sets MaxAge = -1
 ctx.Redirect("/dashboard", http.StatusSeeOther) // 303
 ```
 
-**Security:** Only relative paths starting with `/` are allowed. This prevents open redirect vulnerabilities:
+The target may be an **absolute-path reference** (`/dashboard`) or a **relative
+reference** (`""`, `.`, `./settings`, `../list`). Relative references are
+emitted as-is in the `Location` header, so the browser resolves them against
+its own request URL.
+
+**Redirecting to your own mount (recipes behind `http.StripPrefix`):** When a
+handler is mounted at a subpath via `http.StripPrefix("/apps/login/", handler)`,
+`r.URL.Path` is stripped before the handler sees it, so the handler can't
+reconstruct its own mount. Use the empty string — "reload self" — and let the
+browser resolve it against the full URL:
+
+```go
+// POST-Redirect-GET back to the recipe's own mount, wherever it's mounted.
+return state, ctx.Redirect("", http.StatusSeeOther)
+```
+
+This lands back at `/apps/login/` in production and at `/` under a root-mounted
+test server — no `mountPath` argument needs threading through the handler.
+
+> **Mount with a trailing slash.** The empty-string "reload self" form resolves
+> to `./` (the current directory), so it relies on the canonical trailing-slash
+> mount `http.StripPrefix("/apps/login/", …)`. An exact-match mount *without* a
+> trailing slash (`http.StripPrefix("/apps/login", …)` serving `/apps/login`)
+> would resolve `./` to the parent path.
+
+**Security:** Relative references are origin-confined (RFC 3986 resolution
+keeps the current scheme+host), so they can't be open-redirect vectors. The
+guard rejects anything that could escape the current origin:
 
 ```go
 // Valid redirects
-ctx.Redirect("/dashboard", http.StatusSeeOther)     // OK
-ctx.Redirect("/users/profile", http.StatusFound)    // OK
+ctx.Redirect("/dashboard", http.StatusSeeOther)     // OK (absolute path)
+ctx.Redirect("", http.StatusSeeOther)               // OK (reload self)
+ctx.Redirect("./settings", http.StatusSeeOther)     // OK (relative)
 
 // Invalid redirects (rejected with ErrInvalidRedirectURL)
-ctx.Redirect("https://evil.com", http.StatusFound)  // Rejected
+ctx.Redirect("https://evil.com", http.StatusFound)  // Rejected (has scheme/host)
 ctx.Redirect("//evil.com", http.StatusFound)        // Rejected (protocol-relative)
+ctx.Redirect("/\\evil.com", http.StatusFound)       // Rejected (backslash bypass)
 ```
 
 ### Error Types
@@ -216,7 +245,7 @@ var (
     ErrInvalidRedirectCode = errors.New("invalid redirect status code (must be 3xx)")
 
     // Returned when Redirect URL could cause open redirect vulnerability
-    ErrInvalidRedirectURL = errors.New("invalid redirect URL (must be relative path starting with /)")
+    ErrInvalidRedirectURL = errors.New("invalid redirect URL (must be a path or relative reference with no scheme or host)")
 )
 ```
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"unicode"
@@ -30,7 +31,7 @@ var (
 
 	// ErrInvalidRedirectURL is returned when Redirect is called with a potentially
 	// unsafe URL that could lead to open redirect vulnerabilities.
-	ErrInvalidRedirectURL = errors.New("invalid redirect URL (must be relative path starting with /)")
+	ErrInvalidRedirectURL = errors.New("invalid redirect URL (must be a path or relative reference with no scheme or host)")
 )
 
 // message is an alias for internal/send.ActionMessage for backward compatibility
@@ -341,18 +342,32 @@ func (a *ActionData) Get(key string) interface{} {
 	return a.raw[key]
 }
 
-// isValidRedirectURL checks if a URL is safe for redirects.
-// Only allows relative paths starting with "/" to prevent open redirects.
-func isValidRedirectURL(url string) bool {
-	// Must start with / (relative path)
-	if !strings.HasPrefix(url, "/") {
+// isValidRedirectURL reports whether rawURL is safe as a redirect target.
+// It permits absolute-path references ("/dashboard") and relative references
+// ("", ".", "./settings", "../list") so recipes mounted behind
+// http.StripPrefix can redirect to their own mount via a relative Location the
+// browser resolves against the un-stripped request URL.
+//
+// It rejects anything that could escape the current origin: protocol-relative
+// URLs ("//evil.com"), backslash variants browsers fold to "//" ("/\evil.com",
+// "\\evil.com"), and any URL carrying a scheme or host ("https://evil.com",
+// "javascript:...", "mailto:..."). url.Parse treats a leading "scheme:" in a
+// relative path (e.g. "foo:bar") as a scheme, so such targets are rejected;
+// write "./foo:bar" to keep the colon in a path segment.
+func isValidRedirectURL(rawURL string) bool {
+	// Guard "//host" and the backslash variants ("/\host", "\\host", "\/host")
+	// before parsing — url.Parse alone treats them as host-less relative paths,
+	// but browsers fold the backslashes to "//" and follow them cross-origin.
+	if len(rawURL) >= 2 {
+		if c0, c1 := rawURL[0], rawURL[1]; (c0 == '/' || c0 == '\\') && (c1 == '/' || c1 == '\\') {
+			return false
+		}
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
 		return false
 	}
-	// Reject protocol-relative URLs like "//evil.com"
-	if strings.HasPrefix(url, "//") {
-		return false
-	}
-	return true
+	return u.Scheme == "" && u.Host == ""
 }
 
 // FieldError represents a validation error for a specific field
