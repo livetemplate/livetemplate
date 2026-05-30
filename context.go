@@ -304,7 +304,8 @@ func (c *Context) GetCookie(name string) (*http.Cookie, error) {
 // Redirect sends an HTTP redirect response.
 //
 // The target may be an absolute-path reference ("/dashboard") or a relative
-// reference ("", ".", "./settings", "../list"). Relative references are emitted
+// reference — including a bare segment ("dashboard"), dot forms (".", "./settings",
+// "../list"), and the empty string. Relative references are emitted
 // as-is in the Location header so the browser resolves them against its own
 // (un-stripped) request URL — this lets a recipe mounted behind
 // http.StripPrefix redirect back to its own mount without knowing the prefix.
