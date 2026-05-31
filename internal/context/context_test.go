@@ -267,6 +267,14 @@ func TestTemplateContext_Redact(t *testing.T) {
 			field: "",
 			want:  "[[]]",
 		},
+		{
+			// The template.HTML return type bypasses html/template's escaper,
+			// so a non-literal name from user data must be escaped here or it
+			// becomes an injection vector. Locks in the html.EscapeString call.
+			name:  "HTML-special chars in name are escaped",
+			field: `x"><script>alert(1)</script>`,
+			want:  `[[x&#34;&gt;&lt;script&gt;alert(1)&lt;/script&gt;]]`,
+		},
 	}
 
 	for _, tt := range tests {

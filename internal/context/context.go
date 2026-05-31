@@ -355,32 +355,21 @@ func (t *TemplateContext) UploadError(name string) string {
 	return errorResults[0].String()
 }
 
-// Redact returns the placeholder token for a redacted field as template.HTML.
+// Redact renders the "[[name]]" placeholder token for a Preview-mode redacted
+// field. The client substitutes the real value from localStorage before each
+// DOM patch, so the server only ever holds the placeholder. Use in HTML
+// *content* (e.g. {{.lvt.Redact "passport"}}); editable inputs use the
+// data-lvt-redact attribute instead, not this token in their value.
 //
-// Preview mode keeps sensitive values (passport numbers, SSNs, draft answers)
-// in the visitor's browser localStorage and never sends them to the server. The
-// server renders the placeholder token "[[name]]" wherever the real value would
-// appear; the TypeScript client substitutes the localStorage value for the token
-// before applying each DOM patch, so the user sees their own value and the server
-// only ever holds the placeholder.
+// The bracket grammar is deliberate: "<<name>>" is mangled by both
+// html/template's attribute escaper and the browser's innerHTML parser (which
+// reads "<name>" as a tag), whereas "[[name]]" survives every context.
 //
-// Use this in HTML *content* contexts to echo a redacted value back to the user —
-// e.g. <span>Passport on file: {{.lvt.Redact "passport"}}</span>.
-//
-// For the input the user edits, do NOT put the token in the value. Tag the
-// element instead so the client sets its .value *property* from localStorage
-// (which makes it a real, editable, submittable field) and swaps the outgoing
-// value for a redact sentinel:
-//
-//	<input name="passport" data-lvt-redact="passport">
-//
-// The "[[name]]" grammar is deliberately bracket-based, not "<<name>>": a token
-// containing angle brackets is mangled both by html/template's attribute escaper
-// and by the browser's innerHTML parser (it reads "<name>" as a tag). Brackets
-// survive every context — Go content, Go attribute, and client-side innerHTML —
-// so the client can scan text nodes for it reliably.
+// name is HTML-escaped (as ErrorTag/FlashTag do) since the template.HTML return
+// type bypasses the escaper — a non-literal name from user data would otherwise
+// be an injection vector.
 func (t *TemplateContext) Redact(name string) template.HTML {
-	return template.HTML("[[" + name + "]]")
+	return template.HTML("[[" + html.EscapeString(name) + "]]")
 }
 
 const (
