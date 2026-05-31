@@ -268,9 +268,6 @@ func TestTemplateContext_Redact(t *testing.T) {
 			want:  "[[]]",
 		},
 		{
-			// The template.HTML return type bypasses html/template's escaper,
-			// so a non-literal name from user data must be escaped here or it
-			// becomes an injection vector. Locks in the html.EscapeString call.
 			name:  "HTML-special chars in name are escaped",
 			field: `x"><script>alert(1)</script>`,
 			want:  `[[x&#34;&gt;&lt;script&gt;alert(1)&lt;/script&gt;]]`,
@@ -289,33 +286,31 @@ func TestTemplateContext_Redact(t *testing.T) {
 	}
 }
 
-// TestTemplateContext_Redact_SurvivesEscaping locks in the property that drove
-// the bracket grammar: the "[[name]]" token must survive html/template's
-// context-aware escaper in BOTH content and attribute contexts. The earlier
-// "<<name>>" grammar failed here — angle brackets are escaped in attributes and
-// reparsed as a tag — which is why brackets were chosen. If a future Go release
-// changes bracket handling, this test flags it before it breaks Preview mode.
+// TestTemplateContext_Redact_SurvivesEscaping guards the bracket grammar: the
+// "[[name]]" token must survive html/template's escaper in both content and
+// attribute contexts (the rejected "<<name>>" grammar did not).
 func TestTemplateContext_Redact_SurvivesEscaping(t *testing.T) {
 	ctx := NewTemplateContext(nil, false)
 	data := map[string]any{"lvt": ctx}
 
-	cases := map[string]struct {
+	cases := []struct {
+		name string
 		tmpl string
 		want string
 	}{
-		"content":   {`<span>{{.lvt.Redact "passport"}}</span>`, `<span>[[passport]]</span>`},
-		"attribute": {`<input value="{{.lvt.Redact "passport"}}">`, `<input value="[[passport]]">`},
+		{"content", `<span>{{.lvt.Redact "passport"}}</span>`, `<span>[[passport]]</span>`},
+		{"attribute", `<input value="{{.lvt.Redact "passport"}}">`, `<input value="[[passport]]">`},
 	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			tmpl := template.Must(template.New(name).Parse(tc.tmpl))
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpl := template.Must(template.New(tc.name).Parse(tc.tmpl))
 			var buf strings.Builder
 			if err := tmpl.Execute(&buf, data); err != nil {
 				t.Fatalf("execute: %v", err)
 			}
 			if buf.String() != tc.want {
 				t.Errorf("%s context: got %q, want %q — redact token must survive escaping",
-					name, buf.String(), tc.want)
+					tc.name, buf.String(), tc.want)
 			}
 		})
 	}

@@ -355,19 +355,11 @@ func (t *TemplateContext) UploadError(name string) string {
 	return errorResults[0].String()
 }
 
-// Redact renders the "[[name]]" placeholder token for a Preview-mode redacted
-// field. The client substitutes the real value from localStorage before each
-// DOM patch, so the server only ever holds the placeholder. Use in HTML
-// *content* (e.g. {{.lvt.Redact "passport"}}); editable inputs use the
-// data-lvt-redact attribute instead, not this token in their value.
-//
-// The bracket grammar is deliberate: "<<name>>" is mangled by both
-// html/template's attribute escaper and the browser's innerHTML parser (which
-// reads "<name>" as a tag), whereas "[[name]]" survives every context.
-//
-// name is HTML-escaped (as ErrorTag/FlashTag do) since the template.HTML return
-// type bypasses the escaper — a non-literal name from user data would otherwise
-// be an injection vector.
+// Redact renders the "[[name]]" Preview-mode placeholder for content contexts
+// (the client substitutes the real value from localStorage; editable inputs use
+// the data-lvt-redact attribute instead). Bracket grammar, not "<<name>>":
+// angle brackets are mangled by html/template's escaper and the browser's
+// innerHTML parser, while brackets survive every context.
 func (t *TemplateContext) Redact(name string) template.HTML {
 	return template.HTML("[[" + html.EscapeString(name) + "]]")
 }
