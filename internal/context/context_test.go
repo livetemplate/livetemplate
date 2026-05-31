@@ -246,6 +246,73 @@ func TestTemplateContext_ErrorTag(t *testing.T) {
 	}
 }
 
+func TestTemplateContext_Redact(t *testing.T) {
+	tests := []struct {
+		name  string
+		field string
+		want  template.HTML
+	}{
+		{
+			name:  "simple field",
+			field: "passport",
+			want:  "[[passport]]",
+		},
+		{
+			name:  "snake_case field",
+			field: "tax_id",
+			want:  "[[tax_id]]",
+		},
+		{
+			name:  "empty field name",
+			field: "",
+			want:  "[[]]",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Redact is independent of messages; a zero context suffices.
+			ctx := NewTemplateContext(nil, false)
+			got := ctx.Redact(tt.field)
+			if got != tt.want {
+				t.Errorf("Redact(%q) = %q, want %q", tt.field, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestTemplateContext_Redact_SurvivesEscaping locks in the property that drove
+// the bracket grammar: the "[[name]]" token must survive html/template's
+// context-aware escaper in BOTH content and attribute contexts. The earlier
+// "<<name>>" grammar failed here — angle brackets are escaped in attributes and
+// reparsed as a tag — which is why brackets were chosen. If a future Go release
+// changes bracket handling, this test flags it before it breaks Preview mode.
+func TestTemplateContext_Redact_SurvivesEscaping(t *testing.T) {
+	ctx := NewTemplateContext(nil, false)
+	data := map[string]any{"lvt": ctx}
+
+	cases := map[string]struct {
+		tmpl string
+		want string
+	}{
+		"content":   {`<span>{{.lvt.Redact "passport"}}</span>`, `<span>[[passport]]</span>`},
+		"attribute": {`<input value="{{.lvt.Redact "passport"}}">`, `<input value="[[passport]]">`},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			tmpl := template.Must(template.New(name).Parse(tc.tmpl))
+			var buf strings.Builder
+			if err := tmpl.Execute(&buf, data); err != nil {
+				t.Fatalf("execute: %v", err)
+			}
+			if buf.String() != tc.want {
+				t.Errorf("%s context: got %q, want %q — redact token must survive escaping",
+					name, buf.String(), tc.want)
+			}
+		})
+	}
+}
+
 func TestTemplateContext_AriaInvalid(t *testing.T) {
 	tests := []struct {
 		name     string

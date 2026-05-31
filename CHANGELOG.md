@@ -5,6 +5,16 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changes
+
+- feat(context): lvt.Redact(name) template helper — renders a `[[name]]` placeholder
+  token for Preview-mode field redaction. Pairs with the client's `data-lvt-redact`
+  attribute: the server holds only the placeholder, the browser holds the real value.
+  Bracket grammar (not `<<name>>`) so the token survives both html/template's escaper
+  and the browser's innerHTML parser. Purely additive.
+
 ## [v0.11.1] - 2026-05-23
 
 ### Changes
