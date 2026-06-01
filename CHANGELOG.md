@@ -5,6 +5,21 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.11.2] - 2026-06-01
+
+### Changes
+
+- chore(changelog): drop Unreleased block ahead of release (77518d80)
+- feat(context): lvt.Redact template helper for Preview-mode field redaction (#445) (baddc874)
+- feat(context): support relative redirects so recipes can redirect-to-self under StripPrefix (#443) (b1ff8591)
+- docs: TriggerAction reconnect-gap contract — proposal + Option C+ adoption (#441) (5a9f23c3)
+- docs(proposals): wasm-target — supersedes #440 (Draft) (#442) (9ef95f78)
+- fix(build): tokenizer-based block-tag boundary detection (closes #436) (#439) (3796f69e)
+- ci: drop test-examples job (livetemplate/examples repo archived) (#438) (ec88e4bb)
+- ci: collapse 5 per-docs-recipe jobs into one test-docs-examples job (#437) (b96a5a27)
+
+
+
 ## [v0.11.1] - 2026-05-23
 
 ### Changes
