@@ -246,6 +246,61 @@ func TestTemplateContext_ErrorTag(t *testing.T) {
 	}
 }
 
+func TestTemplateContext_Redact(t *testing.T) {
+	tests := []struct {
+		name  string
+		field string
+		want  template.HTML
+	}{
+		{
+			name:  "simple field",
+			field: "passport",
+			want:  `<span data-lvt-redact="passport"></span>`,
+		},
+		{
+			name:  "snake_case field",
+			field: "tax_id",
+			want:  `<span data-lvt-redact="tax_id"></span>`,
+		},
+		{
+			name:  "empty field name",
+			field: "",
+			want:  `<span data-lvt-redact=""></span>`,
+		},
+		{
+			name:  "HTML-special chars in name are escaped",
+			field: `x"><script>alert(1)</script>`,
+			want:  `<span data-lvt-redact="x&#34;&gt;&lt;script&gt;alert(1)&lt;/script&gt;"></span>`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := NewTemplateContext(nil, false)
+			got := ctx.Redact(tt.field)
+			if got != tt.want {
+				t.Errorf("Redact(%q) = %q, want %q", tt.field, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestTemplateContext_Redact_RendersAsElement guards that Redact emits a live
+// element in content context (not escaped to text), so the client can find it
+// by attribute. The name stays escaped inside the attribute.
+func TestTemplateContext_Redact_RendersAsElement(t *testing.T) {
+	ctx := NewTemplateContext(nil, false)
+	data := map[string]any{"lvt": ctx}
+	tmpl := template.Must(template.New("c").Parse(`<p>{{.lvt.Redact "passport"}}</p>`))
+	var buf strings.Builder
+	if err := tmpl.Execute(&buf, data); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if got, want := buf.String(), `<p><span data-lvt-redact="passport"></span></p>`; got != want {
+		t.Errorf("got %q, want %q — Redact must render as a live element in content", got, want)
+	}
+}
+
 func TestTemplateContext_AriaInvalid(t *testing.T) {
 	tests := []struct {
 		name     string

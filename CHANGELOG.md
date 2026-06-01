@@ -5,6 +5,16 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- feat(context): lvt.Redact(name) template helper — emits an empty
+  `<span data-lvt-redact="name">` for Preview-mode field redaction. The client
+  fills it from browser localStorage; the server only ever holds the empty marked
+  element. The attribute is the trust signal (not a free text token), so
+  user-posted content can't trigger substitution. Purely additive.
+
 ## [v0.11.1] - 2026-05-23
 
 ### Changes

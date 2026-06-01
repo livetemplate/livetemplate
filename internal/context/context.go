@@ -355,6 +355,14 @@ func (t *TemplateContext) UploadError(name string) string {
 	return errorResults[0].String()
 }
 
+// Redact emits a self-contained <span data-lvt-redact="name"> the client fills
+// from localStorage; the trust signal is the attribute, so no free-floating
+// token can be spoofed by user-posted content (editable inputs carry the same
+// attribute directly). Empty until the client hydrates it.
+func (t *TemplateContext) Redact(name string) template.HTML {
+	return template.HTML(`<span data-lvt-redact="` + html.EscapeString(name) + `"></span>`)
+}
+
 const (
 	// TemplateContextKey is the key used to access lvt context in templates
 	TemplateContextKey = "lvt"
