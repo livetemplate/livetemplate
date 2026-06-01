@@ -7,13 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changes
+### Added
 
-- feat(context): lvt.Redact(name) template helper — renders a `[[name]]` placeholder
-  token for Preview-mode field redaction. Pairs with the client's `data-lvt-redact`
-  attribute: the server holds only the placeholder, the browser holds the real value.
-  Bracket grammar (not `<<name>>`) so the token survives both html/template's escaper
-  and the browser's innerHTML parser. Purely additive.
+- feat(context): lvt.Redact(name) template helper — emits an empty
+  `<span data-lvt-redact="name">` for Preview-mode field redaction. The client
+  fills it from browser localStorage; the server only ever holds the empty marked
+  element. The attribute is the trust signal (not a free text token), so
+  user-posted content can't trigger substitution. Purely additive.
 
 ## [v0.11.1] - 2026-05-23
 

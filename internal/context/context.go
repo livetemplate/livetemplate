@@ -355,13 +355,12 @@ func (t *TemplateContext) UploadError(name string) string {
 	return errorResults[0].String()
 }
 
-// Redact renders the "[[name]]" Preview-mode placeholder for content contexts
-// (the client substitutes the real value from localStorage; editable inputs use
-// the data-lvt-redact attribute instead). Bracket grammar, not "<<name>>":
-// angle brackets are mangled by html/template's escaper and the browser's
-// innerHTML parser, while brackets survive every context.
+// Redact emits a self-contained <span data-lvt-redact="name"> the client fills
+// from localStorage; the trust signal is the attribute, so no free-floating
+// token can be spoofed by user-posted content (editable inputs carry the same
+// attribute directly). Empty until the client hydrates it.
 func (t *TemplateContext) Redact(name string) template.HTML {
-	return template.HTML("[[" + html.EscapeString(name) + "]]")
+	return template.HTML(`<span data-lvt-redact="` + html.EscapeString(name) + `"></span>`)
 }
 
 const (
