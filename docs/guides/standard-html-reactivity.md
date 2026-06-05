@@ -103,7 +103,7 @@ The boundary is *what HTML can express*, not *how common the case is*.
 
 | Framework | Markup for a form action | Attributes to make it reactive |
 |-----------|--------------------------|--------------------------------|
-| **htmx** | `<form hx-post="/todos">` (plain HTML) | `hx-post`, `hx-target`, `hx-swap`, `hx-trigger` |
+| **htmx** | `<form hx-post="/todos">` | `hx-post`, `hx-target`, `hx-swap`, `hx-trigger` |
 | **templ + htmx** | a `templ` component (Go DSL) rendering `<form hx-post="/todos">` | `hx-post`, `hx-target`, … (htmx still does the interactivity) |
 | **Laravel Livewire** | `<form wire:submit="add">` (Blade) | `wire:submit`, `wire:model`, `wire:click` |
 | **Phoenix LiveView** | `<form phx-submit="add">` (HEEx) | `phx-submit`, `phx-click`, `phx-change` |
@@ -115,7 +115,9 @@ htmx extends HTML with `hx-*` attributes for AJAX interactions. A form without `
 
 ### templ + htmx
 
-[templ](https://templ.guide) is a Go DSL for authoring and composing HTML as type-safe Go components — a popular alternative to `html/template`. It is a *templating* layer, not an interactivity layer, so it is commonly paired with htmx for reactivity. That means two things to learn and adopt: a new markup language **and** `hx-*` attributes on the rendered HTML. LiveTemplate takes the opposite trade: it stays on Go's standard `html/template` (no new DSL) and provides the reactivity itself. You compose with what `html/template` already gives you — partials and the `{{template}}` action — plus per-session state and one render-and-diff pipeline, rather than adopting a new language for either authoring or interactivity. If you specifically want compile-time-checked, function-composed markup, templ is the better fit; if you want standard HTML to be reactive without a DSL or `hx-*` wiring, that's LiveTemplate.
+[templ](https://templ.guide) is a Go DSL for authoring and composing HTML as type-safe Go components — a popular alternative to `html/template`. It is a *templating* layer, not an interactivity layer, so it is commonly paired with htmx for reactivity. That means two things to learn and adopt: a new markup language **and** `hx-*` attributes on the rendered HTML.
+
+LiveTemplate takes the opposite trade: it stays on Go's standard `html/template` (no new DSL) and provides the reactivity itself. You compose with what `html/template` already gives you — partials and the `{{template}}` action — plus per-session state and one render-and-diff pipeline, rather than adopting a new language for either authoring or interactivity. If you specifically want compile-time-checked, function-composed markup, templ is the better fit; if you want standard HTML to be reactive without a DSL or `hx-*` wiring, that's LiveTemplate.
 
 ### Laravel Livewire
 
