@@ -95,18 +95,23 @@ See [PubSub Reference](../references/pubsub.md) for details.
 
 ## Comparison with Other Frameworks
 
-Every major reactive framework requires custom attributes on HTML elements. LiveTemplate is unique in making standard HTML reactive without modification.
+Every major reactive framework makes HTML reactive by adding a layer on top of it — custom attributes (`hx-*`, `wire:*`, `phx-*`) or a templating DSL. LiveTemplate keeps the HTML standard and moves the reactivity to the server: you add an `lvt-*` attribute only when the behavior is something HTML itself cannot define (timing, keyboard shortcuts, reactive DOM), never to make ordinary HTML reactive. The boundary is *what HTML can express*, not *how common the case is*.
 
-| Framework | Form markup required | Custom attributes |
-|-----------|---------------------|-------------------|
-| **htmx** | `<form hx-post="/todos" hx-target="#list">` | `hx-post`, `hx-target`, `hx-swap`, `hx-trigger` |
-| **Laravel Livewire** | `<form wire:submit="add">` | `wire:submit`, `wire:model`, `wire:click` |
-| **Phoenix LiveView** | `<form phx-submit="add">` | `phx-submit`, `phx-click`, `phx-change` |
-| **LiveTemplate** | `<form method="POST">` | None for standard interactions |
+| Framework | How you author markup | Attributes to make it reactive |
+|-----------|----------------------|--------------------------------|
+| **htmx** | Plain HTML | `hx-post`, `hx-target`, `hx-swap`, `hx-trigger` |
+| **templ + htmx** | A Go DSL (`templ` components) | `hx-post`, `hx-target`, `hx-swap`, … (htmx still does the interactivity) |
+| **Laravel Livewire** | Blade templates | `wire:submit`, `wire:model`, `wire:click` |
+| **Phoenix LiveView** | HEEx templates | `phx-submit`, `phx-click`, `phx-change` |
+| **LiveTemplate** | Standard `html/template` | None for standard interactions; `lvt-*` only for what HTML can't express |
 
 ### htmx
 
 htmx extends HTML with `hx-*` attributes for AJAX interactions. A form without `hx-post` submits normally (full page reload). Every interactive element needs explicit `hx-*` attributes.
+
+### templ + htmx
+
+[templ](https://templ.guide) is a Go DSL for authoring and composing HTML as type-safe Go components — a popular alternative to `html/template`. It is a *templating* layer, not an interactivity layer, so it is commonly paired with htmx for reactivity. That means two things to learn and adopt: a new markup language **and** `hx-*` attributes on the rendered HTML. LiveTemplate takes the opposite trade: it stays on Go's standard `html/template` (no new DSL) and provides the reactivity itself, so composability comes from the model — partials, per-session state, and one render-and-diff pipeline — rather than from a language. If you specifically want compile-time-checked, function-composed markup, templ is the better fit; if you want standard HTML to be reactive without a DSL or `hx-*` wiring, that's LiveTemplate.
 
 ### Laravel Livewire
 
