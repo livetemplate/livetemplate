@@ -104,7 +104,7 @@ The boundary is *what HTML can express*, not *how common the case is*.
 | Framework | Markup for a form action | Attributes to make it reactive |
 |-----------|--------------------------|--------------------------------|
 | **htmx** | `<form hx-post="/todos">` | `hx-post`, `hx-target`, `hx-swap`, `hx-trigger` |
-| **templ + htmx** | a `templ` component (Go DSL) rendering `<form hx-post="/todos">` | `hx-post`, `hx-target`, … (htmx still does the interactivity) |
+| **templ + htmx** | `templ form()` → `<form hx-post="/todos">` (a Go DSL) | `hx-post`, `hx-target`, … (htmx still does the interactivity) |
 | **Laravel Livewire** | `<form wire:submit="add">` (Blade) | `wire:submit`, `wire:model`, `wire:click` |
 | **Phoenix LiveView** | `<form phx-submit="add">` (HEEx) | `phx-submit`, `phx-click`, `phx-change` |
 | **LiveTemplate** | `<form method="POST">` (standard `html/template`) | None for standard interactions; `lvt-*` only for what HTML can't express |
