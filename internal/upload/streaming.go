@@ -39,7 +39,7 @@ func StreamMultipart(
 	values := make(map[string][]string)
 	for {
 		part, err := mr.NextPart()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {

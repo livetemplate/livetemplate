@@ -2689,7 +2689,10 @@ func (h *liveHandler) buildUploadStartResponse(rawData []byte, sessionID string,
 		case uploadtypes.UploadModeProxied:
 			// Bytes arrive via a follow-on HTTP multipart POST that streams them
 			// straight to OnUpload. Nothing stages here — validate metadata only
-			// so the client can reject early before uploading.
+			// so the client can reject early before uploading. The returned
+			// EntryID is informational: Proxied has no chunked/cancel-by-ID
+			// protocol, and streamProxiedPart creates the authoritative entry when
+			// the bytes arrive (validating Accept again from the part header).
 			if err := upload.ValidateEntry(entry, uploadInstance.Config); err != nil {
 				entryInfo.Error = err.Error()
 			} else {

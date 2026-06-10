@@ -629,7 +629,21 @@ func WithCookieMaxAge(maxAge time.Duration) Option {
 //	    }
 //	    return state, nil
 //	}
-//
+func WithUpload(name string, config uploadtypes.UploadConfig) Option {
+	return func(c *Config) {
+		if c.UploadConfigs == nil {
+			c.UploadConfigs = make(map[string]uploadtypes.UploadConfig)
+		}
+		// Back-compat: a config that sets External without an explicit Mode is a
+		// Direct (presigned) upload. UploadModeVolume is the zero value, so this
+		// only promotes the legacy "External implies direct-to-storage" shape.
+		if config.External != nil && config.Mode == uploadtypes.UploadModeVolume {
+			config.Mode = uploadtypes.UploadModeDirect
+		}
+		c.UploadConfigs[name] = config
+	}
+}
+
 // uploadConfigsNeedDisk reports whether any configured upload field stages bytes
 // to the local filesystem (Volume mode). Direct/Proxied/Preview never do, so a
 // template using only those needs no temp file manager.
@@ -651,21 +665,6 @@ func uploadConfigsHaveProxied(configs map[string]uploadtypes.UploadConfig) bool 
 		}
 	}
 	return false
-}
-
-func WithUpload(name string, config uploadtypes.UploadConfig) Option {
-	return func(c *Config) {
-		if c.UploadConfigs == nil {
-			c.UploadConfigs = make(map[string]uploadtypes.UploadConfig)
-		}
-		// Back-compat: a config that sets External without an explicit Mode is a
-		// Direct (presigned) upload. UploadModeVolume is the zero value, so this
-		// only promotes the legacy "External implies direct-to-storage" shape.
-		if config.External != nil && config.Mode == uploadtypes.UploadModeVolume {
-			config.Mode = uploadtypes.UploadModeDirect
-		}
-		c.UploadConfigs[name] = config
-	}
 }
 
 // WithPubSubBroadcaster enables distributed peer-fan-out across multiple application instances.
