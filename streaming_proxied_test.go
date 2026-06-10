@@ -184,6 +184,92 @@ func TestProxiedUpload_OversizeAborts(t *testing.T) {
 	}
 }
 
+type mixedState struct{}
+
+type mixedController struct {
+	proxied map[string][]byte
+}
+
+func (c *mixedController) OnUpload(part *UploadPart, ctx *Context) error {
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, part); err != nil {
+		return err
+	}
+	if c.proxied == nil {
+		c.proxied = make(map[string][]byte)
+	}
+	c.proxied[part.Filename] = buf.Bytes()
+	part.SetResult("mem://" + part.Filename)
+	return nil
+}
+
+func (c *mixedController) Submit(s mixedState, ctx *Context) (mixedState, error) { return s, nil }
+
+// TestMixedProxiedVolume_StagesBothInOneRequest verifies that a Volume file part
+// sharing a streaming (Proxied) multipart request is staged to disk rather than
+// silently dropped.
+func TestMixedProxiedVolume_StagesBothInOneRequest(t *testing.T) {
+	volumeDir := t.TempDir()
+	ctrl := &mixedController{}
+	tmpl := Must(New("test",
+		WithUpload("doc", UploadConfig{Mode: UploadModeProxied}),
+		WithUpload("scan", UploadConfig{Mode: UploadModeVolume, Dir: volumeDir}),
+	))
+	tmpl = Must(tmpl.Parse(`<div>ok</div>`))
+	server := httptest.NewServer(tmpl.Handle(ctrl, AsState(&mixedState{})))
+	t.Cleanup(server.Close)
+	t.Cleanup(func() { _ = os.RemoveAll(".uploads") })
+
+	resp, err := http.Get(server.URL + "/")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	cookies := resp.Cookies()
+	_ = resp.Body.Close()
+
+	var body bytes.Buffer
+	w := multipart.NewWriter(&body)
+	_ = w.WriteField("lvt-action", "Submit")
+	docPart, _ := w.CreateFormFile("doc", "d.png")
+	_, _ = docPart.Write([]byte("proxied-bytes"))
+	scanPart, _ := w.CreateFormFile("scan", "s.png")
+	_, _ = scanPart.Write([]byte("volume-bytes"))
+	_ = w.Close()
+
+	req, _ := http.NewRequest("POST", server.URL+"/", &body)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	req.Header.Set("Accept", "application/json")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	resp2, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	_ = resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp2.StatusCode)
+	}
+
+	// Proxied part streamed to OnUpload.
+	if got := ctrl.proxied["d.png"]; string(got) != "proxied-bytes" {
+		t.Errorf("proxied part = %q, want %q", got, "proxied-bytes")
+	}
+	// Volume part staged to disk (not dropped).
+	found := false
+	_ = filepath.Walk(volumeDir, func(p string, info os.FileInfo, err error) error {
+		if err == nil && info != nil && !info.IsDir() {
+			if b, _ := os.ReadFile(p); string(b) == "volume-bytes" {
+				found = true
+			}
+		}
+		return nil
+	})
+	if !found {
+		t.Error("volume part was dropped — expected it staged under Dir")
+	}
+}
+
 func TestProxiedUpload_HTTPHandshake_WSDisabled(t *testing.T) {
 	ctrl := &proxiedController{}
 	server, cookies := newProxiedServer(t, UploadConfig{

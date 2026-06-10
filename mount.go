@@ -173,6 +173,7 @@ type liveHandler struct {
 	limits          *session.ConnectionLimits
 	metricsExporter *observe.PrometheusExporter
 	tempFileManager uploadTempFileManager
+	hasProxied      bool     // true if any upload field uses Proxied mode (static, computed at Handle)
 	httpTemplates   sync.Map // groupID → *httpTemplateCacheEntry (cached for HTTP POST diff optimization)
 	httpLastPaths   sync.Map // groupID → string (last served request path, for detecting URL changes)
 
@@ -1297,7 +1298,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// streamed straight to Controller.OnUpload. This bypasses ParseMultipartForm
 	// (which would stage large parts to os.TempDir) and the byte-progress wrapper
 	// (which would consume the body before MultipartReader sees it).
-	streamingRequest := strings.HasPrefix(ct, "multipart/form-data") && h.hasProxiedUpload()
+	streamingRequest := strings.HasPrefix(ct, "multipart/form-data") && h.hasProxied
 
 	var msg message
 	var streamErr error
@@ -1319,7 +1320,12 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			func(part *multipart.Part) error {
 				return h.streamProxiedPart(part, uploadRegistry, streamCtx)
 			},
-			nil, // no staged sink: non-streaming file parts in a Proxied request are ignored
+			// Staged sink: a Volume file part sharing a streaming request is
+			// staged to disk rather than dropped (Direct/Preview carry no bytes
+			// here, so non-Volume parts are skipped inside stageVolumePart).
+			func(part *multipart.Part) error {
+				return h.stageVolumePart(part, uploadRegistry, groupID)
+			},
 		)
 		streamErr = serr
 		msg = send.BuildActionFromValues(values)
@@ -2413,16 +2419,6 @@ const (
 	maxUploadHandshakeBytes = 1 << 20
 )
 
-// hasProxiedUpload reports whether any configured upload field uses Proxied mode.
-func (h *liveHandler) hasProxiedUpload() bool {
-	for _, c := range h.config.UploadConfigs {
-		if c.Mode == uploadtypes.UploadModeProxied {
-			return true
-		}
-	}
-	return false
-}
-
 // streamProxiedPart streams one Proxied file part straight to Controller.OnUpload
 // with zero local-disk staging, then records the result as a completed upload
 // entry (ExternalRef set by the handler via SetResult) so the follow-on action
@@ -2464,6 +2460,10 @@ func (h *liveHandler) streamProxiedPart(part *multipart.Part, uploadRegistry upl
 	}
 
 	if err := streamer.OnUpload(up, ctx); err != nil {
+		// Surface an over-limit stream on the field, not as a general error.
+		if errors.Is(err, uploadtypes.ErrUploadTooLarge) {
+			return &upload.ValidationError{Field: field, Message: fmt.Sprintf("file exceeds maximum size of %d bytes", cfg.MaxFileSize)}
+		}
 		return err
 	}
 
@@ -2472,9 +2472,14 @@ func (h *liveHandler) streamProxiedPart(part *multipart.Part, uploadRegistry upl
 	entry.Done = true
 	entry.Progress = 100
 
-	// Record the completed entry. The bytes have already been streamed to
-	// OnUpload, so a registry-lookup miss here is a real failure (an orphaned
-	// upload), not something to swallow — surface it as a field error.
+	// The bytes have already been streamed to OnUpload, so a registry-lookup
+	// miss here is a real failure (an orphaned upload), surfaced as a field error.
+	return recordUploadEntry(uploadRegistry, field, entry)
+}
+
+// recordUploadEntry adds a completed entry to its upload in the registry,
+// mapping any lookup/validation failure to a field error.
+func recordUploadEntry(uploadRegistry uploadRegistry, field string, entry *uploadtypes.UploadEntry) error {
 	reg, ok := uploadRegistry.(*upload.Registry)
 	if !ok {
 		return &upload.ValidationError{Field: field, Message: "invalid upload registry type"}
@@ -2487,6 +2492,73 @@ func (h *liveHandler) streamProxiedPart(part *multipart.Part, uploadRegistry upl
 		return &upload.ValidationError{Field: field, Message: addErr.Error()}
 	}
 	return nil
+}
+
+// stageVolumePart writes a Volume file part that shares a streaming (Proxied)
+// request to disk — retained under Dir, or staged to the session temp dir —
+// instead of dropping it. Non-Volume parts (Direct/Preview carry no bytes here)
+// are skipped. MaxFileSize/Accept are enforced as on the WS-chunk path.
+func (h *liveHandler) stageVolumePart(part *multipart.Part, uploadRegistry uploadRegistry, sessionID string) error {
+	field := part.FormName()
+	cfg, ok := h.config.UploadConfigs[field]
+	if !ok || cfg.Mode != uploadtypes.UploadModeVolume {
+		return nil
+	}
+	if err := upload.ValidateFileHeader(part.FileName(), part.Header.Get("Content-Type"), cfg); err != nil {
+		return err
+	}
+
+	entryID, err := upload.GenerateEntryID()
+	if err != nil {
+		return fmt.Errorf("failed to generate entry ID: %w", err)
+	}
+
+	var dstPath string
+	if cfg.Dir != "" {
+		dstPath, err = upload.CreateRetainedFile(cfg.Dir, field, entryID)
+	} else if tfm, ok := h.tempFileManager.(*upload.TempFileManager); ok && tfm != nil {
+		dstPath, err = tfm.CreateTempFile(sessionID, field, entryID)
+	} else {
+		return &upload.ValidationError{Field: field, Message: "uploads unavailable: temp file manager not initialized"}
+	}
+	if err != nil {
+		return fmt.Errorf("failed to create upload file: %w", err)
+	}
+
+	dst, err := os.OpenFile(dstPath, os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("failed to open upload file: %w", err)
+	}
+	guard := upload.NewLimitGuard(part, cfg.MaxFileSize)
+	_, copyErr := io.Copy(dst, guard)
+	closeErr := dst.Close()
+	if copyErr != nil || closeErr != nil {
+		if rmErr := os.Remove(dstPath); rmErr != nil {
+			slog.Warn("Failed to remove upload file",
+				slog.String("component", "upload_handler"),
+				slog.String("path", dstPath),
+				slog.Any("error", rmErr))
+		}
+		if errors.Is(copyErr, uploadtypes.ErrUploadTooLarge) {
+			return &upload.ValidationError{Field: field, Message: fmt.Sprintf("file exceeds maximum size of %d bytes", cfg.MaxFileSize)}
+		}
+		if copyErr != nil {
+			return fmt.Errorf("failed to write upload file: %w", copyErr)
+		}
+		return fmt.Errorf("failed to close upload file: %w", closeErr)
+	}
+
+	entry := &uploadtypes.UploadEntry{
+		ID:         entryID,
+		ClientName: part.FileName(),
+		ClientType: part.Header.Get("Content-Type"),
+		ClientSize: guard.Count(),
+		TempPath:   dstPath,
+		Valid:      true,
+		Done:       true,
+		Progress:   100,
+	}
+	return recordUploadEntry(uploadRegistry, field, entry)
 }
 
 // handleUploadStart processes upload_start action from WebSocket client.

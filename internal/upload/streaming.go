@@ -73,10 +73,11 @@ func StreamMultipart(
 	return values, nil
 }
 
-// LimitGuard wraps a reader and enforces a maximum byte count mid-stream. When
-// the limit is exceeded it returns uploadtypes.ErrUploadTooLarge instead of
-// io.EOF, so a streaming copy to remote storage aborts rather than silently
-// committing a truncated object. A max of 0 means unlimited.
+// LimitGuard wraps a reader and enforces a maximum byte count mid-stream. It
+// passes through at most max bytes; once the source is found to exceed max it
+// returns uploadtypes.ErrUploadTooLarge (with zero bytes) instead of io.EOF, so
+// a streaming copy to remote storage aborts WITHOUT first writing the oversize
+// bytes — no truncated/partial object is committed. A max of 0 means unlimited.
 type LimitGuard struct {
 	r   io.Reader
 	n   int64
@@ -84,11 +85,34 @@ type LimitGuard struct {
 }
 
 func (l *LimitGuard) Read(p []byte) (int, error) {
+	if l.max <= 0 {
+		n, err := l.r.Read(p)
+		l.n += int64(n)
+		return n, err
+	}
+
+	remaining := l.max - l.n
+	if remaining <= 0 {
+		// We've already delivered max bytes. Peek one more to tell "exactly max"
+		// (EOF → success) from "more than max" (ErrUploadTooLarge) without ever
+		// handing the oversize byte to the consumer.
+		var probe [1]byte
+		m, err := l.r.Read(probe[:])
+		if m > 0 {
+			return 0, uploadtypes.ErrUploadTooLarge
+		}
+		if err == io.EOF {
+			return 0, io.EOF
+		}
+		return 0, err
+	}
+
+	// Never read more than the remaining budget so the consumer sees ≤ max bytes.
+	if int64(len(p)) > remaining {
+		p = p[:remaining]
+	}
 	n, err := l.r.Read(p)
 	l.n += int64(n)
-	if l.max > 0 && l.n > l.max {
-		return n, uploadtypes.ErrUploadTooLarge
-	}
 	return n, err
 }
 

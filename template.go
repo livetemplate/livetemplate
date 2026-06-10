@@ -642,6 +642,17 @@ func uploadConfigsNeedDisk(configs map[string]uploadtypes.UploadConfig) bool {
 	return false
 }
 
+// uploadConfigsHaveProxied reports whether any configured upload field uses
+// Proxied mode (cached on the handler to gate the streaming HTTP path).
+func uploadConfigsHaveProxied(configs map[string]uploadtypes.UploadConfig) bool {
+	for _, c := range configs {
+		if c.Mode == uploadtypes.UploadModeProxied {
+			return true
+		}
+	}
+	return false
+}
+
 func WithUpload(name string, config uploadtypes.UploadConfig) Option {
 	return func(c *Config) {
 		if c.UploadConfigs == nil {
@@ -1648,6 +1659,7 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 		limits:          limits,
 		metricsExporter: metricsExporter,
 		tempFileManager: tempFileManager,
+		hasProxied:      uploadConfigsHaveProxied(t.config.UploadConfigs),
 		shutdownChan:    make(chan struct{}),
 	}
 

@@ -608,6 +608,60 @@ func (c *uploadCompleteNoBroadcastController) UploadAvatarComplete(state uploadC
 	return state, nil
 }
 
+type persistUploadState struct {
+	Ref string `lvt:"persist"`
+}
+
+type persistUploadController struct{}
+
+func (c *persistUploadController) UploadAvatarComplete(state persistUploadState, ctx *Context) (persistUploadState, error) {
+	if ups := ctx.GetCompletedUploads("avatar"); len(ups) > 0 {
+		state.Ref = ups[0].TempPath
+	}
+	return state, nil
+}
+
+// TestHandleUploadComplete_PersistsState verifies that an upload completed over
+// WebSocket persists the resulting state to the session store, so it survives a
+// page refresh (the regression the persist fix addresses).
+func TestHandleUploadComplete_PersistsState(t *testing.T) {
+	store := NewMemorySessionStore()
+	tmpl := Must(New("test",
+		WithUpload("avatar", UploadConfig{}),
+		WithSessionStore(store),
+	))
+	tmpl = Must(tmpl.Parse(`<div>{{.Ref}}</div>`))
+	handler := tmpl.Handle(&persistUploadController{}, AsState(&persistUploadState{})).(*liveHandler)
+
+	uploadRegistry := upload.NewRegistry()
+	if err := uploadRegistry.CreateUpload("avatar", UploadConfig{}); err != nil {
+		t.Fatalf("CreateUpload: %v", err)
+	}
+	uploadObj := uploadRegistry.GetUpload("avatar").(*upload.Upload)
+	if err := uploadObj.AddEntry(&uploadtypes.UploadEntry{
+		ID: "entry-1", ClientName: "a.txt", ClientType: "text/plain", ClientSize: 1,
+		TempPath: "/tmp/a.txt", Valid: true,
+	}); err != nil {
+		t.Fatalf("AddEntry: %v", err)
+	}
+
+	if store.Get(context.Background(), "g1") != nil {
+		t.Fatal("precondition: store should be empty for g1")
+	}
+
+	conn := &session.Connection{GroupID: "g1", UserID: "u1", Template: tmpl}
+	state := &connState{state: persistUploadState{}, messages: make(map[string]string), groupID: "g1"}
+	raw := []byte(`{"action":"upload_complete","upload_name":"avatar","entry_ids":["entry-1"]}`)
+
+	if err := handler.handleUploadComplete(context.Background(), raw, state, uploadRegistry, conn); err != nil {
+		t.Fatalf("handleUploadComplete: %v", err)
+	}
+
+	if store.Get(context.Background(), "g1") == nil {
+		t.Error("expected state persisted to the session store after upload_complete, got nil")
+	}
+}
+
 func TestHandleUploadComplete_DoesNotImplicitlyBroadcastToPeers(t *testing.T) {
 	tmpl, err := New("test", WithUpload("avatar", UploadConfig{}))
 	if err != nil {
