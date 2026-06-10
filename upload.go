@@ -16,7 +16,9 @@ import (
 //   - AutoUpload: Whether to start upload automatically on file selection
 //   - ChunkSize: Chunk size for WebSocket uploads in bytes (default: 256KB)
 //   - Mode: Upload destination (Volume | Direct | Proxied | Preview; default Volume)
-//   - External: Presigner for Direct mode (browser → cloud via presigned URL)
+//   - External: Presigner for Direct mode (browser → cloud via presigned URL).
+//     Setting External without an explicit Mode promotes the field to
+//     UploadModeDirect for backward compatibility.
 //   - Dir: Retain destination for Volume mode (defaults to a temp dir)
 type UploadConfig = uploadtypes.UploadConfig
 
@@ -40,6 +42,10 @@ const (
 // uploads inline as an io.Reader, with zero local-disk staging. OnUpload is
 // invoked once per file part while the bytes are still in flight; the handler
 // streams them to remote storage and records the final reference via SetResult.
+//
+// OnUpload runs during the multipart body read, before the action handler, so
+// ctx does NOT carry session/typed state — use SetResult to hand the stored
+// reference to the follow-on action (read there via ctx.GetCompletedUploads).
 //
 //	func (c *C) OnUpload(part *livetemplate.UploadPart, ctx *livetemplate.Context) error {
 //	    ref, err := myBackend.Put(ctx, part.Filename, part) // part is an io.Reader
@@ -68,8 +74,10 @@ type UploadPart struct {
 }
 
 // SetResult records the final remote-storage reference for this part (e.g. an
-// object URL or key). The follow-on action reads it via
-// ctx.GetCompletedUploads(field)[i].ExternalRef.
+// object URL or key). Call it only after the full read succeeds — if OnUpload
+// then returns an error (e.g. ErrUploadTooLarge) the entry is discarded, so a
+// reference set before a truncated read never reaches the action. The follow-on
+// action reads it via ctx.GetCompletedUploads(field)[i].ExternalRef.
 func (p *UploadPart) SetResult(ref string) {
 	if p.entry != nil {
 		p.entry.ExternalRef = ref

@@ -1293,11 +1293,43 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Byte-level progress: wrap the multipart body before any parsing so both the
+	// streaming (MultipartReader) and Tier-1 (ParseMultipartForm) paths broadcast
+	// upload progress to connections in the group. ProgressReader is a pass-through
+	// counter, so MultipartReader reads through it unaffected.
+	if strings.HasPrefix(ct, "multipart/form-data") && r.ContentLength > 0 && len(h.config.UploadConfigs) > 0 {
+		pr := upload.NewProgressReader(r.Body, r.ContentLength)
+		pr.OnProgress = func(bytesRead, total int64) {
+			conns := h.registry.GetByGroupExcept(groupID, nil)
+			if len(conns) == 0 {
+				return
+			}
+			pct := int(bytesRead * 100 / total)
+			progressMsg := &upload.UploadProgressMessage{
+				Type:       "upload_progress",
+				UploadName: "multipart",
+				Progress:   pct,
+				BytesRecv:  bytesRead,
+				BytesTotal: total,
+			}
+			progressBytes, err := upload.SerializeUploadProgressMessage(progressMsg)
+			if err != nil {
+				return
+			}
+			for _, conn := range conns {
+				if err := conn.Send(WSTextMessage, progressBytes); err != nil {
+					// Client may have disconnected — non-fatal for progress updates
+					continue
+				}
+			}
+		}
+		r.Body = pr
+	}
+
 	// Proxied streaming uploads: a multipart request carrying a field whose Mode
 	// is Proxied is iterated via MultipartReader (zero disk) and each file part is
-	// streamed straight to Controller.OnUpload. This bypasses ParseMultipartForm
-	// (which would stage large parts to os.TempDir) and the byte-progress wrapper
-	// (which would consume the body before MultipartReader sees it).
+	// streamed straight to Controller.OnUpload, bypassing ParseMultipartForm
+	// (which would stage large parts to os.TempDir).
 	streamingRequest := strings.HasPrefix(ct, "multipart/form-data") && h.hasProxied
 
 	var msg message
@@ -1331,38 +1363,6 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		msg = send.BuildActionFromValues(values)
 		applyDefaultAction(&msg)
 	} else {
-		// Tier 1 file uploads: wrap request body with progress tracking before
-		// any multipart parsing occurs. ParseMultipartForm reads through this
-		// wrapper, giving us byte-level progress for WebSocket clients.
-		if strings.HasPrefix(ct, "multipart/form-data") && r.ContentLength > 0 && len(h.config.UploadConfigs) > 0 {
-			pr := upload.NewProgressReader(r.Body, r.ContentLength)
-			pr.OnProgress = func(bytesRead, total int64) {
-				conns := h.registry.GetByGroupExcept(groupID, nil)
-				if len(conns) == 0 {
-					return
-				}
-				pct := int(bytesRead * 100 / total)
-				progressMsg := &upload.UploadProgressMessage{
-					Type:       "upload_progress",
-					UploadName: "multipart",
-					Progress:   pct,
-					BytesRecv:  bytesRead,
-					BytesTotal: total,
-				}
-				progressBytes, err := upload.SerializeUploadProgressMessage(progressMsg)
-				if err != nil {
-					return
-				}
-				for _, conn := range conns {
-					if err := conn.Send(WSTextMessage, progressBytes); err != nil {
-						// Client may have disconnected — non-fatal for progress updates
-						continue
-					}
-				}
-			}
-			r.Body = pr
-		}
-
 		// Parse message
 		var err error
 		msg, err = parseActionFromHTTP(r)
@@ -2460,11 +2460,17 @@ func (h *liveHandler) streamProxiedPart(part *multipart.Part, uploadRegistry upl
 	}
 
 	if err := streamer.OnUpload(up, ctx); err != nil {
-		// Surface an over-limit stream on the field, not as a general error.
+		// Preserve an app-targeted error (it may name a different field); surface
+		// everything else — including ErrUploadTooLarge and opaque backend errors
+		// — on this upload's field rather than as a general banner.
+		switch err.(type) {
+		case FieldError, MultiError, *upload.ValidationError:
+			return err
+		}
 		if errors.Is(err, uploadtypes.ErrUploadTooLarge) {
 			return &upload.ValidationError{Field: field, Message: fmt.Sprintf("file exceeds maximum size of %d bytes", cfg.MaxFileSize)}
 		}
-		return err
+		return &upload.ValidationError{Field: field, Message: err.Error()}
 	}
 
 	entry.ClientSize = guard.Count()
@@ -2533,6 +2539,12 @@ func (h *liveHandler) stageVolumePart(part *multipart.Part, uploadRegistry uploa
 	_, copyErr := io.Copy(dst, guard)
 	closeErr := dst.Close()
 	if copyErr != nil || closeErr != nil {
+		if copyErr != nil && closeErr != nil {
+			slog.Warn("Volume staging failed on both write and close",
+				slog.String("component", "upload_handler"),
+				slog.Any("write_error", copyErr),
+				slog.Any("close_error", closeErr))
+		}
 		if rmErr := os.Remove(dstPath); rmErr != nil {
 			slog.Warn("Failed to remove upload file",
 				slog.String("component", "upload_handler"),

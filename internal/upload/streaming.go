@@ -1,6 +1,7 @@
 package upload
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -95,16 +96,23 @@ func (l *LimitGuard) Read(p []byte) (int, error) {
 	if remaining <= 0 {
 		// We've already delivered max bytes. Peek one more to tell "exactly max"
 		// (EOF → success) from "more than max" (ErrUploadTooLarge) without ever
-		// handing the oversize byte to the consumer.
+		// handing the oversize byte to the consumer. Loop to tolerate a reader
+		// that returns (0, nil) (allowed by io.Reader); returning (0, nil) here
+		// would spin io.Copy.
 		var probe [1]byte
-		m, err := l.r.Read(probe[:])
-		if m > 0 {
-			return 0, uploadtypes.ErrUploadTooLarge
+		for {
+			m, err := l.r.Read(probe[:])
+			if m > 0 {
+				return 0, uploadtypes.ErrUploadTooLarge
+			}
+			if errors.Is(err, io.EOF) {
+				return 0, io.EOF
+			}
+			if err != nil {
+				return 0, err
+			}
+			// (0, nil): no data yet, not EOF — retry the probe.
 		}
-		if err == io.EOF {
-			return 0, io.EOF
-		}
-		return 0, err
 	}
 
 	// Never read more than the remaining budget so the consumer sees ≤ max bytes.
