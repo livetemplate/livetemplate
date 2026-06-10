@@ -62,6 +62,12 @@ distinct sentinel, not `io.EOF`) so a truncated stream aborts instead of
 committing a partial object. Because nothing stages to disk, a pure-Proxied app
 needs no writable working directory and never creates `.uploads`.
 
+> **Note:** Adding a Proxied field routes **every** multipart POST to that
+> handler through the streaming path, including requests carrying only Volume
+> fields. Those Volume parts are staged to disk as usual (equivalent to the
+> default path), so mixing modes on one handler is fine — just be aware the
+> coupling exists.
+
 ### Preview — file stays on the device
 
 `Mode: UploadModePreview` keeps the file in the browser; only its metadata

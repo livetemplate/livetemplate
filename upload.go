@@ -47,6 +47,8 @@ const (
 // ctx does NOT carry session/typed state. It does carry request identity —
 // ctx.UserID() and ctx.GroupID() — so use SetResult to hand the stored
 // reference to the follow-on action (read there via ctx.GetCompletedUploads).
+// ctx is upload-scoped: ctx.Publish / ctx.With* calls made inside OnUpload do
+// NOT propagate to the follow-on action handler (which builds its own context).
 //
 //	func (c *C) OnUpload(part *livetemplate.UploadPart, ctx *livetemplate.Context) error {
 //	    ref, err := myBackend.Put(ctx, part.Filename, part) // part is an io.Reader

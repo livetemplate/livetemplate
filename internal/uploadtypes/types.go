@@ -61,7 +61,7 @@ func (m UploadMode) String() string {
 type UploadConfig struct {
 	Accept      []string
 	MaxEntries  int
-	MaxFileSize int64
+	MaxFileSize int64 // Max bytes per file; 0 = no limit (also the only size cap for Proxied)
 	AutoUpload  bool
 	ChunkSize   int
 	Mode        UploadMode // Selects the upload destination (default: Volume)
