@@ -1326,10 +1326,15 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		r.Body = pr
 	}
 
-	// Proxied streaming uploads: a multipart request carrying a field whose Mode
-	// is Proxied is iterated via MultipartReader (zero disk) and each file part is
-	// streamed straight to Controller.OnUpload, bypassing ParseMultipartForm
-	// (which would stage large parts to os.TempDir).
+	// Proxied streaming uploads: each file part is iterated via MultipartReader
+	// (zero disk) and streamed straight to Controller.OnUpload, bypassing
+	// ParseMultipartForm (which would stage large parts to os.TempDir).
+	//
+	// hasProxied is static, so ONCE ANY field is Proxied every multipart POST to
+	// this handler takes the streaming path — including requests carrying only
+	// Volume fields. That's intentional: stageVolumePart stages those Volume
+	// parts to disk, and value parts are reconstructed via BuildActionFromValues,
+	// so the outcome matches the non-streaming path.
 	streamingRequest := strings.HasPrefix(ct, "multipart/form-data") && h.hasProxied
 
 	var msg message
@@ -1361,6 +1366,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		)
 		streamErr = serr
 		msg = send.BuildActionFromValues(values)
+		// Unconditional here (unlike the else branch's Content-Type guard) because
+		// streamingRequest already implies multipart/form-data.
 		applyDefaultAction(&msg)
 	} else {
 		// Parse message

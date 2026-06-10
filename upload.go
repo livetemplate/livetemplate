@@ -75,10 +75,11 @@ type UploadPart struct {
 }
 
 // SetResult records the final remote-storage reference for this part (e.g. an
-// object URL or key). Call it only after the full read succeeds — if OnUpload
-// then returns an error (e.g. ErrUploadTooLarge) the entry is discarded, so a
-// reference set before a truncated read never reaches the action. The follow-on
-// action reads it via ctx.GetCompletedUploads(field)[i].ExternalRef.
+// object URL or key). It is self-correcting: calling it before a read that then
+// fails is safe, because OnUpload returning an error discards the entry — so a
+// reference set before a truncated read (e.g. ErrUploadTooLarge) never reaches
+// the action. The follow-on action reads it via
+// ctx.GetCompletedUploads(field)[i].ExternalRef.
 func (p *UploadPart) SetResult(ref string) {
 	if p.entry != nil {
 		p.entry.ExternalRef = ref

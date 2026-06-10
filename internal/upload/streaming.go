@@ -10,6 +10,11 @@ import (
 	"github.com/livetemplate/livetemplate/internal/uploadtypes"
 )
 
+// maxEmptyProbeReads bounds how many consecutive (0, nil) reads the LimitGuard
+// EOF probe tolerates before giving up, so a permanently-stalled reader can't
+// spin forever (matches the spirit of io.Copy's no-progress guard).
+const maxEmptyProbeReads = 100
+
 // valuePartCap bounds how many bytes are read from a single non-file form part
 // (lvt-action, lvt-submitter, the data JSON envelope, plain fields). Form values
 // are small; this caps memory without affecting file streaming.
@@ -97,11 +102,12 @@ func (l *LimitGuard) Read(p []byte) (int, error) {
 	if remaining <= 0 {
 		// We've already delivered max bytes. Peek one more to tell "exactly max"
 		// (EOF → success) from "more than max" (ErrUploadTooLarge) without ever
-		// handing the oversize byte to the consumer. Loop to tolerate a reader
-		// that returns (0, nil) (allowed by io.Reader); returning (0, nil) here
-		// would spin io.Copy.
+		// handing the oversize byte to the consumer. Tolerate a reader that
+		// returns (0, nil) (allowed by io.Reader) — returning it would spin
+		// io.Copy — but bound the retries so a permanently-stalled reader can't
+		// loop forever; mirror io.Copy's own no-progress guard.
 		var probe [1]byte
-		for {
+		for retries := 0; ; retries++ {
 			m, err := l.r.Read(probe[:])
 			if m > 0 {
 				return 0, uploadtypes.ErrUploadTooLarge
@@ -111,6 +117,9 @@ func (l *LimitGuard) Read(p []byte) (int, error) {
 			}
 			if err != nil {
 				return 0, err
+			}
+			if retries >= maxEmptyProbeReads {
+				return 0, io.ErrNoProgress
 			}
 			// (0, nil): no data yet, not EOF — retry the probe.
 		}
