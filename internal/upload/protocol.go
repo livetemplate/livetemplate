@@ -97,18 +97,6 @@ type CancelUploadResponse struct {
 	Success bool   `json:"success"`  // Whether cancellation succeeded
 }
 
-// IsUploadStart reports whether a JSON message body is an upload_start action.
-// Used by the HTTP handshake fallback to peek the action without fully parsing.
-func IsUploadStart(data []byte) bool {
-	var probe struct {
-		Action string `json:"action"`
-	}
-	if err := json.Unmarshal(data, &probe); err != nil {
-		return false
-	}
-	return probe.Action == "upload_start"
-}
-
 // ParseUploadStartMessage parses an upload_start action from JSON.
 func ParseUploadStartMessage(data []byte) (*UploadStartMessage, error) {
 	var msg UploadStartMessage

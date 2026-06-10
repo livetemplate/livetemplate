@@ -1267,31 +1267,29 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	ct := r.Header.Get("Content-Type")
 
 	// Upload handshake over HTTP (WS-disabled fallback): the client posts the
-	// upload_start JSON when the socket isn't open. Answer with the same
-	// UploadStartResponse the WS path produces so mode dispatch + Direct presign
-	// work without a WebSocket. JSON body, peeked for an upload action.
-	if strings.HasPrefix(ct, "application/json") && len(h.config.UploadConfigs) > 0 {
-		body, readErr := io.ReadAll(r.Body)
+	// upload_start JSON with the X-Lvt-Upload: start header when the socket isn't
+	// open. Answer with the same UploadStartResponse the WS path produces so mode
+	// dispatch + Direct presign work without a WebSocket. Gated on the header so
+	// normal JSON action POSTs never pay a body read; the read is bounded since a
+	// handshake is only small file-metadata.
+	if r.Header.Get(uploadStartHeader) == "start" && strings.HasPrefix(ct, "application/json") && len(h.config.UploadConfigs) > 0 {
+		body, readErr := io.ReadAll(io.LimitReader(r.Body, maxUploadHandshakeBytes))
 		if readErr != nil {
 			http.Error(w, "failed to read request body", http.StatusBadRequest)
 			return
 		}
-		if upload.IsUploadStart(body) {
-			response, buildErr := h.buildUploadStartResponse(body, groupID, uploadRegistry)
-			if buildErr != nil {
-				http.Error(w, buildErr.Error(), http.StatusBadRequest)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			if err := json.NewEncoder(w).Encode(response); err != nil {
-				slog.Warn("Failed to write upload_start HTTP response",
-					slog.String("component", "live_handler"),
-					slog.Any("error", err))
-			}
+		response, buildErr := h.buildUploadStartResponse(body, groupID, uploadRegistry)
+		if buildErr != nil {
+			http.Error(w, buildErr.Error(), http.StatusBadRequest)
 			return
 		}
-		// Not an upload handshake — restore the body for normal action parsing.
-		r.Body = io.NopCloser(bytes.NewReader(body))
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			slog.Warn("Failed to write upload_start HTTP response",
+				slog.String("component", "live_handler"),
+				slog.Any("error", err))
+		}
+		return
 	}
 
 	// Proxied streaming uploads: a multipart request carrying a field whose Mode
@@ -2406,6 +2404,15 @@ func (h *liveHandler) handleUploadAction(ctx context.Context, rawData []byte, ms
 	}
 }
 
+const (
+	// uploadStartHeader marks an HTTP upload_start handshake (WS-disabled
+	// fallback) so normal JSON action POSTs are never probed.
+	uploadStartHeader = "X-Lvt-Upload"
+	// maxUploadHandshakeBytes bounds the handshake body read — it carries only
+	// small file metadata, never file bytes.
+	maxUploadHandshakeBytes = 1 << 20
+)
+
 // hasProxiedUpload reports whether any configured upload field uses Proxied mode.
 func (h *liveHandler) hasProxiedUpload() bool {
 	for _, c := range h.config.UploadConfigs {
@@ -2465,14 +2472,19 @@ func (h *liveHandler) streamProxiedPart(part *multipart.Part, uploadRegistry upl
 	entry.Done = true
 	entry.Progress = 100
 
-	if reg, ok := uploadRegistry.(*upload.Registry); ok {
-		if u := reg.GetUpload(field); u != nil {
-			if upl, ok := u.(*upload.Upload); ok {
-				if addErr := upl.AddEntry(entry); addErr != nil {
-					return &upload.ValidationError{Field: field, Message: addErr.Error()}
-				}
-			}
-		}
+	// Record the completed entry. The bytes have already been streamed to
+	// OnUpload, so a registry-lookup miss here is a real failure (an orphaned
+	// upload), not something to swallow — surface it as a field error.
+	reg, ok := uploadRegistry.(*upload.Registry)
+	if !ok {
+		return &upload.ValidationError{Field: field, Message: "invalid upload registry type"}
+	}
+	upl, ok := reg.GetUpload(field).(*upload.Upload)
+	if !ok {
+		return &upload.ValidationError{Field: field, Message: fmt.Sprintf("upload %q not configured", field)}
+	}
+	if addErr := upl.AddEntry(entry); addErr != nil {
+		return &upload.ValidationError{Field: field, Message: addErr.Error()}
 	}
 	return nil
 }
