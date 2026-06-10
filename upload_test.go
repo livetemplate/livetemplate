@@ -545,31 +545,52 @@ func TestHandle_TempFileManagerInitialized_WithUploadConfig(t *testing.T) {
 	}
 }
 
-func TestHandleUploadAction_NilTempFileManager(t *testing.T) {
-	handler := &liveHandler{
-		tempFileManager: nil,
+// TestHandle_NoTempFileManager_ForNonVolumeModes verifies Phase 6's contract:
+// Direct/Proxied/Preview fields stage nothing to disk, so the handler must not
+// create a temp file manager (and therefore must not fail at startup on a
+// read-only working directory — the deploy-time failure that motivated #447).
+func TestHandle_NoTempFileManager_ForNonVolumeModes(t *testing.T) {
+	cases := []struct {
+		name     string
+		config   UploadConfig
+		wantDisk bool
+	}{
+		{"proxied", UploadConfig{Mode: UploadModeProxied}, false},
+		{"preview", UploadConfig{Mode: UploadModePreview}, false},
+		{"direct", UploadConfig{Mode: UploadModeDirect, External: &mockPresigner{}}, false},
+		{"volume", UploadConfig{Mode: UploadModeVolume}, true},
+		{"default-is-volume", UploadConfig{}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpl, err := New("test", WithUpload("file", tc.config))
+			if err != nil {
+				t.Fatalf("New failed: %v", err)
+			}
+			tmpl, err = tmpl.Parse("<div>{{.Count}}</div>")
+			if err != nil {
+				t.Fatalf("Parse failed: %v", err)
+			}
+			handler := tmpl.Handle(&testHandleController{}, AsState(&testHandleState{}))
+			lh := handler.(*liveHandler)
+			if tc.wantDisk && lh.tempFileManager == nil {
+				t.Errorf("%s: expected a temp file manager, got nil", tc.name)
+			}
+			if !tc.wantDisk && lh.tempFileManager != nil {
+				t.Errorf("%s: expected no temp file manager, got one", tc.name)
+			}
+		})
 	}
 
-	actions := []string{"upload_start", "upload_chunk", "upload_complete", "cancel_upload"}
-	for _, action := range actions {
-		msg := message{Action: action}
-		handled, err := handler.handleUploadAction(context.Background(), nil, msg, nil, nil, nil)
-		if !handled {
-			t.Errorf("action %q: expected handled=true, got false", action)
-		}
-		if err == nil {
-			t.Errorf("action %q: expected error for nil tempFileManager, got nil", action)
-		}
-	}
-
-	// Non-upload actions should return handled=false
+	// Non-upload actions are never claimed by the upload router.
+	lh := &liveHandler{tempFileManager: nil}
 	msg := message{Action: "some_other_action"}
-	handled, err := handler.handleUploadAction(context.Background(), nil, msg, nil, nil, nil)
-	if handled {
-		t.Error("non-upload action: expected handled=false, got true")
+	if handled, err := lh.handleUploadAction(context.Background(), nil, msg, nil, nil, nil); handled || err != nil {
+		t.Errorf("non-upload action: expected handled=false,nil err; got %v,%v", handled, err)
 	}
-	if err != nil {
-		t.Errorf("non-upload action: expected no error, got %v", err)
+
+	if err := os.RemoveAll(".uploads"); err != nil {
+		t.Logf("cleanup .uploads failed: %v", err)
 	}
 }
 
@@ -585,6 +606,60 @@ func (c *uploadCompleteNoBroadcastController) UploadAvatarComplete(state uploadC
 		state.AvatarPath = uploads[0].TempPath
 	}
 	return state, nil
+}
+
+type persistUploadState struct {
+	Ref string `lvt:"persist"`
+}
+
+type persistUploadController struct{}
+
+func (c *persistUploadController) UploadAvatarComplete(state persistUploadState, ctx *Context) (persistUploadState, error) {
+	if ups := ctx.GetCompletedUploads("avatar"); len(ups) > 0 {
+		state.Ref = ups[0].TempPath
+	}
+	return state, nil
+}
+
+// TestHandleUploadComplete_PersistsState verifies that an upload completed over
+// WebSocket persists the resulting state to the session store, so it survives a
+// page refresh (the regression the persist fix addresses).
+func TestHandleUploadComplete_PersistsState(t *testing.T) {
+	store := NewMemorySessionStore()
+	tmpl := Must(New("test",
+		WithUpload("avatar", UploadConfig{}),
+		WithSessionStore(store),
+	))
+	tmpl = Must(tmpl.Parse(`<div>{{.Ref}}</div>`))
+	handler := tmpl.Handle(&persistUploadController{}, AsState(&persistUploadState{})).(*liveHandler)
+
+	uploadRegistry := upload.NewRegistry()
+	if err := uploadRegistry.CreateUpload("avatar", UploadConfig{}); err != nil {
+		t.Fatalf("CreateUpload: %v", err)
+	}
+	uploadObj := uploadRegistry.GetUpload("avatar").(*upload.Upload)
+	if err := uploadObj.AddEntry(&uploadtypes.UploadEntry{
+		ID: "entry-1", ClientName: "a.txt", ClientType: "text/plain", ClientSize: 1,
+		TempPath: "/tmp/a.txt", Valid: true,
+	}); err != nil {
+		t.Fatalf("AddEntry: %v", err)
+	}
+
+	if store.Get(context.Background(), "g1") != nil {
+		t.Fatal("precondition: store should be empty for g1")
+	}
+
+	conn := &session.Connection{GroupID: "g1", UserID: "u1", Template: tmpl}
+	state := &connState{state: persistUploadState{}, messages: make(map[string]string), groupID: "g1"}
+	raw := []byte(`{"action":"upload_complete","upload_name":"avatar","entry_ids":["entry-1"]}`)
+
+	if err := handler.handleUploadComplete(context.Background(), raw, state, uploadRegistry, conn); err != nil {
+		t.Fatalf("handleUploadComplete: %v", err)
+	}
+
+	if store.Get(context.Background(), "g1") == nil {
+		t.Error("expected state persisted to the session store after upload_complete, got nil")
+	}
 }
 
 func TestHandleUploadComplete_DoesNotImplicitlyBroadcastToPeers(t *testing.T) {

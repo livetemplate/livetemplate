@@ -35,7 +35,8 @@ type UploadEntryInfo struct {
 	Valid      bool                `json:"valid"`              // Whether entry passed initial validation
 	Error      string              `json:"error"`              // Error message if validation failed
 	AutoUpload bool                `json:"auto_upload"`        // Whether to auto-upload on file selection
-	External   *ExternalUploadMeta `json:"external,omitempty"` // Presigned upload metadata (if External configured)
+	Mode       string              `json:"mode"`               // Upload mode: "volume" | "direct" | "proxied" | "preview"
+	External   *ExternalUploadMeta `json:"external,omitempty"` // Presigned upload metadata (Direct mode only)
 }
 
 // ExternalUploadMeta contains presigned upload configuration for external storage.

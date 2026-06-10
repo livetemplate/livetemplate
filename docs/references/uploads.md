@@ -2,11 +2,86 @@
 
 ## Overview
 
-LiveTemplate provides a file upload system with support for:
-- **WebSocket chunked uploads** - Large file uploads with real-time progress
-- **External uploads** - Direct uploads to S3/cloud storage via presigned URLs
-- **Progress tracking** - Real-time upload progress with validation
-- **Template helpers** - Display upload state in your templates
+LiveTemplate provides a file upload system with four **modes**, chosen purely by
+server config on an otherwise identical `<input lvt-upload>`:
+
+| Mode | Bytes path | Server sees bytes? | Local disk? | Config |
+|------|------------|--------------------|-------------|--------|
+| **Volume** *(default)* | browser → server → retained directory | yes | yes | `Mode: UploadModeVolume, Dir: "..."` |
+| **Direct** | browser → cloud via presigned URL | no | no | `Mode: UploadModeDirect, External: presigner` |
+| **Proxied** | browser → server → remote storage, streamed | yes | **no** | `Mode: UploadModeProxied` + `OnUpload` |
+| **Preview** | stays on the device | metadata only | no | `Mode: UploadModePreview` |
+
+```go
+livetemplate.WithUpload("avatar", livetemplate.UploadConfig{
+    Mode:        livetemplate.UploadModeProxied, // stream to remote storage, zero disk
+    Accept:      []string{"image/*"},
+    MaxFileSize: 5 << 20,
+})
+```
+
+The mode is delivered to the client per-entry, so the same markup and the same
+`ctx.GetCompletedUploads(name)` consumption work across every mode. See
+[Upload modes](#upload-modes) below and the `upload-modes` example.
+
+## Upload modes
+
+### Volume — staged to the server's disk
+
+`Mode: UploadModeVolume` (the default) stages bytes to the server's filesystem.
+With `Dir` set the file is **retained** there and the app owns its lifecycle; with
+no `Dir` it stages to a temp dir that is cleaned up when the connection closes
+(the legacy stage-then-move pattern). Read the path from `entry.TempPath`.
+
+### Direct — browser uploads straight to cloud storage
+
+`Mode: UploadModeDirect` with an `External` presigner has the browser PUT bytes
+straight to S3/GCS/etc. via a presigned URL — they never touch the server. Read
+the reference from `entry.ExternalRef`. (Setting `External` without an explicit
+`Mode` is treated as Direct for backward compatibility.)
+
+### Proxied — stream through the server with zero local disk
+
+`Mode: UploadModeProxied` streams the in-flight bytes straight to a handler with
+no local-disk staging — ideal for forwarding to remote object storage. The
+controller implements `UploadStreamer`:
+
+```go
+func (c *Controller) OnUpload(part *livetemplate.UploadPart, ctx *livetemplate.Context) error {
+    ref, err := myBackend.Put(ctx, part.Filename, part) // part is an io.Reader
+    if err != nil {
+        return err
+    }
+    part.SetResult(ref) // surfaced via GetCompletedUploads(...).ExternalRef
+    return nil
+}
+```
+
+The reader enforces `MaxFileSize` mid-stream, returning `ErrUploadTooLarge` (a
+distinct sentinel, not `io.EOF`) so a truncated stream aborts instead of
+committing a partial object. Because nothing stages to disk, a pure-Proxied app
+needs no writable working directory and never creates `.uploads`.
+
+> **Note:** Adding a Proxied field routes **every** multipart POST to that
+> handler through the streaming path, including requests carrying only Volume
+> fields. Those Volume parts are staged to disk as usual (equivalent to the
+> default path), so mixing modes on one handler is fine — just be aware the
+> coupling exists.
+
+### Preview — file stays on the device
+
+`Mode: UploadModePreview` keeps the file in the browser; only its metadata
+(name/type/size) reaches the server. Render the on-device preview with the
+template helper:
+
+```html
+<input type="file" lvt-upload="draft" accept="image/*" />
+{{.lvt.UploadPreview "draft"}}
+```
+
+The client fills the placeholder from `URL.createObjectURL` and never uploads the
+bytes. The server records a metadata-only entry (`entry.Preview == true`, no
+`TempPath`/`ExternalRef`) readable via `GetCompletedUploads`.
 
 ## Quick Start
 

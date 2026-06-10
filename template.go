@@ -634,8 +634,37 @@ func WithUpload(name string, config uploadtypes.UploadConfig) Option {
 		if c.UploadConfigs == nil {
 			c.UploadConfigs = make(map[string]uploadtypes.UploadConfig)
 		}
+		// Back-compat: a config that sets External without an explicit Mode is a
+		// Direct (presigned) upload. UploadModeVolume is the zero value, so this
+		// only promotes the legacy "External implies direct-to-storage" shape.
+		if config.External != nil && config.Mode == uploadtypes.UploadModeVolume {
+			config.Mode = uploadtypes.UploadModeDirect
+		}
 		c.UploadConfigs[name] = config
 	}
+}
+
+// uploadConfigsNeedDisk reports whether any configured upload field stages bytes
+// to the local filesystem (Volume mode). Direct/Proxied/Preview never do, so a
+// template using only those needs no temp file manager.
+func uploadConfigsNeedDisk(configs map[string]uploadtypes.UploadConfig) bool {
+	for _, c := range configs {
+		if c.Mode == uploadtypes.UploadModeVolume {
+			return true
+		}
+	}
+	return false
+}
+
+// uploadConfigsHaveProxied reports whether any configured upload field uses
+// Proxied mode (cached on the handler to gate the streaming HTTP path).
+func uploadConfigsHaveProxied(configs map[string]uploadtypes.UploadConfig) bool {
+	for _, c := range configs {
+		if c.Mode == uploadtypes.UploadModeProxied {
+			return true
+		}
+	}
+	return false
 }
 
 // WithPubSubBroadcaster enables distributed peer-fan-out across multiple application instances.
@@ -1602,13 +1631,16 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 	// Initialize upload factories (lazy, done once)
 	initUploadFactories()
 
-	// Avoid creating .uploads temp directory for templates that don't use uploads
+	// Only stage to local disk for Volume-mode uploads. Direct, Proxied, and
+	// Preview never touch the server's filesystem, so a pure-remote-storage app
+	// needs no writable working directory and must not fail at startup creating
+	// .uploads — the deploy-time failure that motivated streaming uploads (#447).
 	var tempFileManager uploadTempFileManager
-	if len(t.config.UploadConfigs) > 0 {
+	if uploadConfigsNeedDisk(t.config.UploadConfigs) {
 		var err error
 		tempFileManager, err = newUploadTempFileManager("")
 		if err != nil {
-			slog.Error("Failed to create temp file manager - uploads will not work",
+			slog.Error("Failed to create temp file manager - Volume-mode uploads will not work",
 				slog.Any("error", err))
 		}
 	}
@@ -1626,6 +1658,7 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 		limits:          limits,
 		metricsExporter: metricsExporter,
 		tempFileManager: tempFileManager,
+		hasProxied:      uploadConfigsHaveProxied(t.config.UploadConfigs),
 		shutdownChan:    make(chan struct{}),
 	}
 

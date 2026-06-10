@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
@@ -171,6 +173,7 @@ type liveHandler struct {
 	limits          *session.ConnectionLimits
 	metricsExporter *observe.PrometheusExporter
 	tempFileManager uploadTempFileManager
+	hasProxied      bool     // true if any upload field uses Proxied mode (static, computed at Handle)
 	httpTemplates   sync.Map // groupID → *httpTemplateCacheEntry (cached for HTTP POST diff optimization)
 	httpLastPaths   sync.Map // groupID → string (last served request path, for detecting URL changes)
 
@@ -1262,10 +1265,38 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Tier 1 file uploads: wrap request body with progress tracking before
-	// any multipart parsing occurs. ParseMultipartForm reads through this
-	// wrapper, giving us byte-level progress for WebSocket clients.
 	ct := r.Header.Get("Content-Type")
+
+	// Upload handshake over HTTP (WS-disabled fallback): the client posts the
+	// upload_start JSON with the X-Lvt-Upload: start header when the socket isn't
+	// open. Answer with the same UploadStartResponse the WS path produces so mode
+	// dispatch + Direct presign work without a WebSocket. Gated on the header so
+	// normal JSON action POSTs never pay a body read; the read is bounded since a
+	// handshake is only small file-metadata.
+	if r.Header.Get(uploadStartHeader) == "start" && strings.HasPrefix(ct, "application/json") && len(h.config.UploadConfigs) > 0 {
+		body, readErr := io.ReadAll(io.LimitReader(r.Body, maxUploadHandshakeBytes))
+		if readErr != nil {
+			http.Error(w, "failed to read request body", http.StatusBadRequest)
+			return
+		}
+		response, buildErr := h.buildUploadStartResponse(body, groupID, uploadRegistry)
+		if buildErr != nil {
+			http.Error(w, buildErr.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			slog.Warn("Failed to write upload_start HTTP response",
+				slog.String("component", "live_handler"),
+				slog.Any("error", err))
+		}
+		return
+	}
+
+	// Byte-level progress: wrap the multipart body before any parsing so both the
+	// streaming (MultipartReader) and Tier-1 (ParseMultipartForm) paths broadcast
+	// upload progress to connections in the group. ProgressReader is a pass-through
+	// counter, so MultipartReader reads through it unaffected.
 	if strings.HasPrefix(ct, "multipart/form-data") && r.ContentLength > 0 && len(h.config.UploadConfigs) > 0 {
 		pr := upload.NewProgressReader(r.Body, r.ContentLength)
 		pr.OnProgress = func(bytesRead, total int64) {
@@ -1295,55 +1326,101 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		r.Body = pr
 	}
 
-	// Parse message
-	msg, err := parseActionFromHTTP(r)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
+	// Proxied streaming uploads: each file part is iterated via MultipartReader
+	// (zero disk) and streamed straight to Controller.OnUpload, bypassing
+	// ParseMultipartForm (which would stage large parts to os.TempDir).
+	//
+	// hasProxied is static, so ONCE ANY field is Proxied every multipart POST to
+	// this handler takes the streaming path — including requests carrying only
+	// Volume fields. That's intentional: stageVolumePart stages those Volume
+	// parts to disk, and value parts are reconstructed via BuildActionFromValues,
+	// so the outcome matches the non-streaming path.
+	streamingRequest := strings.HasPrefix(ct, "multipart/form-data") && h.hasProxied
 
-	// Route browser form submissions without explicit action to Submit().
-	// Only apply for form Content-Types, not JSON action requests.
-	if strings.HasPrefix(ct, "application/x-www-form-urlencoded") || strings.HasPrefix(ct, "multipart/form-data") {
+	var msg message
+	var streamErr error
+
+	if streamingRequest {
+		streamCtx := NewContext(r.Context(), "", nil)
+		streamCtx = streamCtx.WithUserID(userID)
+		streamCtx = streamCtx.WithGroupID(groupID)
+		streamCtx = streamCtx.WithTopicSubscriber(h.topicSubscriberFor(nil, r))
+		streamCtx = streamCtx.WithHTTP(w, r)
+		streamCtx = streamCtx.WithUploads(uploadRegistry)
+		streamCtx = streamCtx.WithSession(newLocalSession(h, groupID))
+
+		values, serr := upload.StreamMultipart(r,
+			func(field string) bool {
+				c, ok := h.config.UploadConfigs[field]
+				return ok && c.Mode == uploadtypes.UploadModeProxied
+			},
+			func(part *multipart.Part) error {
+				return h.streamProxiedPart(part, uploadRegistry, streamCtx)
+			},
+			// Staged sink: a Volume file part sharing a streaming request is
+			// staged to disk rather than dropped (Direct/Preview carry no bytes
+			// here, so non-Volume parts are skipped inside stageVolumePart).
+			func(part *multipart.Part) error {
+				return h.stageVolumePart(part, uploadRegistry, groupID)
+			},
+		)
+		streamErr = serr
+		msg = send.BuildActionFromValues(values)
+		// Unconditional here (unlike the else branch's Content-Type guard) because
+		// streamingRequest already implies multipart/form-data.
 		applyDefaultAction(&msg)
-	}
+	} else {
+		// Parse message
+		var err error
+		msg, err = parseActionFromHTTP(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 
-	// Tier 1 file uploads: extract multipart files into the upload registry.
-	// ParseMultipartForm was already called by parseActionFromHTTP above,
-	// so r.MultipartForm is populated. We iterate configured upload fields
-	// and extract matching files.
-	if strings.HasPrefix(ct, "multipart/form-data") && len(h.config.UploadConfigs) > 0 {
-		if registry, ok := uploadRegistry.(*upload.Registry); ok {
-			tempMgr, tempErr := upload.NewTempFileManager("")
-			if tempErr != nil {
-				slog.Warn("Failed to create temp file manager for multipart upload",
-					slog.String("component", "live_handler"),
-					slog.Any("error", tempErr))
-			} else {
-				for name := range h.config.UploadConfigs {
-					u := registry.GetUpload(name)
-					if u == nil {
-						continue
-					}
-					upl, ok := u.(*upload.Upload)
-					if !ok {
-						continue
-					}
-					entries, err := upload.ParseMultipartUpload(r, name, upl.Config, groupID, tempMgr)
-					if err != nil {
-						// No files for this field or parse error — not fatal
-						slog.Debug("Multipart upload parse",
-							slog.String("component", "live_handler"),
-							slog.String("upload_name", name),
-							slog.Any("result", err.Error()))
-						continue
-					}
-					for _, entry := range entries {
-						if err := upl.AddEntry(entry); err != nil {
-							slog.Debug("Multipart upload entry rejected",
+		// Route browser form submissions without explicit action to Submit().
+		// Only apply for form Content-Types, not JSON action requests.
+		if strings.HasPrefix(ct, "application/x-www-form-urlencoded") || strings.HasPrefix(ct, "multipart/form-data") {
+			applyDefaultAction(&msg)
+		}
+
+		// Tier 1 file uploads: extract multipart files into the upload registry.
+		// ParseMultipartForm was already called by parseActionFromHTTP above,
+		// so r.MultipartForm is populated. We iterate configured upload fields
+		// and extract matching files.
+		if strings.HasPrefix(ct, "multipart/form-data") && len(h.config.UploadConfigs) > 0 {
+			if registry, ok := uploadRegistry.(*upload.Registry); ok {
+				tempMgr, tempErr := upload.NewTempFileManager("")
+				if tempErr != nil {
+					slog.Warn("Failed to create temp file manager for multipart upload",
+						slog.String("component", "live_handler"),
+						slog.Any("error", tempErr))
+				} else {
+					for name := range h.config.UploadConfigs {
+						u := registry.GetUpload(name)
+						if u == nil {
+							continue
+						}
+						upl, ok := u.(*upload.Upload)
+						if !ok {
+							continue
+						}
+						entries, err := upload.ParseMultipartUpload(r, name, upl.Config, groupID, tempMgr)
+						if err != nil {
+							// No files for this field or parse error — not fatal
+							slog.Debug("Multipart upload parse",
 								slog.String("component", "live_handler"),
 								slog.String("upload_name", name),
-								slog.Any("error", err))
+								slog.Any("result", err.Error()))
+							continue
+						}
+						for _, entry := range entries {
+							if err := upl.AddEntry(entry); err != nil {
+								slog.Debug("Multipart upload entry rejected",
+									slog.String("component", "live_handler"),
+									slog.String("upload_name", name),
+									slog.Any("error", err))
+							}
 						}
 					}
 				}
@@ -1353,6 +1430,23 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Clear previous errors
 	connSt.clearErrors()
+
+	// Surface a streaming-upload failure as a field error before dispatch, so the
+	// follow-on action still runs (and reads whatever uploads did succeed).
+	if streamErr != nil {
+		switch e := streamErr.(type) {
+		case FieldError:
+			connSt.setError(e.Field, e.Message)
+		case MultiError:
+			for _, fe := range e {
+				connSt.setError(fe.Field, fe.Message)
+			}
+		case *upload.ValidationError:
+			connSt.setError(e.Field, e.Message)
+		default:
+			connSt.setError("_general", streamErr.Error())
+		}
+	}
 
 	// __navigate__ is a WebSocket-only reserved action. Reject early so HTTP
 	// clients get a clear "wrong transport" error instead of a confusing
@@ -2307,9 +2401,9 @@ func (h *liveHandler) handleUploadAction(ctx context.Context, rawData []byte, ms
 		return false, nil // Not an upload action
 	}
 
-	if h.tempFileManager == nil {
-		return true, fmt.Errorf("uploads unavailable: temp file manager not initialized")
-	}
+	// No blanket temp-manager requirement: only Volume mode stages to disk, and
+	// its handshake branch guards a nil manager. Direct/Proxied/Preview need no
+	// local filesystem, so their handshake/complete actions work without one.
 
 	switch msg.Action {
 	case "upload_start":
@@ -2323,154 +2417,187 @@ func (h *liveHandler) handleUploadAction(ctx context.Context, rawData []byte, ms
 	}
 }
 
+const (
+	// uploadStartHeader marks an HTTP upload_start handshake (WS-disabled
+	// fallback) so normal JSON action POSTs are never probed.
+	uploadStartHeader = "X-Lvt-Upload"
+	// maxUploadHandshakeBytes bounds the handshake body read — it carries only
+	// small file metadata, never file bytes.
+	maxUploadHandshakeBytes = 1 << 20
+)
+
+// streamProxiedPart streams one Proxied file part straight to Controller.OnUpload
+// with zero local-disk staging, then records the result as a completed upload
+// entry (ExternalRef set by the handler via SetResult) so the follow-on action
+// reads it via ctx.GetCompletedUploads. Accept is validated from the header
+// before any bytes are read; MaxFileSize is enforced mid-stream by LimitGuard.
+func (h *liveHandler) streamProxiedPart(part *multipart.Part, uploadRegistry uploadRegistry, ctx *Context) error {
+	field := part.FormName()
+	cfg := h.config.UploadConfigs[field]
+
+	if err := upload.ValidateFileHeader(part.FileName(), part.Header.Get("Content-Type"), cfg); err != nil {
+		return err
+	}
+
+	streamer, ok := h.config.Controller.(UploadStreamer)
+	if !ok {
+		return &upload.ValidationError{Field: field, Message: "controller does not implement OnUpload for streaming uploads"}
+	}
+
+	entryID, err := upload.GenerateEntryID()
+	if err != nil {
+		return fmt.Errorf("failed to generate entry ID: %w", err)
+	}
+
+	entry := &uploadtypes.UploadEntry{
+		ID:         entryID,
+		ClientName: part.FileName(),
+		ClientType: part.Header.Get("Content-Type"),
+		ClientSize: -1,
+	}
+
+	guard := upload.NewLimitGuard(part, cfg.MaxFileSize)
+	up := &UploadPart{
+		Reader:     guard,
+		Field:      field,
+		Filename:   entry.ClientName,
+		ClientType: entry.ClientType,
+		ClientSize: -1,
+		entry:      entry,
+	}
+
+	if err := streamer.OnUpload(up, ctx); err != nil {
+		// Preserve an app-targeted error (it may name a different field); surface
+		// everything else — including ErrUploadTooLarge and opaque backend errors
+		// — on this upload's field rather than as a general banner.
+		switch err.(type) {
+		case FieldError, MultiError, *upload.ValidationError:
+			return err
+		}
+		if errors.Is(err, uploadtypes.ErrUploadTooLarge) {
+			return &upload.ValidationError{Field: field, Message: fmt.Sprintf("file exceeds maximum size of %d bytes", cfg.MaxFileSize)}
+		}
+		return &upload.ValidationError{Field: field, Message: err.Error()}
+	}
+
+	entry.ClientSize = guard.Count()
+	entry.Valid = true
+	entry.Done = true
+	entry.Progress = 100
+
+	// The bytes have already been streamed to OnUpload, so a registry-lookup
+	// miss here is a real failure (an orphaned upload), surfaced as a field error.
+	return recordUploadEntry(uploadRegistry, field, entry)
+}
+
+// recordUploadEntry adds a completed entry to its upload in the registry,
+// mapping any lookup/validation failure to a field error.
+func recordUploadEntry(uploadRegistry uploadRegistry, field string, entry *uploadtypes.UploadEntry) error {
+	reg, ok := uploadRegistry.(*upload.Registry)
+	if !ok {
+		return &upload.ValidationError{Field: field, Message: "invalid upload registry type"}
+	}
+	upl, ok := reg.GetUpload(field).(*upload.Upload)
+	if !ok {
+		return &upload.ValidationError{Field: field, Message: fmt.Sprintf("upload %q not configured", field)}
+	}
+	if addErr := upl.AddEntry(entry); addErr != nil {
+		return &upload.ValidationError{Field: field, Message: addErr.Error()}
+	}
+	return nil
+}
+
+// stageVolumePart writes a Volume file part that shares a streaming (Proxied)
+// request to disk — retained under Dir, or staged to the session temp dir —
+// instead of dropping it. Non-Volume parts (Direct/Preview carry no bytes here)
+// are skipped. MaxFileSize/Accept are enforced as on the WS-chunk path.
+func (h *liveHandler) stageVolumePart(part *multipart.Part, uploadRegistry uploadRegistry, sessionID string) error {
+	field := part.FormName()
+	cfg, ok := h.config.UploadConfigs[field]
+	if !ok || cfg.Mode != uploadtypes.UploadModeVolume {
+		return nil
+	}
+	if err := upload.ValidateFileHeader(part.FileName(), part.Header.Get("Content-Type"), cfg); err != nil {
+		return err
+	}
+
+	entryID, err := upload.GenerateEntryID()
+	if err != nil {
+		return fmt.Errorf("failed to generate entry ID: %w", err)
+	}
+
+	var dstPath string
+	if cfg.Dir != "" {
+		dstPath, err = upload.CreateRetainedFile(cfg.Dir, field, entryID)
+	} else if tfm, ok := h.tempFileManager.(*upload.TempFileManager); ok && tfm != nil {
+		dstPath, err = tfm.CreateTempFile(sessionID, field, entryID)
+	} else {
+		return &upload.ValidationError{Field: field, Message: "uploads unavailable: temp file manager not initialized"}
+	}
+	if err != nil {
+		return fmt.Errorf("failed to create upload file: %w", err)
+	}
+
+	dst, err := os.OpenFile(dstPath, os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("failed to open upload file: %w", err)
+	}
+	guard := upload.NewLimitGuard(part, cfg.MaxFileSize)
+	_, copyErr := io.Copy(dst, guard)
+	closeErr := dst.Close()
+	if copyErr != nil || closeErr != nil {
+		if copyErr != nil && closeErr != nil {
+			slog.Warn("Volume staging failed on both write and close",
+				slog.String("component", "upload_handler"),
+				slog.Any("write_error", copyErr),
+				slog.Any("close_error", closeErr))
+		}
+		if rmErr := os.Remove(dstPath); rmErr != nil {
+			slog.Warn("Failed to remove upload file",
+				slog.String("component", "upload_handler"),
+				slog.String("path", dstPath),
+				slog.Any("error", rmErr))
+		}
+		if errors.Is(copyErr, uploadtypes.ErrUploadTooLarge) {
+			return &upload.ValidationError{Field: field, Message: fmt.Sprintf("file exceeds maximum size of %d bytes", cfg.MaxFileSize)}
+		}
+		if copyErr != nil {
+			return fmt.Errorf("failed to write upload file: %w", copyErr)
+		}
+		return fmt.Errorf("failed to close upload file: %w", closeErr)
+	}
+
+	entry := &uploadtypes.UploadEntry{
+		ID:         entryID,
+		ClientName: part.FileName(),
+		ClientType: part.Header.Get("Content-Type"),
+		ClientSize: guard.Count(),
+		TempPath:   dstPath,
+		Valid:      true,
+		Done:       true,
+		Progress:   100,
+	}
+	if err := recordUploadEntry(uploadRegistry, field, entry); err != nil {
+		// The bytes are already written; if the entry can't be recorded, remove
+		// the file so a retained Dir upload doesn't leak (the WS-chunk handshake
+		// does the same on AddEntry failure).
+		if rmErr := os.Remove(dstPath); rmErr != nil {
+			slog.Warn("Failed to remove orphaned upload file",
+				slog.String("component", "upload_handler"),
+				slog.String("path", dstPath),
+				slog.Any("error", rmErr))
+		}
+		return err
+	}
+	return nil
+}
+
 // handleUploadStart processes upload_start action from WebSocket client.
 // Client sends file metadata, server creates upload entries and responds with entry IDs.
 func (h *liveHandler) handleUploadStart(rawData []byte, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) error {
-	// Parse upload_start message from raw WebSocket data
-	startMsg, err := upload.ParseUploadStartMessage(rawData)
+	response, err := h.buildUploadStartResponse(rawData, state.groupID, uploadRegistry)
 	if err != nil {
-		return fmt.Errorf("invalid upload_start message: %w", err)
-	}
-
-	// Type assert to get concrete Registry type
-	registry, ok := uploadRegistry.(*upload.Registry)
-	if !ok {
-		return fmt.Errorf("invalid upload registry type")
-	}
-
-	// Get upload configuration
-	uploadObj := registry.GetUpload(startMsg.UploadName)
-	if uploadObj == nil {
-		return fmt.Errorf("upload %q not configured", startMsg.UploadName)
-	}
-
-	uploadInstance, ok := uploadObj.(*upload.Upload)
-	if !ok {
-		return fmt.Errorf("invalid upload object type")
-	}
-
-	// Validate file count
-	if err := upload.ValidateCount(len(startMsg.Files), uploadInstance.Config); err != nil {
-		return fmt.Errorf("file count validation failed: %w", err)
-	}
-
-	// Create upload entries for each file
-	response := &upload.UploadStartResponse{
-		UploadName: startMsg.UploadName,
-		Entries:    make([]upload.UploadEntryInfo, 0, len(startMsg.Files)),
-	}
-
-	tempFileManager := h.tempFileManager.(*upload.TempFileManager)
-	sessionID := state.groupID
-
-	// Check if external presigner is configured
-	isExternal := uploadInstance.Config.External != nil
-
-	for _, fileMeta := range startMsg.Files {
-		// Generate entry ID
-		entryID, err := upload.GenerateEntryID()
-		if err != nil {
-			return fmt.Errorf("failed to generate entry ID: %w", err)
-		}
-
-		// Create upload entry with metadata
-		entry := &uploadtypes.UploadEntry{
-			ID:         entryID,
-			ClientName: fileMeta.Name,
-			ClientType: fileMeta.Type,
-			ClientSize: fileMeta.Size,
-			Progress:   0,
-			Done:       false,
-			Valid:      false, // Will be validated when entry is added
-			BytesRecv:  0,
-		}
-
-		var entryInfo upload.UploadEntryInfo
-
-		if isExternal {
-			// External upload: generate presigned URL
-			presignMeta, err := uploadInstance.Config.External.Presign(entry)
-			if err != nil {
-				entryInfo = upload.UploadEntryInfo{
-					EntryID:    entryID,
-					ClientName: fileMeta.Name,
-					Valid:      false,
-					Error:      fmt.Sprintf("failed to presign: %v", err),
-					AutoUpload: uploadInstance.Config.AutoUpload,
-				}
-			} else {
-				// Store external reference in entry
-				entry.ExternalRef = presignMeta.URL
-
-				// Validate and add entry to registry
-				if err := uploadInstance.AddEntry(entry); err != nil {
-					entryInfo = upload.UploadEntryInfo{
-						EntryID:    entryID,
-						ClientName: fileMeta.Name,
-						Valid:      false,
-						Error:      err.Error(),
-						AutoUpload: uploadInstance.Config.AutoUpload,
-					}
-				} else {
-					// Return presigned metadata to client
-					entryInfo = upload.UploadEntryInfo{
-						EntryID:    entryID,
-						ClientName: fileMeta.Name,
-						Valid:      true,
-						Error:      "",
-						AutoUpload: uploadInstance.Config.AutoUpload,
-						External: &upload.ExternalUploadMeta{
-							Uploader: presignMeta.Uploader,
-							URL:      presignMeta.URL,
-							Fields:   presignMeta.Fields,
-							Headers:  presignMeta.Headers,
-						},
-					}
-				}
-			}
-		} else {
-			// Server-side upload: create temp file
-			tempPath, err := tempFileManager.CreateTempFile(sessionID, startMsg.UploadName, entryID)
-			if err != nil {
-				entryInfo = upload.UploadEntryInfo{
-					EntryID:    entryID,
-					ClientName: fileMeta.Name,
-					Valid:      false,
-					Error:      fmt.Sprintf("failed to create temp file: %v", err),
-					AutoUpload: uploadInstance.Config.AutoUpload,
-				}
-			} else {
-				entry.TempPath = tempPath
-
-				// Validate and add entry to registry
-				if err := uploadInstance.AddEntry(entry); err != nil {
-					entryInfo = upload.UploadEntryInfo{
-						EntryID:    entryID,
-						ClientName: fileMeta.Name,
-						Valid:      false,
-						Error:      err.Error(),
-						AutoUpload: uploadInstance.Config.AutoUpload,
-					}
-					// Remove temp file since entry is invalid
-					if rmErr := os.Remove(tempPath); rmErr != nil {
-						slog.Warn("Failed to remove temp file",
-							slog.String("component", "upload_handler"),
-							slog.String("path", tempPath),
-							slog.Any("error", rmErr))
-					}
-				} else {
-					entryInfo = upload.UploadEntryInfo{
-						EntryID:    entryID,
-						ClientName: fileMeta.Name,
-						Valid:      true,
-						Error:      "",
-						AutoUpload: uploadInstance.Config.AutoUpload,
-					}
-				}
-			}
-		}
-
-		response.Entries = append(response.Entries, entryInfo)
+		return err
 	}
 
 	// Send UploadStartResponse to client so it can create upload entries
@@ -2488,6 +2615,172 @@ func (h *liveHandler) handleUploadStart(rawData []byte, state *connState, upload
 	// upload completion when store data actually changes.
 
 	return nil
+}
+
+// buildUploadStartResponse validates the requested files and produces the
+// per-entry handshake reply (mode, validation, presigned meta) WITHOUT sending
+// it. Both the WebSocket handler and the HTTP fallback (used when the socket is
+// disabled) call this and transmit the result over their own transport.
+func (h *liveHandler) buildUploadStartResponse(rawData []byte, sessionID string, uploadRegistry uploadRegistry) (*upload.UploadStartResponse, error) {
+	// Parse upload_start message from raw transport data
+	startMsg, err := upload.ParseUploadStartMessage(rawData)
+	if err != nil {
+		return nil, fmt.Errorf("invalid upload_start message: %w", err)
+	}
+
+	// Type assert to get concrete Registry type
+	registry, ok := uploadRegistry.(*upload.Registry)
+	if !ok {
+		return nil, fmt.Errorf("invalid upload registry type")
+	}
+
+	// Get upload configuration
+	uploadObj := registry.GetUpload(startMsg.UploadName)
+	if uploadObj == nil {
+		return nil, fmt.Errorf("upload %q not configured", startMsg.UploadName)
+	}
+
+	uploadInstance, ok := uploadObj.(*upload.Upload)
+	if !ok {
+		return nil, fmt.Errorf("invalid upload object type")
+	}
+
+	// Validate file count
+	if err := upload.ValidateCount(len(startMsg.Files), uploadInstance.Config); err != nil {
+		return nil, fmt.Errorf("file count validation failed: %w", err)
+	}
+
+	// Create upload entries for each file
+	response := &upload.UploadStartResponse{
+		UploadName: startMsg.UploadName,
+		Entries:    make([]upload.UploadEntryInfo, 0, len(startMsg.Files)),
+	}
+
+	autoUpload := uploadInstance.Config.AutoUpload
+	mode := uploadInstance.Config.Mode
+
+	for _, fileMeta := range startMsg.Files {
+		// Generate entry ID
+		entryID, err := upload.GenerateEntryID()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate entry ID: %w", err)
+		}
+
+		// Create upload entry with metadata
+		entry := &uploadtypes.UploadEntry{
+			ID:         entryID,
+			ClientName: fileMeta.Name,
+			ClientType: fileMeta.Type,
+			ClientSize: fileMeta.Size,
+			Progress:   0,
+			Done:       false,
+			Valid:      false, // Will be validated when entry is added
+			BytesRecv:  0,
+		}
+
+		entryInfo := upload.UploadEntryInfo{
+			EntryID:    entryID,
+			ClientName: fileMeta.Name,
+			AutoUpload: autoUpload,
+		}
+
+		switch mode {
+		case uploadtypes.UploadModeDirect:
+			// Direct: presign so the browser PUTs straight to cloud storage.
+			// Guard a config that set Mode:Direct without an External presigner —
+			// the back-compat shim only promotes External-without-Mode, so this
+			// explicit shape would otherwise nil-panic.
+			if uploadInstance.Config.External == nil {
+				entryInfo.Error = "Direct upload mode requires an External presigner"
+				break
+			}
+			presignMeta, err := uploadInstance.Config.External.Presign(entry)
+			if err != nil {
+				entryInfo.Error = fmt.Sprintf("failed to presign: %v", err)
+			} else {
+				entry.ExternalRef = presignMeta.URL
+				if err := uploadInstance.AddEntry(entry); err != nil {
+					entryInfo.Error = err.Error()
+				} else {
+					entryInfo.Valid = true
+					entryInfo.External = &upload.ExternalUploadMeta{
+						Uploader: presignMeta.Uploader,
+						URL:      presignMeta.URL,
+						Fields:   presignMeta.Fields,
+						Headers:  presignMeta.Headers,
+					}
+				}
+			}
+
+		case uploadtypes.UploadModeProxied:
+			// Bytes arrive via a follow-on HTTP multipart POST that streams them
+			// straight to OnUpload. Nothing stages here — validate metadata only
+			// so the client can reject early before uploading. The returned
+			// EntryID is informational: Proxied has no chunked/cancel-by-ID
+			// protocol, and streamProxiedPart creates the authoritative entry when
+			// the bytes arrive (validating Accept again from the part header).
+			if err := upload.ValidateEntry(entry, uploadInstance.Config); err != nil {
+				entryInfo.Error = err.Error()
+			} else {
+				entryInfo.Valid = true
+			}
+
+		case uploadtypes.UploadModePreview:
+			// The file stays on the device; only its metadata reaches the server.
+			// Record a metadata-only entry (Preview=true, no TempPath/ExternalRef)
+			// so the app can render a placeholder via GetCompletedUploads, then
+			// the client shows the bytes locally via URL.createObjectURL.
+			if err := upload.ValidateEntry(entry, uploadInstance.Config); err != nil {
+				entryInfo.Error = err.Error()
+			} else {
+				entry.Preview = true
+				entry.Valid = true
+				entry.Done = true
+				entry.Progress = 100
+				if err := uploadInstance.AddEntry(entry); err != nil {
+					entryInfo.Error = err.Error()
+				} else {
+					entryInfo.Valid = true
+				}
+			}
+
+		default: // UploadModeVolume
+			// Create the staging file the chunk handler appends to. With Dir set
+			// the file is retained there (the app owns its lifecycle); otherwise
+			// it stages under the session temp dir and is cleaned on disconnect.
+			var tempPath string
+			var err error
+			if dir := uploadInstance.Config.Dir; dir != "" {
+				tempPath, err = upload.CreateRetainedFile(dir, startMsg.UploadName, entryID)
+			} else if tfm, ok := h.tempFileManager.(*upload.TempFileManager); ok && tfm != nil {
+				tempPath, err = tfm.CreateTempFile(sessionID, startMsg.UploadName, entryID)
+			} else {
+				entryInfo.Error = "uploads unavailable: temp file manager not initialized"
+				break
+			}
+			if err != nil {
+				entryInfo.Error = fmt.Sprintf("failed to create upload file: %v", err)
+			} else {
+				entry.TempPath = tempPath
+				if err := uploadInstance.AddEntry(entry); err != nil {
+					entryInfo.Error = err.Error()
+					if rmErr := os.Remove(tempPath); rmErr != nil {
+						slog.Warn("Failed to remove upload file",
+							slog.String("component", "upload_handler"),
+							slog.String("path", tempPath),
+							slog.Any("error", rmErr))
+					}
+				} else {
+					entryInfo.Valid = true
+				}
+			}
+		}
+
+		entryInfo.Mode = mode.String()
+		response.Entries = append(response.Entries, entryInfo)
+	}
+
+	return response, nil
 }
 
 // handleUploadChunk processes upload_chunk action from WebSocket client.
@@ -2670,6 +2963,12 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, rawData []byte, 
 			response.Error = actionErr.Error()
 		} else if actionErr == nil {
 			state.state = newState
+			// Persist the upload result so it survives a page refresh, matching
+			// the WS-action and HTTP-POST action paths. Without this, uploads
+			// completed over WebSocket (Direct, Volume) update only the in-memory
+			// connection state and are lost on reload.
+			h.persistState(ctx, connection.GroupID, state.state)
+			connection.Stores = state.state
 			// Drain ctx.Publish from an upload-complete handler — consistent
 			// with the WS-action and HTTP-POST action paths.
 			h.processTopicPublishes(connection, actionCtx.pendingTopicPublishes())
