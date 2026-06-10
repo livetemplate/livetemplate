@@ -2838,6 +2838,12 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, rawData []byte, 
 			response.Error = actionErr.Error()
 		} else if actionErr == nil {
 			state.state = newState
+			// Persist the upload result so it survives a page refresh, matching
+			// the WS-action and HTTP-POST action paths. Without this, uploads
+			// completed over WebSocket (Direct, Volume) update only the in-memory
+			// connection state and are lost on reload.
+			h.persistState(ctx, connection.GroupID, state.state)
+			connection.Stores = state.state
 			// Drain ctx.Publish from an upload-complete handler — consistent
 			// with the WS-action and HTTP-POST action paths.
 			h.processTopicPublishes(connection, actionCtx.pendingTopicPublishes())
