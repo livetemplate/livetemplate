@@ -2590,14 +2590,33 @@ func (h *liveHandler) buildUploadStartResponse(rawData []byte, sessionID string,
 				}
 			}
 
-		case uploadtypes.UploadModeProxied, uploadtypes.UploadModePreview:
-			// Proxied bytes arrive via a follow-on HTTP multipart POST; Preview
-			// bytes never leave the device. Neither stages to disk here — the
-			// handshake only validates metadata so the client can dispatch.
+		case uploadtypes.UploadModeProxied:
+			// Bytes arrive via a follow-on HTTP multipart POST that streams them
+			// straight to OnUpload. Nothing stages here — validate metadata only
+			// so the client can reject early before uploading.
 			if err := upload.ValidateEntry(entry, uploadInstance.Config); err != nil {
 				entryInfo.Error = err.Error()
 			} else {
 				entryInfo.Valid = true
+			}
+
+		case uploadtypes.UploadModePreview:
+			// The file stays on the device; only its metadata reaches the server.
+			// Record a metadata-only entry (Preview=true, no TempPath/ExternalRef)
+			// so the app can render a placeholder via GetCompletedUploads, then
+			// the client shows the bytes locally via URL.createObjectURL.
+			if err := upload.ValidateEntry(entry, uploadInstance.Config); err != nil {
+				entryInfo.Error = err.Error()
+			} else {
+				entry.Preview = true
+				entry.Valid = true
+				entry.Done = true
+				entry.Progress = 100
+				if err := uploadInstance.AddEntry(entry); err != nil {
+					entryInfo.Error = err.Error()
+				} else {
+					entryInfo.Valid = true
+				}
 			}
 
 		default: // UploadModeVolume

@@ -363,6 +363,15 @@ func (t *TemplateContext) Redact(name string) template.HTML {
 	return template.HTML(`<span data-lvt-redact="` + html.EscapeString(name) + `"></span>`)
 }
 
+// UploadPreview emits an <img data-lvt-upload-preview="name"> placeholder for a
+// Preview-mode upload field. The client fills its src from a local object URL
+// (URL.createObjectURL) when a file is selected, so the image previews
+// on-device without the bytes ever being uploaded. Empty until the client
+// attaches the blob.
+func (t *TemplateContext) UploadPreview(name string) template.HTML {
+	return template.HTML(`<img data-lvt-upload-preview="` + html.EscapeString(name) + `" alt="" />`)
+}
+
 const (
 	// TemplateContextKey is the key used to access lvt context in templates
 	TemplateContextKey = "lvt"
