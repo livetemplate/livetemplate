@@ -90,6 +90,63 @@ func detectSubmitButtonName(values map[string][]string, actionFields map[string]
 	return candidate
 }
 
+// BuildActionFromValues reconstructs an ActionMessage from already-collected
+// multipart value parts (form key -> values). It mirrors parseMultipartForm's
+// value handling and is used by the streaming-upload path, which reads the body
+// via MultipartReader (so r.MultipartForm is never populated) and must rebuild
+// the action message from the value parts it buffered during iteration.
+func BuildActionFromValues(values map[string][]string) ActionMessage {
+	var msg ActionMessage
+
+	first := func(key string) string {
+		if vs, ok := values[key]; ok && len(vs) > 0 {
+			return vs[0]
+		}
+		return ""
+	}
+
+	msg.Action = first("lvt-action")
+	msg.Submitter = first("lvt-submitter")
+	resolveSubmitterFallback(&msg)
+
+	if dataStr := first("data"); dataStr != "" {
+		var data map[string]interface{}
+		if err := jsonutil.API.Unmarshal([]byte(dataStr), &data); err == nil {
+			msg.Data = data
+			return msg
+		}
+	}
+
+	actionFields := map[string]bool{"lvt-action": true, "lvt-submitter": true, "data": true}
+	if msg.Action == "" {
+		if name := detectSubmitButtonName(values, actionFields); name != "" {
+			msg.Action = name
+			actionFields[name] = true
+		}
+	}
+
+	msg.Data = make(map[string]interface{})
+	for key, vs := range values {
+		if actionFields[key] {
+			continue
+		}
+		switch len(vs) {
+		case 0:
+			// skip
+		case 1:
+			msg.Data[key] = vs[0]
+		default:
+			interfaceSlice := make([]interface{}, len(vs))
+			for i, v := range vs {
+				interfaceSlice[i] = v
+			}
+			msg.Data[key] = interfaceSlice
+		}
+	}
+
+	return msg
+}
+
 // parseMultipartForm parses action from multipart/form-data (file uploads).
 // Supports two data formats:
 //  1. JSON-encoded "data" form field (client library sends this)

@@ -634,6 +634,12 @@ func WithUpload(name string, config uploadtypes.UploadConfig) Option {
 		if c.UploadConfigs == nil {
 			c.UploadConfigs = make(map[string]uploadtypes.UploadConfig)
 		}
+		// Back-compat: a config that sets External without an explicit Mode is a
+		// Direct (presigned) upload. UploadModeVolume is the zero value, so this
+		// only promotes the legacy "External implies direct-to-storage" shape.
+		if config.External != nil && config.Mode == uploadtypes.UploadModeVolume {
+			config.Mode = uploadtypes.UploadModeDirect
+		}
 		c.UploadConfigs[name] = config
 	}
 }
