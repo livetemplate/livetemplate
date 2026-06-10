@@ -1354,8 +1354,13 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 				c, ok := h.config.UploadConfigs[field]
 				return ok && c.Mode == uploadtypes.UploadModeProxied
 			},
-			func(part *multipart.Part) error {
-				return h.streamProxiedPart(part, uploadRegistry, streamCtx)
+			func(part *multipart.Part, values map[string][]string) error {
+				// Expose the form fields parsed before this file part to OnUpload
+				// (e.g. a record id ordered ahead of the file input), so a handler
+				// can associate the streamed bytes with a target. These are the same
+				// values the follow-on action receives via BuildActionFromValues.
+				partCtx := streamCtx.WithData(send.BuildActionFromValues(values).Data)
+				return h.streamProxiedPart(part, uploadRegistry, partCtx)
 			},
 			// Staged sink: a Volume file part sharing a streaming request is
 			// staged to disk rather than dropped (Direct/Preview carry no bytes

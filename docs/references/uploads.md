@@ -48,7 +48,8 @@ controller implements `UploadStreamer`:
 
 ```go
 func (c *Controller) OnUpload(part *livetemplate.UploadPart, ctx *livetemplate.Context) error {
-    ref, err := myBackend.Put(ctx, part.Filename, part) // part is an io.Reader
+    // "id" must be ordered before the file input in the form (see below).
+    ref, err := myBackend.Put(ctx, ctx.GetString("id"), part.Filename, part)
     if err != nil {
         return err
     }
@@ -56,6 +57,13 @@ func (c *Controller) OnUpload(part *livetemplate.UploadPart, ctx *livetemplate.C
     return nil
 }
 ```
+
+Inside `OnUpload`, `ctx` carries the request identity (`ctx.UserID()`,
+`ctx.GroupID()`) **and** the form fields parsed *before* this file part, read via
+`ctx.GetString(...)`. Because parts stream in body order, a field is visible only
+if its input precedes the file input — so order any field you need mid-stream
+(e.g. the record id to route the bytes to the right destination) ahead of the
+file input. Fields after the file part reach only the follow-on action.
 
 The reader enforces `MaxFileSize` mid-stream, returning `ErrUploadTooLarge` (a
 distinct sentinel, not `io.EOF`) so a truncated stream aborts instead of

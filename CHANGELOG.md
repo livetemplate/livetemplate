@@ -5,6 +5,15 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changes
+
+- feat(upload): expose form fields parsed before the file part to `Controller.OnUpload`
+  via `ctx.GetString(...)`, so a Proxied streaming handler can associate the bytes with a
+  record id (order the input ahead of the file input). Enables zero-disk streaming that still
+  routes to a per-record/per-tenant destination.
+
 ## [v0.12.0] - 2026-06-10
 
 ### Changes

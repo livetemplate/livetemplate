@@ -30,10 +30,16 @@ const valuePartCap = 1 << 20 // 1 MB
 // onFile/onStaged receive the live *multipart.Part. A callback that returns an
 // error aborts iteration and the error is returned verbatim, so a *ValidationError
 // from validation surfaces to the caller for per-field error mapping.
+//
+// onFile additionally receives the form values parsed *so far* — every non-file
+// part that appeared before this file part in the body. Because parts stream in
+// body order, a value is visible to onFile only if its input precedes the file
+// input in the form (the caller exposes these to Controller.OnUpload, so a record
+// id must be ordered ahead of the file input to be readable mid-stream).
 func StreamMultipart(
 	r *http.Request,
 	isStreaming func(field string) bool,
-	onFile func(part *multipart.Part) error,
+	onFile func(part *multipart.Part, values map[string][]string) error,
 	onStaged func(part *multipart.Part) error,
 ) (map[string][]string, error) {
 	mr, err := r.MultipartReader()
@@ -64,7 +70,7 @@ func StreamMultipart(
 
 		// File part.
 		if isStreaming(part.FormName()) {
-			if err := onFile(part); err != nil {
+			if err := onFile(part, values); err != nil {
 				return values, err
 			}
 		} else if onStaged != nil {
