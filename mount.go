@@ -2570,7 +2570,19 @@ func (h *liveHandler) stageVolumePart(part *multipart.Part, uploadRegistry uploa
 		Done:       true,
 		Progress:   100,
 	}
-	return recordUploadEntry(uploadRegistry, field, entry)
+	if err := recordUploadEntry(uploadRegistry, field, entry); err != nil {
+		// The bytes are already written; if the entry can't be recorded, remove
+		// the file so a retained Dir upload doesn't leak (the WS-chunk handshake
+		// does the same on AddEntry failure).
+		if rmErr := os.Remove(dstPath); rmErr != nil {
+			slog.Warn("Failed to remove orphaned upload file",
+				slog.String("component", "upload_handler"),
+				slog.String("path", dstPath),
+				slog.Any("error", rmErr))
+		}
+		return err
+	}
+	return nil
 }
 
 // handleUploadStart processes upload_start action from WebSocket client.
@@ -2668,6 +2680,13 @@ func (h *liveHandler) buildUploadStartResponse(rawData []byte, sessionID string,
 		switch mode {
 		case uploadtypes.UploadModeDirect:
 			// Direct: presign so the browser PUTs straight to cloud storage.
+			// Guard a config that set Mode:Direct without an External presigner —
+			// the back-compat shim only promotes External-without-Mode, so this
+			// explicit shape would otherwise nil-panic.
+			if uploadInstance.Config.External == nil {
+				entryInfo.Error = "Direct upload mode requires an External presigner"
+				break
+			}
 			presignMeta, err := uploadInstance.Config.External.Presign(entry)
 			if err != nil {
 				entryInfo.Error = fmt.Sprintf("failed to presign: %v", err)

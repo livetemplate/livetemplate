@@ -46,6 +46,27 @@ func TestVolumeUpload_RetainsFileAtDir(t *testing.T) {
 	}
 }
 
+// TestDirectUpload_NilExternal_NoPanic verifies the handshake returns an error
+// entry (not a panic) when a field is explicitly Mode:Direct without a presigner.
+func TestDirectUpload_NilExternal_NoPanic(t *testing.T) {
+	reg := upload.NewRegistry()
+	if err := reg.CreateUpload("x", UploadConfig{Mode: UploadModeDirect}); err != nil {
+		t.Fatalf("CreateUpload: %v", err)
+	}
+	h := &liveHandler{}
+	raw := []byte(`{"action":"upload_start","upload_name":"x","files":[{"name":"a.png","type":"image/png","size":10}]}`)
+	resp, err := h.buildUploadStartResponse(raw, "sess", reg)
+	if err != nil {
+		t.Fatalf("buildUploadStartResponse: %v", err)
+	}
+	if len(resp.Entries) != 1 || resp.Entries[0].Valid {
+		t.Fatalf("expected 1 invalid entry, got %+v", resp.Entries)
+	}
+	if resp.Entries[0].Error == "" {
+		t.Error("expected an error message for Direct mode without External")
+	}
+}
+
 // TestVolumeUpload_EphemeralWithoutDir verifies that a Volume field with no Dir
 // stages under the session temp tree (.uploads), preserving the legacy
 // stage-then-app-moves pattern.

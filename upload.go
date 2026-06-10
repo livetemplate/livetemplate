@@ -44,7 +44,8 @@ const (
 // streams them to remote storage and records the final reference via SetResult.
 //
 // OnUpload runs during the multipart body read, before the action handler, so
-// ctx does NOT carry session/typed state — use SetResult to hand the stored
+// ctx does NOT carry session/typed state. It does carry request identity —
+// ctx.UserID() and ctx.GroupID() — so use SetResult to hand the stored
 // reference to the follow-on action (read there via ctx.GetCompletedUploads).
 //
 //	func (c *C) OnUpload(part *livetemplate.UploadPart, ctx *livetemplate.Context) error {

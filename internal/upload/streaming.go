@@ -67,8 +67,9 @@ func StreamMultipart(
 				return values, err
 			}
 		}
-		// A non-streaming file part with no staged sink is intentionally dropped
-		// (e.g. Preview/Direct fields never send bytes here).
+		// A non-streaming file part with no staged sink is intentionally dropped.
+		// In practice this doesn't fire: Direct fields POST bytes straight to
+		// cloud, and Preview files stay on-device, so neither appears here.
 	}
 
 	return values, nil
