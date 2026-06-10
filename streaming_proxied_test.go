@@ -2,12 +2,14 @@ package livetemplate
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -179,6 +181,50 @@ func TestProxiedUpload_OversizeAborts(t *testing.T) {
 	}
 	if n := uploadsTempFileCount(t); n != 0 {
 		t.Errorf("expected zero staged temp files, found %d", n)
+	}
+}
+
+func TestProxiedUpload_HTTPHandshake_WSDisabled(t *testing.T) {
+	ctrl := &proxiedController{}
+	server, cookies := newProxiedServer(t, UploadConfig{
+		Mode:   UploadModeProxied,
+		Accept: []string{"image/*"},
+	}, ctrl)
+
+	body := `{"action":"upload_start","upload_name":"doc","files":[{"name":"scan.png","type":"image/png","size":10}]}`
+	req, err := http.NewRequest("POST", server.URL+"/", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Lvt-Upload", "start") // marks the WS-disabled handshake
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var out struct {
+		UploadName string `json:"upload_name"`
+		Entries    []struct {
+			Valid bool   `json:"valid"`
+			Mode  string `json:"mode"`
+		} `json:"entries"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode handshake response: %v", err)
+	}
+	if out.UploadName != "doc" || len(out.Entries) != 1 {
+		t.Fatalf("unexpected handshake response: %+v", out)
+	}
+	if !out.Entries[0].Valid || out.Entries[0].Mode != "proxied" {
+		t.Errorf("expected valid proxied entry, got %+v", out.Entries[0])
 	}
 }
 
