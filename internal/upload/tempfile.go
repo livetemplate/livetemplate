@@ -10,6 +10,26 @@ import (
 	"time"
 )
 
+// CreateRetainedFile creates an empty staging file under dir for a Volume-mode
+// upload that should persist. Unlike TempFileManager.CreateTempFile, the file is
+// not tracked by any session, so RemoveSession never deletes it — the app owns
+// its lifecycle. Returns the created file's path (dir/uploadName/entryID).
+func CreateRetainedFile(dir, uploadName, entryID string) (string, error) {
+	target := filepath.Join(dir, uploadName)
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		return "", fmt.Errorf("failed to create upload dir %q: %w", target, err)
+	}
+	path := filepath.Join(target, entryID)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return "", fmt.Errorf("failed to create retained file: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return "", fmt.Errorf("failed to close retained file: %w", err)
+	}
+	return path, nil
+}
+
 // TempFileManager manages temporary upload files with automatic cleanup.
 // Files are organized by session/upload/entry for easy tracking and cleanup.
 type TempFileManager struct {

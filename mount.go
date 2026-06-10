@@ -2601,21 +2601,27 @@ func (h *liveHandler) buildUploadStartResponse(rawData []byte, sessionID string,
 			}
 
 		default: // UploadModeVolume
-			// Server-side staging: create a temp file the chunk handler appends to.
-			tfm, ok := h.tempFileManager.(*upload.TempFileManager)
-			if !ok || tfm == nil {
+			// Create the staging file the chunk handler appends to. With Dir set
+			// the file is retained there (the app owns its lifecycle); otherwise
+			// it stages under the session temp dir and is cleaned on disconnect.
+			var tempPath string
+			var err error
+			if dir := uploadInstance.Config.Dir; dir != "" {
+				tempPath, err = upload.CreateRetainedFile(dir, startMsg.UploadName, entryID)
+			} else if tfm, ok := h.tempFileManager.(*upload.TempFileManager); ok && tfm != nil {
+				tempPath, err = tfm.CreateTempFile(sessionID, startMsg.UploadName, entryID)
+			} else {
 				entryInfo.Error = "uploads unavailable: temp file manager not initialized"
 				break
 			}
-			tempPath, err := tfm.CreateTempFile(sessionID, startMsg.UploadName, entryID)
 			if err != nil {
-				entryInfo.Error = fmt.Sprintf("failed to create temp file: %v", err)
+				entryInfo.Error = fmt.Sprintf("failed to create upload file: %v", err)
 			} else {
 				entry.TempPath = tempPath
 				if err := uploadInstance.AddEntry(entry); err != nil {
 					entryInfo.Error = err.Error()
 					if rmErr := os.Remove(tempPath); rmErr != nil {
-						slog.Warn("Failed to remove temp file",
+						slog.Warn("Failed to remove upload file",
 							slog.String("component", "upload_handler"),
 							slog.String("path", tempPath),
 							slog.Any("error", rmErr))
