@@ -2390,9 +2390,9 @@ func (h *liveHandler) handleUploadAction(ctx context.Context, rawData []byte, ms
 		return false, nil // Not an upload action
 	}
 
-	if h.tempFileManager == nil {
-		return true, fmt.Errorf("uploads unavailable: temp file manager not initialized")
-	}
+	// No blanket temp-manager requirement: only Volume mode stages to disk, and
+	// its handshake branch guards a nil manager. Direct/Proxied/Preview need no
+	// local filesystem, so their handshake/complete actions work without one.
 
 	switch msg.Action {
 	case "upload_start":
@@ -2602,8 +2602,12 @@ func (h *liveHandler) buildUploadStartResponse(rawData []byte, sessionID string,
 
 		default: // UploadModeVolume
 			// Server-side staging: create a temp file the chunk handler appends to.
-			tempFileManager := h.tempFileManager.(*upload.TempFileManager)
-			tempPath, err := tempFileManager.CreateTempFile(sessionID, startMsg.UploadName, entryID)
+			tfm, ok := h.tempFileManager.(*upload.TempFileManager)
+			if !ok || tfm == nil {
+				entryInfo.Error = "uploads unavailable: temp file manager not initialized"
+				break
+			}
+			tempPath, err := tfm.CreateTempFile(sessionID, startMsg.UploadName, entryID)
 			if err != nil {
 				entryInfo.Error = fmt.Sprintf("failed to create temp file: %v", err)
 			} else {

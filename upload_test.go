@@ -545,31 +545,52 @@ func TestHandle_TempFileManagerInitialized_WithUploadConfig(t *testing.T) {
 	}
 }
 
-func TestHandleUploadAction_NilTempFileManager(t *testing.T) {
-	handler := &liveHandler{
-		tempFileManager: nil,
+// TestHandle_NoTempFileManager_ForNonVolumeModes verifies Phase 6's contract:
+// Direct/Proxied/Preview fields stage nothing to disk, so the handler must not
+// create a temp file manager (and therefore must not fail at startup on a
+// read-only working directory — the deploy-time failure that motivated #447).
+func TestHandle_NoTempFileManager_ForNonVolumeModes(t *testing.T) {
+	cases := []struct {
+		name     string
+		config   UploadConfig
+		wantDisk bool
+	}{
+		{"proxied", UploadConfig{Mode: UploadModeProxied}, false},
+		{"preview", UploadConfig{Mode: UploadModePreview}, false},
+		{"direct", UploadConfig{Mode: UploadModeDirect, External: &mockPresigner{}}, false},
+		{"volume", UploadConfig{Mode: UploadModeVolume}, true},
+		{"default-is-volume", UploadConfig{}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpl, err := New("test", WithUpload("file", tc.config))
+			if err != nil {
+				t.Fatalf("New failed: %v", err)
+			}
+			tmpl, err = tmpl.Parse("<div>{{.Count}}</div>")
+			if err != nil {
+				t.Fatalf("Parse failed: %v", err)
+			}
+			handler := tmpl.Handle(&testHandleController{}, AsState(&testHandleState{}))
+			lh := handler.(*liveHandler)
+			if tc.wantDisk && lh.tempFileManager == nil {
+				t.Errorf("%s: expected a temp file manager, got nil", tc.name)
+			}
+			if !tc.wantDisk && lh.tempFileManager != nil {
+				t.Errorf("%s: expected no temp file manager, got one", tc.name)
+			}
+		})
 	}
 
-	actions := []string{"upload_start", "upload_chunk", "upload_complete", "cancel_upload"}
-	for _, action := range actions {
-		msg := message{Action: action}
-		handled, err := handler.handleUploadAction(context.Background(), nil, msg, nil, nil, nil)
-		if !handled {
-			t.Errorf("action %q: expected handled=true, got false", action)
-		}
-		if err == nil {
-			t.Errorf("action %q: expected error for nil tempFileManager, got nil", action)
-		}
-	}
-
-	// Non-upload actions should return handled=false
+	// Non-upload actions are never claimed by the upload router.
+	lh := &liveHandler{tempFileManager: nil}
 	msg := message{Action: "some_other_action"}
-	handled, err := handler.handleUploadAction(context.Background(), nil, msg, nil, nil, nil)
-	if handled {
-		t.Error("non-upload action: expected handled=false, got true")
+	if handled, err := lh.handleUploadAction(context.Background(), nil, msg, nil, nil, nil); handled || err != nil {
+		t.Errorf("non-upload action: expected handled=false,nil err; got %v,%v", handled, err)
 	}
-	if err != nil {
-		t.Errorf("non-upload action: expected no error, got %v", err)
+
+	if err := os.RemoveAll(".uploads"); err != nil {
+		t.Logf("cleanup .uploads failed: %v", err)
 	}
 }
 
