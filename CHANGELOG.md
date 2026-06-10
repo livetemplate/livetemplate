@@ -5,6 +5,15 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.12.0] - 2026-06-10
+
+### Changes
+
+- feat(upload): four upload modes — Direct/Proxied/Volume/Preview (#447) (#450) (2c6ceef4)
+- docs: compare against templ + htmx, tighten the standard-HTML claim (#446) (66a58b9d)
+
+
+
 ## [v0.11.2] - 2026-06-01
 
 ### Changes
