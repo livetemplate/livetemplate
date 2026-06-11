@@ -1355,10 +1355,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 				return ok && c.Mode == uploadtypes.UploadModeProxied
 			},
 			func(part *multipart.Part, values map[string][]string) error {
-				// Expose the form fields parsed before this file part to OnUpload
-				// (e.g. a record id ordered ahead of the file input), so a handler
-				// can associate the streamed bytes with a target. These are the same
-				// values the follow-on action receives via BuildActionFromValues.
+				// Form fields seen before this file part are readable in OnUpload
+				// (ordering invariant — see the UploadStreamer docstring).
 				partCtx := streamCtx.WithData(send.BuildActionFromValues(values).Data)
 				return h.streamProxiedPart(part, uploadRegistry, partCtx)
 			},

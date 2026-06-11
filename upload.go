@@ -50,7 +50,10 @@ const (
 // only if its input precedes the file input in the form, so order an input you
 // need mid-stream (e.g. the record id to associate the bytes with) ahead of the
 // file input. Use SetResult to hand the stored reference to the follow-on action
-// (read there via ctx.GetCompletedUploads).
+// (read there via ctx.GetCompletedUploads). Caveat: if a `data` JSON-envelope
+// field precedes the file part, individual plain fields are folded into that
+// envelope and are not separately addressable via ctx.GetString — mirroring how
+// the follow-on action sees the same values.
 // ctx is upload-scoped: ctx.Publish / ctx.With* calls made inside OnUpload do
 // NOT propagate to the follow-on action handler (which builds its own context).
 //
