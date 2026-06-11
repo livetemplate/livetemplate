@@ -5,6 +5,15 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.13.0] - 2026-06-11
+
+### Changes
+
+- chore(changelog): drop Unreleased block ahead of release (615c112e)
+- feat(upload): expose preceding form fields to OnUpload (Proxied streaming) (#451) (e5ecb1a6)
+
+
+
 ## [v0.12.0] - 2026-06-10
 
 ### Changes
