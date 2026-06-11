@@ -23,9 +23,15 @@ type proxiedState struct {
 type proxiedController struct {
 	received map[string][]byte
 	refs     []string
+	// Form fields visible inside OnUpload, captured per call: proves a field
+	// ordered before the file part is readable mid-stream and one after is not.
+	onUploadBeforeField string
+	onUploadAfterField  string
 }
 
 func (c *proxiedController) OnUpload(part *UploadPart, ctx *Context) error {
+	c.onUploadBeforeField = ctx.GetString("record_id")
+	c.onUploadAfterField = ctx.GetString("trailing")
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, part); err != nil {
 		return err // e.g. ErrUploadTooLarge — aborts before SetResult
@@ -331,5 +337,64 @@ func TestProxiedUpload_RejectsDisallowedType(t *testing.T) {
 	}
 	if len(ctrl.refs) != 0 {
 		t.Errorf("expected no completed uploads, got %v", ctrl.refs)
+	}
+}
+
+// TestProxiedUpload_OnUploadReadsPrecedingFormField proves OnUpload can read a
+// form field ordered before the file part (so a handler can associate the
+// streamed bytes with a record id) — and that a field ordered after the file is
+// NOT visible, because parts stream in body order.
+func TestProxiedUpload_OnUploadReadsPrecedingFormField(t *testing.T) {
+	ctrl := &proxiedController{}
+	server, cookies := newProxiedServer(t, UploadConfig{Mode: UploadModeProxied}, ctrl)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	for _, f := range []struct{ name, val string }{
+		{"lvt-action", "SaveDoc"},
+		{"record_id", "item-42"}, // before the file part → visible in OnUpload
+	} {
+		if err := writer.WriteField(f.name, f.val); err != nil {
+			t.Fatalf("WriteField %q: %v", f.name, err)
+		}
+	}
+	filePart, err := writer.CreateFormFile("doc", "scan.png")
+	if err != nil {
+		t.Fatalf("CreateFormFile: %v", err)
+	}
+	if _, err := filePart.Write([]byte("bytes")); err != nil {
+		t.Fatalf("write file content: %v", err)
+	}
+	if err := writer.WriteField("trailing", "too-late"); err != nil { // after → not visible
+		t.Fatalf("WriteField trailing: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("writer close: %v", err)
+	}
+
+	req, err := http.NewRequest("POST", server.URL+"/", &body)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Accept", "application/json")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Logf("body close: %v", err)
+	}
+
+	if ctrl.onUploadBeforeField != "item-42" {
+		t.Errorf("OnUpload should read a field ordered before the file part: got record_id=%q want %q",
+			ctrl.onUploadBeforeField, "item-42")
+	}
+	if ctrl.onUploadAfterField != "" {
+		t.Errorf("OnUpload must not see a field ordered after the file part: got trailing=%q want empty",
+			ctrl.onUploadAfterField)
 	}
 }

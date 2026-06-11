@@ -44,14 +44,22 @@ const (
 // streams them to remote storage and records the final reference via SetResult.
 //
 // OnUpload runs during the multipart body read, before the action handler, so
-// ctx does NOT carry session/typed state. It does carry request identity —
-// ctx.UserID() and ctx.GroupID() — so use SetResult to hand the stored
-// reference to the follow-on action (read there via ctx.GetCompletedUploads).
+// ctx does NOT carry typed state. It DOES carry request identity — ctx.UserID()
+// and ctx.GroupID() — and the form fields parsed *before* this file part, read
+// via ctx.GetString(...). Because parts stream in body order, a field is visible
+// only if its input precedes the file input in the form, so order an input you
+// need mid-stream (e.g. the record id to associate the bytes with) ahead of the
+// file input. Use SetResult to hand the stored reference to the follow-on action
+// (read there via ctx.GetCompletedUploads). Caveat: if a `data` JSON-envelope
+// field precedes the file part, individual plain fields are folded into that
+// envelope and are not separately addressable via ctx.GetString — mirroring how
+// the follow-on action sees the same values.
 // ctx is upload-scoped: ctx.Publish / ctx.With* calls made inside OnUpload do
 // NOT propagate to the follow-on action handler (which builds its own context).
 //
 //	func (c *C) OnUpload(part *livetemplate.UploadPart, ctx *livetemplate.Context) error {
-//	    ref, err := myBackend.Put(ctx, part.Filename, part) // part is an io.Reader
+//	    // "id" must be ordered ahead of the file input in the form.
+//	    ref, err := myBackend.Put(ctx, ctx.GetString("id"), part.Filename, part)
 //	    if err != nil {
 //	        return err
 //	    }
