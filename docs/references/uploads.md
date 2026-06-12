@@ -463,6 +463,11 @@ ChunkSize: 512 * 1024, // 512KB chunks
 - Verify `lvt-upload` attribute matches the field name in `WithUpload()`
 - Check browser console for JavaScript errors
 - Ensure the template includes `lvt-upload="fieldName"` on the file input
+- **SSR'd input + `AutoUpload` not firing on first select?** Upgrade to
+  `@livetemplate/client` >= v0.13.1. Before that fix, a server-rendered
+  `lvt-upload` input whose first WebSocket render added no new nodes was left
+  without a change listener (see
+  [#453](https://github.com/livetemplate/livetemplate/issues/453))
 
 ### Progress Not Updating
 
