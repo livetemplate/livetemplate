@@ -18,7 +18,7 @@ func TestPreviewUpload_SynthesizesMetadataEntry(t *testing.T) {
 
 	h := &liveHandler{}
 	raw := []byte(`{"action":"upload_start","upload_name":"draft","files":[{"name":"p.png","type":"image/png","size":10}]}`)
-	resp, err := h.buildUploadStartResponse(raw, "sess", reg)
+	resp, err := h.buildUploadStartResponse(raw, "sess", reg, false)
 	if err != nil {
 		t.Fatalf("buildUploadStartResponse: %v", err)
 	}
