@@ -1312,6 +1312,10 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, buildErr.Error(), http.StatusBadRequest)
 			return
 		}
+		// Dispatch the completion action even if every entry failed validation:
+		// GetCompletedUploads then returns nothing, and the field errors are
+		// surfaced below — same contract as the streaming-upload path, where the
+		// follow-on action always runs and reads whatever uploads did succeed.
 		httpUploadCompleteAction = fmt.Sprintf("upload_%s_complete", name)
 		httpUploadCompleteErrs = fieldErrs
 	}
@@ -2838,35 +2842,35 @@ func (h *liveHandler) buildUploadStartResponse(rawData []byte, sessionID string,
 				} else {
 					entryInfo.Valid = true
 				}
-				break
-			}
-			// Create the staging file the chunk handler appends to. With Dir set
-			// the file is retained there (the app owns its lifecycle); otherwise
-			// it stages under the session temp dir and is cleaned on disconnect.
-			var tempPath string
-			var err error
-			if dir := uploadInstance.Config.Dir; dir != "" {
-				tempPath, err = upload.CreateRetainedFile(dir, startMsg.UploadName, entryID)
-			} else if tfm, ok := h.tempFileManager.(*upload.TempFileManager); ok && tfm != nil {
-				tempPath, err = tfm.CreateTempFile(sessionID, startMsg.UploadName, entryID)
 			} else {
-				entryInfo.Error = "uploads unavailable: temp file manager not initialized"
-				break
-			}
-			if err != nil {
-				entryInfo.Error = fmt.Sprintf("failed to create upload file: %v", err)
-			} else {
-				entry.TempPath = tempPath
-				if err := uploadInstance.AddEntry(entry); err != nil {
-					entryInfo.Error = err.Error()
-					if rmErr := os.Remove(tempPath); rmErr != nil {
-						slog.Warn("Failed to remove upload file",
-							slog.String("component", "upload_handler"),
-							slog.String("path", tempPath),
-							slog.Any("error", rmErr))
-					}
+				// Create the staging file the chunk handler appends to. With Dir set
+				// the file is retained there (the app owns its lifecycle); otherwise
+				// it stages under the session temp dir and is cleaned on disconnect.
+				var tempPath string
+				var err error
+				if dir := uploadInstance.Config.Dir; dir != "" {
+					tempPath, err = upload.CreateRetainedFile(dir, startMsg.UploadName, entryID)
+				} else if tfm, ok := h.tempFileManager.(*upload.TempFileManager); ok && tfm != nil {
+					tempPath, err = tfm.CreateTempFile(sessionID, startMsg.UploadName, entryID)
 				} else {
-					entryInfo.Valid = true
+					entryInfo.Error = "uploads unavailable: temp file manager not initialized"
+					break
+				}
+				if err != nil {
+					entryInfo.Error = fmt.Sprintf("failed to create upload file: %v", err)
+				} else {
+					entry.TempPath = tempPath
+					if err := uploadInstance.AddEntry(entry); err != nil {
+						entryInfo.Error = err.Error()
+						if rmErr := os.Remove(tempPath); rmErr != nil {
+							slog.Warn("Failed to remove upload file",
+								slog.String("component", "upload_handler"),
+								slog.String("path", tempPath),
+								slog.Any("error", rmErr))
+						}
+					} else {
+						entryInfo.Valid = true
+					}
 				}
 			}
 		}

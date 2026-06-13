@@ -78,7 +78,7 @@ func postUpload(t *testing.T, url, phase, body string, cookies []*http.Cookie) *
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
-	resp, err := (&http.Client{}).Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("POST %s: %v", phase, err)
 	}
@@ -137,7 +137,7 @@ func TestDirectUpload_CompleteOverHTTP(t *testing.T) {
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
-	pageResp, err := (&http.Client{}).Do(req)
+	pageResp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("re-GET with cookie: %v", err)
 	}

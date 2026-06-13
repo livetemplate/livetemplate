@@ -24,7 +24,7 @@ type volumeController struct {
 }
 
 func (c *volumeController) UploadVolumeComplete(state volumeState, ctx *Context) (volumeState, error) {
-	if ups := ctx.GetCompletedUploads("scan"); len(ups) > 0 {
+	if ups := ctx.GetCompletedUploads("volume"); len(ups) > 0 {
 		state.Path = ups[0].TempPath
 		c.savedPath = ups[0].TempPath
 	}
@@ -44,7 +44,7 @@ func TestVolumeUpload_HTTPMultipart_StagesToDir(t *testing.T) {
 
 	tmpl, err := New("test",
 		WithWebSocketDisabled(),
-		WithUpload("scan", UploadConfig{Mode: UploadModeVolume, Dir: dir, AutoUpload: true}),
+		WithUpload("volume", UploadConfig{Mode: UploadModeVolume, Dir: dir, AutoUpload: true}),
 	)
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -70,14 +70,15 @@ func TestVolumeUpload_HTTPMultipart_StagesToDir(t *testing.T) {
 		t.Logf("body close: %v", err)
 	}
 
-	// The disconnected Volume client posts a single multipart body: the action
-	// (upload_<field>_complete) plus the file part.
+	// The disconnected Volume client posts a single multipart body: the
+	// completion action (upload_<field>_complete, resolving to UploadVolumeComplete
+	// for the "volume" field) plus the file part.
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
-	if err := writer.WriteField("lvt-action", "UploadVolumeComplete"); err != nil {
+	if err := writer.WriteField("lvt-action", "upload_volume_complete"); err != nil {
 		t.Fatalf("WriteField: %v", err)
 	}
-	part, err := writer.CreateFormFile("scan", "x-ray.png")
+	part, err := writer.CreateFormFile("volume", "x-ray.png")
 	if err != nil {
 		t.Fatalf("CreateFormFile: %v", err)
 	}
@@ -97,7 +98,7 @@ func TestVolumeUpload_HTTPMultipart_StagesToDir(t *testing.T) {
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
-	resp, err := (&http.Client{}).Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("POST: %v", err)
 	}
@@ -122,9 +123,9 @@ func TestVolumeUpload_HTTPMultipart_StagesToDir(t *testing.T) {
 
 	// Retention semantics: the file is under Dir, and nothing was staged under
 	// the session temp tree.
-	matches, _ := filepath.Glob(filepath.Join(dir, "scan", "*"))
+	matches, _ := filepath.Glob(filepath.Join(dir, "volume", "*"))
 	if len(matches) != 1 {
-		t.Errorf("expected exactly 1 retained file under %s/scan, got %d", dir, len(matches))
+		t.Errorf("expected exactly 1 retained file under %s/volume, got %d", dir, len(matches))
 	}
 	if n := uploadsTempFileCount(t); n != 0 {
 		t.Errorf("expected 0 files under .uploads (Dir-retained), got %d", n)
@@ -139,7 +140,7 @@ func TestVolumeUpload_HTTPStart_NoOrphanFile(t *testing.T) {
 	dir := t.TempDir()
 	tmpl, err := New("test",
 		WithWebSocketDisabled(),
-		WithUpload("scan", UploadConfig{Mode: UploadModeVolume, Dir: dir, AutoUpload: true}),
+		WithUpload("volume", UploadConfig{Mode: UploadModeVolume, Dir: dir, AutoUpload: true}),
 	)
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -151,10 +152,10 @@ func TestVolumeUpload_HTTPStart_NoOrphanFile(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	req, _ := http.NewRequest("POST", server.URL+"/",
-		strings.NewReader(`{"action":"upload_start","upload_name":"scan","files":[{"name":"x.png","type":"image/png","size":10}]}`))
+		strings.NewReader(`{"action":"upload_start","upload_name":"volume","files":[{"name":"x.png","type":"image/png","size":10}]}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Lvt-Upload", "start")
-	resp, err := (&http.Client{}).Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("POST start: %v", err)
 	}
@@ -167,8 +168,8 @@ func TestVolumeUpload_HTTPStart_NoOrphanFile(t *testing.T) {
 
 	// No staging file should exist under Dir yet — only the later multipart POST
 	// creates the retained file.
-	matches, _ := filepath.Glob(filepath.Join(dir, "scan", "*"))
+	matches, _ := filepath.Glob(filepath.Join(dir, "volume", "*"))
 	if len(matches) != 0 {
-		t.Errorf("upload_start must not pre-create a Volume staging file over HTTP, found %d under %s/scan", len(matches), dir)
+		t.Errorf("upload_start must not pre-create a Volume staging file over HTTP, found %d under %s/volume", len(matches), dir)
 	}
 }
