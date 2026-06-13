@@ -432,6 +432,12 @@ func TestParseUploadCompleteHTTPMessage(t *testing.T) {
 			wantErr: true,
 			errMsg:  "missing ref",
 		},
+		{
+			name:    "entry missing client_name",
+			json:    `{"action":"upload_complete","upload_name":"avatar","entries":[{"client_name":"","type":"image/png","size":10,"ref":"https://cdn/a.png"}]}`,
+			wantErr: true,
+			errMsg:  "missing client_name",
+		},
 	}
 
 	for _, tt := range tests {

@@ -2562,6 +2562,12 @@ func recordUploadEntry(uploadRegistry uploadRegistry, field string, entry *uploa
 // →AddEntry re-validates Accept/size, so a mismatched assertion is recorded as a
 // field error rather than trusted. Returns the field name and per-entry
 // validation errors to surface before the completion action dispatches.
+//
+// Security: the ref is client-asserted — the server checks Accept/size but does
+// NOT verify it matches the presigned URL it issued (a fresh request can't see
+// that handshake). The session cookie scopes it to the originating session, but
+// apps that fetch from or proxy to ExternalRef must whitelist accepted origins
+// (SSRF / open-redirect); rendering it through html/template is auto-escaped.
 func (h *liveHandler) reconstructHTTPUploadComplete(body []byte, uploadRegistry uploadRegistry) (string, []FieldError, error) {
 	msg, err := upload.ParseUploadCompleteHTTPMessage(body)
 	if err != nil {

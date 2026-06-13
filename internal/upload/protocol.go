@@ -217,6 +217,9 @@ func ParseUploadCompleteHTTPMessage(data []byte) (*UploadCompleteHTTPMessage, er
 		return nil, fmt.Errorf("entries array is empty")
 	}
 	for i, e := range msg.Entries {
+		if e.ClientName == "" {
+			return nil, fmt.Errorf("entries[%d] missing client_name", i)
+		}
 		if e.Ref == "" {
 			return nil, fmt.Errorf("entries[%d] missing ref", i)
 		}

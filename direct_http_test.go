@@ -127,9 +127,13 @@ func TestDirectUpload_CompleteOverHTTP(t *testing.T) {
 	if ctrl.savedRef != ref {
 		t.Errorf("UploadAvatarComplete saw ref %q, want %q (entry not reconstructed for HTTP complete)", ctrl.savedRef, ref)
 	}
-	// The response carries the rendered tree.
-	if !strings.Contains(string(completeBody), "tree") {
-		t.Errorf("complete response should carry a tree, got %s", completeBody)
+	// The response carries the rendered tree envelope.
+	var completeJSON map[string]any
+	if err := json.Unmarshal(completeBody, &completeJSON); err != nil {
+		t.Fatalf("complete response is not JSON: %v; body=%s", err, completeBody)
+	}
+	if _, ok := completeJSON["tree"]; !ok {
+		t.Errorf("complete response should carry a \"tree\" key, got %s", completeBody)
 	}
 
 	// State persisted: a fresh GET on the same session (cookie) renders the ref.
