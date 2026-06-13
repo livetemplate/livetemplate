@@ -167,3 +167,22 @@ func TestDirectUpload_CompleteOverHTTP_RejectsBadMetadata(t *testing.T) {
 		t.Errorf("rejected metadata must not be recorded as completed, but ref %q was read", ctrl.savedRef)
 	}
 }
+
+// TestDirectUpload_CompleteOverHTTP_RejectsEmptyRef verifies a completion entry
+// with an empty ref is a protocol error (400), not a silently-recorded entry
+// with a blank ExternalRef.
+func TestDirectUpload_CompleteOverHTTP_RejectsEmptyRef(t *testing.T) {
+	ctrl := &directController{}
+	server, cookies := newDirectServer(t, ctrl)
+
+	resp := postUpload(t, server.URL, "complete",
+		`{"action":"upload_complete","upload_name":"avatar","entries":[{"client_name":"avatar.png","type":"image/png","size":1024,"ref":""}]}`,
+		cookies)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("empty ref status = %d, want 400", resp.StatusCode)
+	}
+	if ctrl.savedRef != "" {
+		t.Errorf("empty-ref entry must not be recorded, but ref %q was read", ctrl.savedRef)
+	}
+}

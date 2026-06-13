@@ -1273,7 +1273,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// dispatch + Direct presign work without a WebSocket. Gated on the header so
 	// normal JSON action POSTs never pay a body read; the read is bounded since a
 	// handshake is only small file-metadata.
-	if r.Header.Get(uploadStartHeader) == "start" && strings.HasPrefix(ct, "application/json") && len(h.config.UploadConfigs) > 0 {
+	if r.Header.Get(uploadPhaseHeader) == "start" && strings.HasPrefix(ct, "application/json") && len(h.config.UploadConfigs) > 0 {
 		body, readErr := io.ReadAll(io.LimitReader(r.Body, maxUploadHandshakeBytes))
 		if readErr != nil {
 			http.Error(w, "failed to read request body", http.StatusBadRequest)
@@ -1301,7 +1301,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// renders + persists + returns the tree, exactly like the WS completion.
 	var httpUploadCompleteAction string
 	var httpUploadCompleteErrs []FieldError
-	if r.Header.Get(uploadStartHeader) == "complete" && strings.HasPrefix(ct, "application/json") && len(h.config.UploadConfigs) > 0 {
+	if r.Header.Get(uploadPhaseHeader) == "complete" && strings.HasPrefix(ct, "application/json") && len(h.config.UploadConfigs) > 0 {
 		body, readErr := io.ReadAll(io.LimitReader(r.Body, maxUploadHandshakeBytes))
 		if readErr != nil {
 			http.Error(w, "failed to read request body", http.StatusBadRequest)
@@ -2460,9 +2460,10 @@ func (h *liveHandler) handleUploadAction(ctx context.Context, rawData []byte, ms
 }
 
 const (
-	// uploadStartHeader marks an HTTP upload_start handshake (WS-disabled
-	// fallback) so normal JSON action POSTs are never probed.
-	uploadStartHeader = "X-Lvt-Upload"
+	// uploadPhaseHeader names the upload handshake phase ("start" or "complete")
+	// on an HTTP request (the WS-disabled fallback), so normal JSON action POSTs
+	// are never probed.
+	uploadPhaseHeader = "X-Lvt-Upload"
 	// maxUploadHandshakeBytes bounds the handshake body read — it carries only
 	// small file metadata, never file bytes.
 	maxUploadHandshakeBytes = 1 << 20
