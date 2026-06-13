@@ -84,6 +84,28 @@ type UploadCompleteResponse struct {
 	Error      string `json:"error"`       // Error message if failed
 }
 
+// UploadCompleteHTTPMessage is the WebSocket-disabled completion (issue #448).
+// Over WebSocket the per-connection registry carries the presigned entry from
+// upload_start → upload_complete, but stateless HTTP gives each request a fresh
+// registry, so the entry is gone by completion time. The WS-disabled client
+// therefore re-sends the entry metadata (and the ref it uploaded to) so the
+// server can reconstruct the completed entry and run upload_<field>_complete
+// without a persistent registry. The ref is client-asserted, at the same trust
+// level as the presigned PUT the client just performed.
+type UploadCompleteHTTPMessage struct {
+	Action     string               `json:"action"`      // "upload_complete"
+	UploadName string               `json:"upload_name"` // Field name
+	Entries    []CompletedEntryMeta `json:"entries"`     // Client-asserted entry metadata
+}
+
+// CompletedEntryMeta is one reconstructed entry's client-asserted metadata.
+type CompletedEntryMeta struct {
+	ClientName string `json:"client_name"` // Original filename
+	Type       string `json:"type"`        // MIME type
+	Size       int64  `json:"size"`        // File size in bytes
+	Ref        string `json:"ref"`         // External reference (the URL the browser uploaded to)
+}
+
 // CancelUploadMessage is sent by client to cancel an in-progress upload.
 // Server cleans up temp files and removes entry from registry.
 type CancelUploadMessage struct {
@@ -178,6 +200,30 @@ func ParseUploadCompleteMessage(data []byte) (*UploadCompleteMessage, error) {
 		return nil, fmt.Errorf("entry_ids array is empty")
 	}
 
+	return &msg, nil
+}
+
+// ParseUploadCompleteHTTPMessage parses a WS-disabled upload_complete handshake
+// (issue #448) carrying per-entry client-asserted metadata.
+func ParseUploadCompleteHTTPMessage(data []byte) (*UploadCompleteHTTPMessage, error) {
+	var msg UploadCompleteHTTPMessage
+	if err := json.Unmarshal(data, &msg); err != nil {
+		return nil, fmt.Errorf("failed to parse upload_complete message: %w", err)
+	}
+	if msg.UploadName == "" {
+		return nil, fmt.Errorf("upload_name is required")
+	}
+	if len(msg.Entries) == 0 {
+		return nil, fmt.Errorf("entries array is empty")
+	}
+	for i, e := range msg.Entries {
+		if e.ClientName == "" {
+			return nil, fmt.Errorf("entries[%d] missing client_name", i)
+		}
+		if e.Ref == "" {
+			return nil, fmt.Errorf("entries[%d] missing ref", i)
+		}
+	}
 	return &msg, nil
 }
 

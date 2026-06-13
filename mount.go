@@ -173,7 +173,7 @@ type liveHandler struct {
 	limits          *session.ConnectionLimits
 	metricsExporter *observe.PrometheusExporter
 	tempFileManager uploadTempFileManager
-	hasProxied      bool     // true if any upload field uses Proxied mode (static, computed at Handle)
+	needsStreaming  bool     // true if any field needs the streaming multipart path: Proxied or Volume-with-Dir (static, computed at Handle)
 	httpTemplates   sync.Map // groupID → *httpTemplateCacheEntry (cached for HTTP POST diff optimization)
 	httpLastPaths   sync.Map // groupID → string (last served request path, for detecting URL changes)
 
@@ -1273,13 +1273,13 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// dispatch + Direct presign work without a WebSocket. Gated on the header so
 	// normal JSON action POSTs never pay a body read; the read is bounded since a
 	// handshake is only small file-metadata.
-	if r.Header.Get(uploadStartHeader) == "start" && strings.HasPrefix(ct, "application/json") && len(h.config.UploadConfigs) > 0 {
+	if r.Header.Get(uploadPhaseHeader) == "start" && strings.HasPrefix(ct, "application/json") && len(h.config.UploadConfigs) > 0 {
 		body, readErr := io.ReadAll(io.LimitReader(r.Body, maxUploadHandshakeBytes))
 		if readErr != nil {
 			http.Error(w, "failed to read request body", http.StatusBadRequest)
 			return
 		}
-		response, buildErr := h.buildUploadStartResponse(body, groupID, uploadRegistry)
+		response, buildErr := h.buildUploadStartResponse(body, groupID, uploadRegistry, true)
 		if buildErr != nil {
 			http.Error(w, buildErr.Error(), http.StatusBadRequest)
 			return
@@ -1291,6 +1291,33 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 				slog.Any("error", err))
 		}
 		return
+	}
+
+	// Upload completion over HTTP (WS-disabled Direct, issue #448): after the
+	// browser PUTs to the presigned URL, the client posts the entry metadata with
+	// X-Lvt-Upload: complete. Reconstruct the completed entry into this request's
+	// registry (the upload_start registry is gone) and dispatch the field's
+	// upload_<field>_complete action through the normal HTTP path below — which
+	// renders + persists + returns the tree, exactly like the WS completion.
+	var httpUploadCompleteAction string
+	var httpUploadCompleteErrs []FieldError
+	if r.Header.Get(uploadPhaseHeader) == "complete" && strings.HasPrefix(ct, "application/json") && len(h.config.UploadConfigs) > 0 {
+		body, readErr := io.ReadAll(io.LimitReader(r.Body, maxUploadHandshakeBytes))
+		if readErr != nil {
+			http.Error(w, "failed to read request body", http.StatusBadRequest)
+			return
+		}
+		name, fieldErrs, buildErr := h.reconstructHTTPUploadComplete(body, uploadRegistry)
+		if buildErr != nil {
+			http.Error(w, buildErr.Error(), http.StatusBadRequest)
+			return
+		}
+		// Dispatch the completion action even if every entry failed validation:
+		// GetCompletedUploads then returns nothing, and the field errors are
+		// surfaced below — same contract as the streaming-upload path, where the
+		// follow-on action always runs and reads whatever uploads did succeed.
+		httpUploadCompleteAction = fmt.Sprintf("upload_%s_complete", name)
+		httpUploadCompleteErrs = fieldErrs
 	}
 
 	// Byte-level progress: wrap the multipart body before any parsing so both the
@@ -1330,12 +1357,16 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// (zero disk) and streamed straight to Controller.OnUpload, bypassing
 	// ParseMultipartForm (which would stage large parts to os.TempDir).
 	//
-	// hasProxied is static, so ONCE ANY field is Proxied every multipart POST to
-	// this handler takes the streaming path — including requests carrying only
-	// Volume fields. That's intentional: stageVolumePart stages those Volume
-	// parts to disk, and value parts are reconstructed via BuildActionFromValues,
-	// so the outcome matches the non-streaming path.
-	streamingRequest := strings.HasPrefix(ct, "multipart/form-data") && h.hasProxied
+	// needsStreaming is static and true when ANY field is Proxied OR
+	// Volume-with-Dir, so every multipart POST to this handler then takes the
+	// streaming path — including requests carrying only Volume fields. That's
+	// intentional: stageVolumePart stages those Volume parts to disk (retained
+	// under Dir, the WS-disabled fallback for #449), and value parts are
+	// reconstructed via BuildActionFromValues, so the outcome matches the
+	// non-streaming path. The in-stream onFile classifier below keys on the
+	// field's Mode directly (Proxied → stream to OnUpload), so a Volume part
+	// routes to onStaged → stageVolumePart.
+	streamingRequest := strings.HasPrefix(ct, "multipart/form-data") && h.needsStreaming
 
 	var msg message
 	var streamErr error
@@ -1372,6 +1403,11 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		// Unconditional here (unlike the else branch's Content-Type guard) because
 		// streamingRequest already implies multipart/form-data.
 		applyDefaultAction(&msg)
+	} else if httpUploadCompleteAction != "" {
+		// WS-disabled upload completion (#448): the entries were already
+		// reconstructed above; dispatch the field's completion action. The body
+		// was consumed building those entries, so there's nothing to parse here.
+		msg = message{Action: httpUploadCompleteAction}
 	} else {
 		// Parse message
 		var err error
@@ -1449,6 +1485,13 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		default:
 			connSt.setError("_general", streamErr.Error())
 		}
+	}
+
+	// Surface WS-disabled completion validation failures (#448) as field errors
+	// before dispatch, so the completion action still runs for whatever entries
+	// did validate.
+	for _, fe := range httpUploadCompleteErrs {
+		connSt.setError(fe.Field, fe.Message)
 	}
 
 	// __navigate__ is a WebSocket-only reserved action. Reject early so HTTP
@@ -2421,9 +2464,10 @@ func (h *liveHandler) handleUploadAction(ctx context.Context, rawData []byte, ms
 }
 
 const (
-	// uploadStartHeader marks an HTTP upload_start handshake (WS-disabled
-	// fallback) so normal JSON action POSTs are never probed.
-	uploadStartHeader = "X-Lvt-Upload"
+	// uploadPhaseHeader names the upload handshake phase ("start" or "complete")
+	// on an HTTP request (the WS-disabled fallback), so normal JSON action POSTs
+	// are never probed.
+	uploadPhaseHeader = "X-Lvt-Upload"
 	// maxUploadHandshakeBytes bounds the handshake body read — it carries only
 	// small file metadata, never file bytes.
 	maxUploadHandshakeBytes = 1 << 20
@@ -2508,6 +2552,47 @@ func recordUploadEntry(uploadRegistry uploadRegistry, field string, entry *uploa
 		return &upload.ValidationError{Field: field, Message: addErr.Error()}
 	}
 	return nil
+}
+
+// reconstructHTTPUploadComplete handles the WebSocket-disabled Direct completion
+// (issue #448). Each HTTP request gets a fresh registry, so the presigned entry
+// from upload_start is gone by completion time; the client re-sends the entry
+// metadata and the ref it uploaded to. We rebuild each completed entry (Done,
+// client-asserted ExternalRef) into this request's registry — recordUploadEntry
+// →AddEntry re-validates Accept/size, so a mismatched assertion is recorded as a
+// field error rather than trusted. Returns the field name and per-entry
+// validation errors to surface before the completion action dispatches.
+//
+// Security: the ref is client-asserted — the server checks Accept/size but does
+// NOT verify it matches the presigned URL it issued (a fresh request can't see
+// that handshake). The session cookie scopes it to the originating session, but
+// apps that fetch from or proxy to ExternalRef must whitelist accepted origins
+// (SSRF / open-redirect); rendering it through html/template is auto-escaped.
+func (h *liveHandler) reconstructHTTPUploadComplete(body []byte, uploadRegistry uploadRegistry) (string, []FieldError, error) {
+	msg, err := upload.ParseUploadCompleteHTTPMessage(body)
+	if err != nil {
+		return "", nil, err
+	}
+	var fieldErrs []FieldError
+	for _, meta := range msg.Entries {
+		entryID, idErr := upload.GenerateEntryID()
+		if idErr != nil {
+			return msg.UploadName, fieldErrs, idErr
+		}
+		entry := &uploadtypes.UploadEntry{
+			ID:          entryID,
+			ClientName:  meta.ClientName,
+			ClientType:  meta.Type,
+			ClientSize:  meta.Size,
+			ExternalRef: meta.Ref,
+			Done:        true,
+			Progress:    100,
+		}
+		if recErr := recordUploadEntry(uploadRegistry, msg.UploadName, entry); recErr != nil {
+			fieldErrs = append(fieldErrs, FieldError{Field: msg.UploadName, Message: recErr.Error()})
+		}
+	}
+	return msg.UploadName, fieldErrs, nil
 }
 
 // stageVolumePart writes a Volume file part that shares a streaming (Proxied)
@@ -2598,7 +2683,7 @@ func (h *liveHandler) stageVolumePart(part *multipart.Part, uploadRegistry uploa
 // handleUploadStart processes upload_start action from WebSocket client.
 // Client sends file metadata, server creates upload entries and responds with entry IDs.
 func (h *liveHandler) handleUploadStart(rawData []byte, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) error {
-	response, err := h.buildUploadStartResponse(rawData, state.groupID, uploadRegistry)
+	response, err := h.buildUploadStartResponse(rawData, state.groupID, uploadRegistry, false)
 	if err != nil {
 		return err
 	}
@@ -2624,7 +2709,11 @@ func (h *liveHandler) handleUploadStart(rawData []byte, state *connState, upload
 // per-entry handshake reply (mode, validation, presigned meta) WITHOUT sending
 // it. Both the WebSocket handler and the HTTP fallback (used when the socket is
 // disabled) call this and transmit the result over their own transport.
-func (h *liveHandler) buildUploadStartResponse(rawData []byte, sessionID string, uploadRegistry uploadRegistry) (*upload.UploadStartResponse, error) {
+// buildUploadStartResponse handles an upload_start handshake. overHTTP is true
+// for the WebSocket-disabled HTTP fallback, where a Volume field's bytes arrive
+// via a later multipart POST (stageVolumePart) rather than chunks — so it must
+// not pre-create the chunk staging file, which would orphan an empty file at Dir.
+func (h *liveHandler) buildUploadStartResponse(rawData []byte, sessionID string, uploadRegistry uploadRegistry, overHTTP bool) (*upload.UploadStartResponse, error) {
 	// Parse upload_start message from raw transport data
 	startMsg, err := upload.ParseUploadStartMessage(rawData)
 	if err != nil {
@@ -2748,33 +2837,46 @@ func (h *liveHandler) buildUploadStartResponse(rawData []byte, sessionID string,
 			}
 
 		default: // UploadModeVolume
-			// Create the staging file the chunk handler appends to. With Dir set
-			// the file is retained there (the app owns its lifecycle); otherwise
-			// it stages under the session temp dir and is cleaned on disconnect.
-			var tempPath string
-			var err error
-			if dir := uploadInstance.Config.Dir; dir != "" {
-				tempPath, err = upload.CreateRetainedFile(dir, startMsg.UploadName, entryID)
-			} else if tfm, ok := h.tempFileManager.(*upload.TempFileManager); ok && tfm != nil {
-				tempPath, err = tfm.CreateTempFile(sessionID, startMsg.UploadName, entryID)
-			} else {
-				entryInfo.Error = "uploads unavailable: temp file manager not initialized"
-				break
-			}
-			if err != nil {
-				entryInfo.Error = fmt.Sprintf("failed to create upload file: %v", err)
-			} else {
-				entry.TempPath = tempPath
-				if err := uploadInstance.AddEntry(entry); err != nil {
+			if overHTTP {
+				// WS-disabled: the bytes arrive via a multipart POST that
+				// stageVolumePart writes (retained under Dir), not via chunks. So
+				// validate metadata only — pre-creating a staging file here would
+				// orphan an empty file at Dir, since each HTTP request gets a fresh
+				// registry and the chunk handler never runs.
+				if err := upload.ValidateEntry(entry, uploadInstance.Config); err != nil {
 					entryInfo.Error = err.Error()
-					if rmErr := os.Remove(tempPath); rmErr != nil {
-						slog.Warn("Failed to remove upload file",
-							slog.String("component", "upload_handler"),
-							slog.String("path", tempPath),
-							slog.Any("error", rmErr))
-					}
 				} else {
 					entryInfo.Valid = true
+				}
+			} else {
+				// Create the staging file the chunk handler appends to. With Dir set
+				// the file is retained there (the app owns its lifecycle); otherwise
+				// it stages under the session temp dir and is cleaned on disconnect.
+				var tempPath string
+				var err error
+				if dir := uploadInstance.Config.Dir; dir != "" {
+					tempPath, err = upload.CreateRetainedFile(dir, startMsg.UploadName, entryID)
+				} else if tfm, ok := h.tempFileManager.(*upload.TempFileManager); ok && tfm != nil {
+					tempPath, err = tfm.CreateTempFile(sessionID, startMsg.UploadName, entryID)
+				} else {
+					entryInfo.Error = "uploads unavailable: temp file manager not initialized"
+					break
+				}
+				if err != nil {
+					entryInfo.Error = fmt.Sprintf("failed to create upload file: %v", err)
+				} else {
+					entry.TempPath = tempPath
+					if err := uploadInstance.AddEntry(entry); err != nil {
+						entryInfo.Error = err.Error()
+						if rmErr := os.Remove(tempPath); rmErr != nil {
+							slog.Warn("Failed to remove upload file",
+								slog.String("component", "upload_handler"),
+								slog.String("path", tempPath),
+								slog.Any("error", rmErr))
+						}
+					} else {
+						entryInfo.Valid = true
+					}
 				}
 			}
 		}

@@ -22,7 +22,7 @@ func TestVolumeUpload_RetainsFileAtDir(t *testing.T) {
 
 	// No temp file manager needed: Dir-retained Volume never uses it.
 	h := &liveHandler{}
-	resp, err := h.buildUploadStartResponse([]byte(volumeStartMsg), "sess-1", reg)
+	resp, err := h.buildUploadStartResponse([]byte(volumeStartMsg), "sess-1", reg, false)
 	if err != nil {
 		t.Fatalf("buildUploadStartResponse: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestDirectUpload_NilExternal_NoPanic(t *testing.T) {
 	}
 	h := &liveHandler{}
 	raw := []byte(`{"action":"upload_start","upload_name":"x","files":[{"name":"a.png","type":"image/png","size":10}]}`)
-	resp, err := h.buildUploadStartResponse(raw, "sess", reg)
+	resp, err := h.buildUploadStartResponse(raw, "sess", reg, false)
 	if err != nil {
 		t.Fatalf("buildUploadStartResponse: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestVolumeUpload_EphemeralWithoutDir(t *testing.T) {
 	}
 
 	h := &liveHandler{tempFileManager: tfm}
-	resp, err := h.buildUploadStartResponse([]byte(volumeStartMsg), "sess-1", reg)
+	resp, err := h.buildUploadStartResponse([]byte(volumeStartMsg), "sess-1", reg, false)
 	if err != nil {
 		t.Fatalf("buildUploadStartResponse: %v", err)
 	}

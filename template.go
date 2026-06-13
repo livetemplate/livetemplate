@@ -656,11 +656,18 @@ func uploadConfigsNeedDisk(configs map[string]uploadtypes.UploadConfig) bool {
 	return false
 }
 
-// uploadConfigsHaveProxied reports whether any configured upload field uses
-// Proxied mode (cached on the handler to gate the streaming HTTP path).
-func uploadConfigsHaveProxied(configs map[string]uploadtypes.UploadConfig) bool {
+// uploadConfigsNeedStreaming reports whether any field needs the zero-buffer
+// MultipartReader path on an HTTP POST: Proxied (streamed to OnUpload) OR
+// Volume-with-Dir (retained staging via stageVolumePart, which the Tier-1
+// ParseMultipartForm path ignores — it stages ephemerally to the session temp
+// dir). This is the WebSocket-disabled fallback for Volume-with-Dir fields
+// (issue #449); ephemeral Volume (no Dir) stays on the Tier-1 path.
+func uploadConfigsNeedStreaming(configs map[string]uploadtypes.UploadConfig) bool {
 	for _, c := range configs {
 		if c.Mode == uploadtypes.UploadModeProxied {
+			return true
+		}
+		if c.Mode == uploadtypes.UploadModeVolume && c.Dir != "" {
 			return true
 		}
 	}
@@ -1658,7 +1665,7 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 		limits:          limits,
 		metricsExporter: metricsExporter,
 		tempFileManager: tempFileManager,
-		hasProxied:      uploadConfigsHaveProxied(t.config.UploadConfigs),
+		needsStreaming:  uploadConfigsNeedStreaming(t.config.UploadConfigs),
 		shutdownChan:    make(chan struct{}),
 	}
 

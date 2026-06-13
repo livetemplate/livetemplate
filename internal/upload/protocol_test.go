@@ -393,6 +393,77 @@ func TestParseUploadCompleteMessage(t *testing.T) {
 	}
 }
 
+func TestParseUploadCompleteHTTPMessage(t *testing.T) {
+	tests := []struct {
+		name     string
+		json     string
+		wantErr  bool
+		errMsg   string
+		validate func(*testing.T, *UploadCompleteHTTPMessage)
+	}{
+		{
+			name:    "valid single entry",
+			json:    `{"action":"upload_complete","upload_name":"avatar","entries":[{"client_name":"a.png","type":"image/png","size":10,"ref":"https://cdn/a.png"}]}`,
+			wantErr: false,
+			validate: func(t *testing.T, msg *UploadCompleteHTTPMessage) {
+				if msg.UploadName != "avatar" {
+					t.Errorf("Expected upload_name 'avatar', got %q", msg.UploadName)
+				}
+				if len(msg.Entries) != 1 || msg.Entries[0].Ref != "https://cdn/a.png" {
+					t.Errorf("Expected 1 entry with the ref, got %+v", msg.Entries)
+				}
+			},
+		},
+		{
+			name:    "missing upload_name",
+			json:    `{"action":"upload_complete","entries":[{"client_name":"a.png","type":"image/png","size":10,"ref":"https://cdn/a.png"}]}`,
+			wantErr: true,
+			errMsg:  "upload_name is required",
+		},
+		{
+			name:    "empty entries",
+			json:    `{"action":"upload_complete","upload_name":"avatar","entries":[]}`,
+			wantErr: true,
+			errMsg:  "entries array is empty",
+		},
+		{
+			name:    "entry missing ref",
+			json:    `{"action":"upload_complete","upload_name":"avatar","entries":[{"client_name":"a.png","type":"image/png","size":10,"ref":""}]}`,
+			wantErr: true,
+			errMsg:  "missing ref",
+		},
+		{
+			name:    "entry missing client_name",
+			json:    `{"action":"upload_complete","upload_name":"avatar","entries":[{"client_name":"","type":"image/png","size":10,"ref":"https://cdn/a.png"}]}`,
+			wantErr: true,
+			errMsg:  "missing client_name",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg, err := ParseUploadCompleteHTTPMessage([]byte(tt.json))
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("Expected error, got nil")
+					return
+				}
+				if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("Expected error containing %q, got %q", tt.errMsg, err.Error())
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+			if tt.validate != nil {
+				tt.validate(t, msg)
+			}
+		})
+	}
+}
+
 func TestParseCancelUploadMessage(t *testing.T) {
 	tests := []struct {
 		name     string
