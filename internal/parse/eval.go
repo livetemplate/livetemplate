@@ -353,6 +353,19 @@ func resolveFieldChain(value interface{}, fields []string) (interface{}, error) 
 }
 
 // callMethod calls a zero-argument method and returns its result.
+//
+// A method that requires arguments is returned UNCALLED (as a callable reflect
+// value), not invoked here. This is deliberate and load-bearing: resolveFieldChain
+// runs before the caller knows whether trailing arguments follow, so it must not
+// call a method that might still receive args. Returning the bound method is what
+// makes a chain like {{.ctx.Get "key"}} work — resolveFieldChain yields the bound
+// Get method, then callMethodOrFieldWithArgs applies "key".
+//
+// Caveat (tracked in #459): a *bare* reference to an argument-requiring method
+// (e.g. {{.Get}} with no trailing args) yields the uncalled method value, which
+// then stringifies to a confusing func representation instead of erroring like
+// text/template. A proper fix must distinguish the bare-terminal case at the
+// eval-node level, where the presence of args is known — callMethod cannot tell.
 func callMethod(method reflect.Value) (interface{}, error) {
 	mt := method.Type()
 	if mt.NumIn() != 0 {
@@ -860,6 +873,25 @@ func builtinSlice(item interface{}, indices ...interface{}) (interface{}, error)
 			return nil, err
 		}
 		return v.Slice(i, j).Interface(), nil
+	case 3:
+		i, err := toIntIndex(indices[0])
+		if err != nil {
+			return nil, err
+		}
+		j, err := toIntIndex(indices[1])
+		if err != nil {
+			return nil, err
+		}
+		k, err := toIntIndex(indices[2])
+		if err != nil {
+			return nil, err
+		}
+		// 3-index slicing (x[i:j:k], capacity bound) is only valid on slices and
+		// arrays; reflect.Slice3 panics on a string, so reject it like text/template.
+		if v.Kind() == reflect.String {
+			return nil, fmt.Errorf("cannot 3-index slice a string")
+		}
+		return v.Slice3(i, j, k).Interface(), nil
 	default:
 		return nil, fmt.Errorf("too many indices for slice")
 	}
