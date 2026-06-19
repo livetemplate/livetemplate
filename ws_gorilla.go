@@ -23,12 +23,8 @@ func NewGorillaUpgrader(opts ...GorillaOption) *GorillaUpgrader {
 	u := &websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
-		// Per-upgrader write buffer pool (not a package-level global): pooling
-		// avoids per-connection allocation (~1KB each), and keeping it per
-		// upgrader ensures upgraders configured with different WriteBufferSize
-		// values never draw mismatched buffers from a shared pool. The pool has
-		// no New func — gorilla allocates on a nil Get() and returns the buffer
-		// after each write, so it self-populates after the first write.
+		// Per-upgrader pool so upgraders with different WriteBufferSize never share buffers.
+		// No New func — gorilla allocates on a nil Get() and returns the buffer after each write.
 		WriteBufferPool: &sync.Pool{},
 	}
 	for _, opt := range opts {
@@ -65,6 +61,9 @@ func WithGorillaCompression() GorillaOption {
 }
 
 // Copy creates a shallow copy of the upgrader to avoid mutating shared state.
+// The copy intentionally shares the parent's WriteBufferPool pointer — safe
+// because the copy keeps the same WriteBufferSize (only SetCompression /
+// SetCheckOrigin mutate copies, never the buffer size).
 func (g *GorillaUpgrader) Copy() *GorillaUpgrader {
 	innerCopy := *g.inner
 	return &GorillaUpgrader{inner: &innerCopy}

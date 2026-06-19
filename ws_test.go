@@ -27,6 +27,7 @@ func TestWSIsUpgrade(t *testing.T) {
 		want   bool
 	}{
 		{"valid handshake", func(http.Header) {}, true},
+		{"version list containing 13", func(h http.Header) { h.Set("Sec-WebSocket-Version", "8, 13") }, true},
 		{"missing Sec-WebSocket-Key", func(h http.Header) { h.Del("Sec-WebSocket-Key") }, false},
 		{"empty Sec-WebSocket-Key", func(h http.Header) { h.Set("Sec-WebSocket-Key", "") }, false},
 		{"missing Sec-WebSocket-Version", func(h http.Header) { h.Del("Sec-WebSocket-Version") }, false},
