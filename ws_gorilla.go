@@ -8,12 +8,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// defaultWriteBufferPool is a shared pool for gorilla write buffers.
-// Using a pool avoids per-connection write buffer allocation (~1KB saved per connection).
-// Intentionally has no New func — gorilla allocates the buffer on nil Get() and returns
-// it to the pool after write, so the pool self-populates after the first write per connection.
-var defaultWriteBufferPool = &sync.Pool{}
-
 // GorillaUpgrader wraps gorilla/websocket.Upgrader as a WSUpgrader.
 type GorillaUpgrader struct {
 	inner *websocket.Upgrader
@@ -29,7 +23,9 @@ func NewGorillaUpgrader(opts ...GorillaOption) *GorillaUpgrader {
 	u := &websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
-		WriteBufferPool: defaultWriteBufferPool,
+		// Per-upgrader pool so upgraders with different WriteBufferSize never share buffers.
+		// No New func — gorilla allocates on a nil Get() and returns the buffer after each write.
+		WriteBufferPool: &sync.Pool{},
 	}
 	for _, opt := range opts {
 		opt(u)
@@ -65,6 +61,9 @@ func WithGorillaCompression() GorillaOption {
 }
 
 // Copy creates a shallow copy of the upgrader to avoid mutating shared state.
+// The copy intentionally shares the parent's WriteBufferPool pointer — safe
+// because the copy keeps the same WriteBufferSize (only SetCompression /
+// SetCheckOrigin mutate copies, never the buffer size).
 func (g *GorillaUpgrader) Copy() *GorillaUpgrader {
 	innerCopy := *g.inner
 	return &GorillaUpgrader{inner: &innerCopy}
