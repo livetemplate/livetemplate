@@ -352,20 +352,12 @@ func resolveFieldChain(value interface{}, fields []string) (interface{}, error) 
 	return value, nil
 }
 
-// callMethod calls a zero-argument method and returns its result.
-//
-// A method that requires arguments is returned UNCALLED (as a callable reflect
-// value), not invoked here. This is deliberate and load-bearing: resolveFieldChain
-// runs before the caller knows whether trailing arguments follow, so it must not
-// call a method that might still receive args. Returning the bound method is what
-// makes a chain like {{.ctx.Get "key"}} work — resolveFieldChain yields the bound
-// Get method, then callMethodOrFieldWithArgs applies "key".
-//
-// Caveat (tracked in #459): a *bare* reference to an argument-requiring method
-// (e.g. {{.Get}} with no trailing args) yields the uncalled method value, which
-// then stringifies to a confusing func representation instead of erroring like
-// text/template. A proper fix must distinguish the bare-terminal case at the
-// eval-node level, where the presence of args is known — callMethod cannot tell.
+// callMethod calls a zero-argument method and returns its result. A method that
+// requires arguments is returned UNCALLED so the caller can still apply trailing
+// args (e.g. the {{.ctx.Get "key"}} chain): resolveFieldChain resolves the method
+// before arg presence is known, so it must not invoke one that may receive args.
+// A bare reference to an arg-requiring method therefore yields the uncalled value
+// rather than erroring like text/template; the eval-node-level fix is tracked in #459.
 func callMethod(method reflect.Value) (interface{}, error) {
 	mt := method.Type()
 	if mt.NumIn() != 0 {
