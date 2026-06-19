@@ -1,6 +1,7 @@
 package livetemplate
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -3376,4 +3377,63 @@ func TestRedirect_RelativeBranch(t *testing.T) {
 			t.Errorf("Redirect error = %v, want ErrInvalidRedirectURL", err)
 		}
 	})
+}
+
+// ============================================================================
+// Persist-path edge cases (restorePersistedState / persistState)
+// ============================================================================
+
+// mockSessionStore is a configurable SessionStore for persist-path tests.
+// getReturn is what Get yields; setCalls records Set invocations.
+type mockSessionStore struct {
+	getReturn interface{}
+	setCalls  int
+}
+
+func (m *mockSessionStore) Get(ctx context.Context, groupID string) interface{} {
+	return m.getReturn
+}
+
+func (m *mockSessionStore) Set(ctx context.Context, groupID string, state interface{}) {
+	m.setCalls++
+}
+
+func (m *mockSessionStore) Delete(ctx context.Context, groupID string) {}
+
+func (m *mockSessionStore) List(ctx context.Context) []string { return nil }
+
+// TestRestorePersistedState_TypeMismatch verifies that when a custom SessionStore
+// returns a non-[]byte value (violating the persistence contract), the handler
+// falls back to fresh state gracefully — no panic, ok=false, nil state.
+func TestRestorePersistedState_TypeMismatch(t *testing.T) {
+	store := &mockSessionStore{getReturn: testHandleState{Count: 5}}
+	h := &liveHandler{
+		config:      mountConfig{SessionStore: store},
+		persistable: AsState(&testHandleState{}).(persistableState),
+	}
+
+	state, ok := h.restorePersistedState(context.Background(), "g1")
+	if ok {
+		t.Error("Expected ok=false when stored value is not []byte")
+	}
+	if state != nil {
+		t.Errorf("Expected nil state on type mismatch, got %v", state)
+	}
+}
+
+// TestPersistState_SerializationFailureIsGraceful verifies that when
+// ExtractPersistFields fails to serialize, persistState logs and returns without
+// calling SessionStore.Set — no panic, no partial write.
+func TestPersistState_SerializationFailureIsGraceful(t *testing.T) {
+	store := &mockSessionStore{}
+	h := &liveHandler{
+		config:      mountConfig{SessionStore: store},
+		persistable: AsState(&unserializableState{}).(persistableState),
+	}
+
+	h.persistState(context.Background(), "g1", unserializableState{Bad: func() {}})
+
+	if store.setCalls != 0 {
+		t.Errorf("Expected Set to not be called on serialization failure, got %d calls", store.setCalls)
+	}
 }

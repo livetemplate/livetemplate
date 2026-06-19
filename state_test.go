@@ -335,3 +335,50 @@ func TestValidatePersistTag(t *testing.T) {
 		t.Error("Case-sensitive: 'Persist' should not match 'persist'")
 	}
 }
+
+// TestPersistFields_SchemaEvolution locks in the forward-compatibility guarantee:
+// stored JSON containing a key for a field that no longer exists in the struct is
+// silently dropped, while known persist fields still restore. This covers the case
+// where a struct dropped a persist field after data was already stored.
+func TestPersistFields_SchemaEvolution(t *testing.T) {
+	state := AsState(&testPersistState{})
+	js := state.(*jsonState[testPersistState])
+
+	// Stored data from an older schema: "filter" is still a persist field,
+	// but "old_field" was removed from the struct since it was written.
+	stored := []byte(`{"filter":"active","old_field":"value"}`)
+
+	restored, err := js.InjectPersistFields(stored)
+	if err != nil {
+		t.Fatalf("InjectPersistFields failed: %v", err)
+	}
+
+	restoredState := restored.(testPersistState)
+	if restoredState.Filter != "active" {
+		t.Errorf("Filter: got %q, want %q", restoredState.Filter, "active")
+	}
+	// The unknown "old_field" key must be silently dropped — it maps to no field.
+	// Page (a known persist field absent from the stored data) stays zero.
+	if restoredState.Page != 0 {
+		t.Errorf("Page should be zero (absent from stored data), got %d", restoredState.Page)
+	}
+}
+
+// unserializableState has a persist field whose value cannot be JSON-encoded.
+// A func-typed field passes AsState's purity validation (which only rejects
+// pointer/interface dependency types) but fails json.Marshal at extract time.
+type unserializableState struct {
+	Bad func() `json:"bad" lvt:"persist"`
+}
+
+// TestPersistFields_SerializationFailure verifies ExtractPersistFields surfaces a
+// serialization error rather than silently producing empty/partial data.
+func TestPersistFields_SerializationFailure(t *testing.T) {
+	state := AsState(&unserializableState{})
+	js := state.(*jsonState[unserializableState])
+
+	_, err := js.ExtractPersistFields(unserializableState{Bad: func() {}})
+	if err == nil {
+		t.Fatal("Expected ExtractPersistFields to fail for a non-serializable field")
+	}
+}
