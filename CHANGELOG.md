@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `Broadcaster.SubscribeServerActions` → `Broadcaster.RegisterServerActionHandler`
   - `GroupActionBroadcaster.SubscribeGroupActions` → `GroupActionBroadcaster.RegisterGroupActionHandler`
   - `TopicActionBroadcaster.SubscribeToTopicActions` → `TopicActionBroadcaster.RegisterTopicActionHandler`
+- `WSIsUpgrade` now fully validates the RFC 6455 handshake: in addition to the GET method and `Connection: upgrade` / `Upgrade: websocket` headers, it requires a non-empty `Sec-WebSocket-Key` and `Sec-WebSocket-Version: 13`. Requests missing these are routed as plain HTTP (they would have failed at `Upgrade()` anyway); well-behaved WebSocket clients always send them.
+
+### Fixed
+
+- `NewGorillaUpgrader` now gives each upgrader its own write-buffer `sync.Pool` instead of sharing a package-level global, so upgraders configured with different `WriteBufferSize` values can no longer draw mismatched buffers from a shared pool.
 
 ## [v0.14.0] - 2026-06-13
 

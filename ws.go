@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/livetemplate/livetemplate/internal/session"
 )
 
 // WSConn is the interface for a WebSocket connection.
@@ -17,6 +19,16 @@ type WSConn interface {
 	WriteMessage(messageType int, data []byte) error
 	Close() error
 }
+
+// Compile-time assertions that this WSConn and the session package's mirror
+// (session.WSConn, defined separately to avoid a circular import) stay in sync.
+// Both directions are checked, so adding or removing a method on either
+// interface without matching the other breaks the build here rather than
+// silently at the connection-handoff call site.
+var (
+	_ session.WSConn = (WSConn)(nil)
+	_ WSConn         = (session.WSConn)(nil)
+)
 
 // WSUpgrader upgrades an HTTP connection to a WebSocket connection.
 type WSUpgrader interface {
@@ -101,11 +113,16 @@ func WSIsUnexpectedCloseError(err error, expectedCodes ...int) bool {
 }
 
 // WSIsUpgrade reports whether the HTTP request is a WebSocket upgrade request
-// per RFC 6455 §4.1 (requires GET method).
+// per RFC 6455 §4.1: a GET carrying Connection: upgrade, Upgrade: websocket,
+// a Sec-WebSocket-Key, and Sec-WebSocket-Version: 13. Requests missing the
+// Sec-WebSocket-* headers are not valid handshakes and are routed as plain HTTP
+// (where the upgrade would otherwise fail at Upgrade() anyway).
 func WSIsUpgrade(r *http.Request) bool {
 	return r.Method == http.MethodGet &&
 		headerContainsValue(r.Header, "Connection", "upgrade") &&
-		headerContainsValue(r.Header, "Upgrade", "websocket")
+		headerContainsValue(r.Header, "Upgrade", "websocket") &&
+		r.Header.Get("Sec-WebSocket-Key") != "" &&
+		headerContainsValue(r.Header, "Sec-WebSocket-Version", "13")
 }
 
 func headerContainsValue(h http.Header, key, val string) bool {

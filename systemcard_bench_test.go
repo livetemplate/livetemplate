@@ -606,6 +606,7 @@ func measureGCPressure(scenario appScenario, sessionCount int) gcResult {
 	var wg sync.WaitGroup
 	deadline := time.Now().Add(duration)
 
+	var firstErr atomic.Value
 	for idx := 0; idx < sessionCount; idx++ {
 		wg.Add(1)
 		go func(tmpl *Template, session int) {
@@ -616,12 +617,21 @@ func measureGCPressure(scenario appScenario, sessionCount int) gcResult {
 				iteration++
 				state := scenario.UpdateState(iteration + session*10000)
 				buf.Reset()
-				_ = tmpl.ExecuteUpdates(&buf, state)
+				if err := tmpl.ExecuteUpdates(&buf, state); err != nil {
+					firstErr.CompareAndSwap(nil, err)
+					return
+				}
 			}
 		}(templates[idx], idx)
 	}
 
 	wg.Wait()
+
+	// Surface worker errors: if ExecuteUpdates fails, the GC numbers measure
+	// almost no work and would be meaningless. Mirrors measureUpdateThroughput.
+	if v := firstErr.Load(); v != nil {
+		panic(fmt.Sprintf("measureGCPressure: ExecuteUpdates failed: %v", v))
+	}
 
 	var after runtime.MemStats
 	runtime.ReadMemStats(&after)
