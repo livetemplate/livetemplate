@@ -60,6 +60,37 @@ func TestEnqueueDispatch_DropsWhenFull(t *testing.T) {
 	}
 }
 
+// mockMetrics is a MetricsRecorder that counts dispatch drops for assertion.
+type mockMetrics struct {
+	dispatchDropped int
+}
+
+func (m *mockMetrics) WSBufferFull()           {}
+func (m *mockMetrics) WSSlowClientClose()      {}
+func (m *mockMetrics) WSWriteError()           {}
+func (m *mockMetrics) WSAddBufferSize(_ int64) {}
+func (m *mockMetrics) WSDispatchDropped()      { m.dispatchDropped++ }
+
+func TestEnqueueDispatch_DropIncrementsMetric(t *testing.T) {
+	metrics := &mockMetrics{}
+	conn := &Connection{
+		GroupID:      "group-1",
+		DispatchChan: make(chan *DispatchRequest, 1),
+		metrics:      metrics,
+	}
+
+	// First enqueue fills the buffer; second is dropped and must increment the metric.
+	conn.EnqueueDispatch(&DispatchRequest{Action: "First"})
+	if got := len(conn.DispatchChan); got != 1 {
+		t.Fatalf("precondition: expected buffer full (len 1) before drop, got %d", got)
+	}
+	conn.EnqueueDispatch(&DispatchRequest{Action: "Second"})
+
+	if metrics.dispatchDropped != 1 {
+		t.Errorf("expected WSDispatchDropped to be called once, got %d", metrics.dispatchDropped)
+	}
+}
+
 func TestEnqueueDispatch_NilChannelIsNoOp(t *testing.T) {
 	conn := &Connection{
 		GroupID: "group-1",

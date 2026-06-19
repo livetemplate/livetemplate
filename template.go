@@ -1690,13 +1690,13 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 				slog.Any("error", err))
 		} else {
 			slog.Info("Pub/sub subscriber started")
-			if err := mountCfg.PubSubBroadcaster.SubscribeServerActions(handler.handleServerActionMessage); err != nil {
+			if err := mountCfg.PubSubBroadcaster.RegisterServerActionHandler(handler.handleServerActionMessage); err != nil {
 				slog.Error("Failed to subscribe to server actions",
 					slog.Any("error", err))
 			}
 
 			if gab, ok := mountCfg.PubSubBroadcaster.(pubsub.GroupActionBroadcaster); ok {
-				if err := gab.SubscribeGroupActions(handler.handleGroupActionMessage); err != nil {
+				if err := gab.RegisterGroupActionHandler(handler.handleGroupActionMessage); err != nil {
 					slog.Error("Failed to subscribe to group actions",
 						slog.Any("error", err))
 				}
@@ -1705,13 +1705,13 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 			// One topicActionHandler per broadcaster: a second Handle() sharing
 			// this *RedisBroadcaster gets "already subscribed to topic actions"
 			// here, which is logged and swallowed (consistent with the
-			// SubscribeGroupActions/SubscribeServerActions pattern above) — that
+			// RegisterGroupActionHandler/RegisterServerActionHandler pattern above) — that
 			// second handler then silently receives NO cross-instance topic
 			// actions for its whole lifetime. Operators must give each Handle()
 			// its own broadcaster. Contract recorded for Phase 6 docs in
 			// learnings/phase-2.md "Open questions".
 			if tab, ok := mountCfg.PubSubBroadcaster.(pubsub.TopicActionBroadcaster); ok {
-				if err := tab.SubscribeToTopicActions(handler.handleTopicActionMessage); err != nil {
+				if err := tab.RegisterTopicActionHandler(handler.handleTopicActionMessage); err != nil {
 					slog.Error("Failed to subscribe to topic actions",
 						slog.String("component", "live_handler"),
 						slog.String("event", "topic_action_subscribe_failed"),

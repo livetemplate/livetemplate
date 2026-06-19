@@ -73,9 +73,9 @@ type Broadcaster interface {
 	// The handler is responsible for fan-out to local connections
 	Subscribe(handler MessageHandler) error
 
-	// SubscribeServerActions starts listening for server action messages
+	// RegisterServerActionHandler starts listening for server action messages
 	// The handler is responsible for triggering actions on local connections
-	SubscribeServerActions(handler ServerActionHandler) error
+	RegisterServerActionHandler(handler ServerActionHandler) error
 
 	// Close stops the broadcaster and cleans up resources
 	Close() error
@@ -89,8 +89,8 @@ type GroupActionBroadcaster interface {
 	// PublishGroupAction publishes a group-scoped action to all instances.
 	PublishGroupAction(groupID string, action string, data map[string]interface{}) error
 
-	// SubscribeGroupActions starts listening for group action messages.
-	SubscribeGroupActions(handler GroupActionHandler) error
+	// RegisterGroupActionHandler starts listening for group action messages.
+	RegisterGroupActionHandler(handler GroupActionHandler) error
 }
 
 // DynamicSubscriber allows subscribing to scoped channels at runtime.
@@ -146,9 +146,9 @@ type TopicActionBroadcaster interface {
 	// to a PSUBSCRIBE, not because publishers expand patterns).
 	PublishToTopic(topic string, action string, data map[string]interface{}) error
 
-	// SubscribeToTopicActions registers the handler invoked for every received
-	// topic action message (from other instances). Mirrors SubscribeGroupActions.
-	SubscribeToTopicActions(handler GroupActionHandler) error
+	// RegisterTopicActionHandler registers the handler invoked for every received
+	// topic action message (from other instances). Mirrors RegisterGroupActionHandler.
+	RegisterTopicActionHandler(handler GroupActionHandler) error
 }
 
 // TopicChannelSubscriber allows subscribing to per-topic channels at runtime.

@@ -530,7 +530,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		GroupID:  groupID,
 		UserID:   userID,
 		Template: connTmpl,
-		Stores:   typedState, // Store typed state for peer-fan-out
+		State:    typedState, // typed state for peer-fan-out
 		Uploads:  uploadRegistry,
 	}
 
@@ -780,7 +780,14 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// During dispatch handling, the readPump blocks after buffering one message.
 	// This bounds memory and ensures state mutations are strictly sequential.
 	// Tradeoff: slow dispatched actions (e.g., DB calls) pause client message processing.
-	// Increasing the buffer would NOT help — state mutations must still be sequential.
+	//
+	// This size is intentionally fixed (there is no WithReadBufferSize option). A
+	// larger buffer would not improve latency or throughput even for bursty client
+	// input (rapid typing, autocomplete): the event loop still applies messages one
+	// at a time, so a deeper buffer only changes WHERE messages wait (this Go channel
+	// vs the OS socket buffer), not how fast they are processed. The send buffer
+	// (WithWebSocketBufferSize) is configurable because it addresses a different
+	// problem — slow clients on the write path.
 	readChan := make(chan wsReadMessage, 1)
 	go func() {
 		defer close(readChan)
@@ -906,7 +913,7 @@ eventLoop:
 
 			if actionErr == nil {
 				h.persistState(r.Context(), groupID, connSt.state)
-				connection.Stores = connSt.state
+				connection.State = connSt.state
 				h.processTopicPublishes(connection, actionCtx.pendingTopicPublishes())
 			}
 
@@ -1879,7 +1886,7 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 	}
 
 	connSt.state = newState
-	connection.Stores = connSt.state
+	connection.State = connSt.state
 	h.persistState(context.Background(), connSt.groupID, connSt.state)
 
 	// Chained Publish calls from dispatched actions are intentionally dropped:
@@ -2228,7 +2235,7 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 	for _, conn := range connections {
 		// Create connection state for this action
 		state := &connState{
-			state:    conn.Stores, // conn.Stores holds the typed state
+			state:    conn.State, // conn.State holds the typed state
 			messages: make(map[string]string),
 			groupID:  conn.GroupID,
 		}
@@ -2283,7 +2290,7 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 			}
 		} else {
 			state.state = newState
-			conn.Stores = newState
+			conn.State = newState
 			groupStates[conn.GroupID] = newState
 		}
 
@@ -3073,7 +3080,7 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, rawData []byte, 
 			// completed over WebSocket (Direct, Volume) update only the in-memory
 			// connection state and are lost on reload.
 			h.persistState(ctx, connection.GroupID, state.state)
-			connection.Stores = state.state
+			connection.State = state.state
 			// Drain ctx.Publish from an upload-complete handler — consistent
 			// with the WS-action and HTTP-POST action paths.
 			h.processTopicPublishes(connection, actionCtx.pendingTopicPublishes())

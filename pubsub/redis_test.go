@@ -587,13 +587,13 @@ func TestRedisBroadcaster_ReconnectPreservesDynamicSubscriptions(t *testing.T) {
 	var broadcastMsgs []*BroadcastMessage
 	var serverActionMsgs []*ServerActionMessage
 
-	if err := subscriber.SubscribeServerActions(func(msg *ServerActionMessage) error {
+	if err := subscriber.RegisterServerActionHandler(func(msg *ServerActionMessage) error {
 		mu.Lock()
 		serverActionMsgs = append(serverActionMsgs, msg)
 		mu.Unlock()
 		return nil
 	}); err != nil {
-		t.Fatalf("SubscribeServerActions failed: %v", err)
+		t.Fatalf("RegisterServerActionHandler failed: %v", err)
 	}
 
 	if err := subscriber.Subscribe(func(msg *BroadcastMessage) error {
@@ -1728,13 +1728,13 @@ func TestRedisBroadcaster_ReconnectPreservesPatternSubscriptions(t *testing.T) {
 
 	var mu sync.Mutex
 	var topicMsgs []*GroupActionMessage
-	if err := subscriber.SubscribeToTopicActions(func(msg *GroupActionMessage) error {
+	if err := subscriber.RegisterTopicActionHandler(func(msg *GroupActionMessage) error {
 		mu.Lock()
 		topicMsgs = append(topicMsgs, msg)
 		mu.Unlock()
 		return nil
 	}); err != nil {
-		t.Fatalf("SubscribeToTopicActions failed: %v", err)
+		t.Fatalf("RegisterTopicActionHandler failed: %v", err)
 	}
 	// Subscribe() starts the processMessages pump and creates b.pubsub.
 	if err := subscriber.Subscribe(func(*BroadcastMessage) error { return nil }); err != nil {

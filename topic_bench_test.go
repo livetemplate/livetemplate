@@ -146,17 +146,17 @@ func TestTopic_Phase2_CrossInstanceRoundTripVsGroupAction(t *testing.T) {
 
 	topicHits := make(chan struct{}, 1024)
 	groupHits := make(chan struct{}, 1024)
-	if err := bB.SubscribeToTopicActions(func(*pubsub.GroupActionMessage) error {
+	if err := bB.RegisterTopicActionHandler(func(*pubsub.GroupActionMessage) error {
 		topicHits <- struct{}{}
 		return nil
 	}); err != nil {
-		t.Fatalf("SubscribeToTopicActions: %v", err)
+		t.Fatalf("RegisterTopicActionHandler: %v", err)
 	}
-	if err := bB.SubscribeGroupActions(func(*pubsub.GroupActionMessage) error {
+	if err := bB.RegisterGroupActionHandler(func(*pubsub.GroupActionMessage) error {
 		groupHits <- struct{}{}
 		return nil
 	}); err != nil {
-		t.Fatalf("SubscribeGroupActions: %v", err)
+		t.Fatalf("RegisterGroupActionHandler: %v", err)
 	}
 	// The single pump must be running for either handler to fire.
 	if err := bB.Subscribe(func(*pubsub.BroadcastMessage) error { return nil }); err != nil {

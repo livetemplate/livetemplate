@@ -2933,12 +2933,12 @@ func (f *fakeBroadcaster) Subscribe(_ pubsub.MessageHandler) error {
 	return f.subscribeErr
 }
 
-func (f *fakeBroadcaster) SubscribeServerActions(_ pubsub.ServerActionHandler) error {
+func (f *fakeBroadcaster) RegisterServerActionHandler(_ pubsub.ServerActionHandler) error {
 	f.serverActionCalls++
 	return nil
 }
 
-func (f *fakeBroadcaster) SubscribeGroupActions(_ pubsub.GroupActionHandler) error {
+func (f *fakeBroadcaster) RegisterGroupActionHandler(_ pubsub.GroupActionHandler) error {
 	f.groupActionCalls++
 	return nil
 }
@@ -2961,10 +2961,10 @@ func TestHandle_PubSubSubscribeFailureSkipsRegistrations(t *testing.T) {
 		t.Errorf("Subscribe should be called once, got %d", fb.subscribeCalls)
 	}
 	if fb.serverActionCalls != 0 {
-		t.Errorf("SubscribeServerActions must NOT be called when Subscribe fails, got %d", fb.serverActionCalls)
+		t.Errorf("RegisterServerActionHandler must NOT be called when Subscribe fails, got %d", fb.serverActionCalls)
 	}
 	if fb.groupActionCalls != 0 {
-		t.Errorf("SubscribeGroupActions must NOT be called when Subscribe fails, got %d", fb.groupActionCalls)
+		t.Errorf("RegisterGroupActionHandler must NOT be called when Subscribe fails, got %d", fb.groupActionCalls)
 	}
 }
 
@@ -2986,10 +2986,10 @@ func TestHandle_PubSubSubscribeSuccessRegistersAll(t *testing.T) {
 		t.Errorf("Subscribe should be called once, got %d", fb.subscribeCalls)
 	}
 	if fb.serverActionCalls != 1 {
-		t.Errorf("SubscribeServerActions should be called once, got %d", fb.serverActionCalls)
+		t.Errorf("RegisterServerActionHandler should be called once, got %d", fb.serverActionCalls)
 	}
 	if fb.groupActionCalls != 1 {
-		t.Errorf("SubscribeGroupActions should be called once, got %d", fb.groupActionCalls)
+		t.Errorf("RegisterGroupActionHandler should be called once, got %d", fb.groupActionCalls)
 	}
 }
 
