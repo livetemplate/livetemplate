@@ -39,3 +39,20 @@ func TestBuiltinSlice_TooManyIndices(t *testing.T) {
 		t.Fatal("expected error for more than 3 indices")
 	}
 }
+
+// TestSliceThreeIndexString_ErrorsViaTemplate confirms the string guard is
+// reachable through the real template path (Parse + BuildTree), not just a
+// direct builtinSlice call.
+func TestSliceThreeIndexString_ErrorsViaTemplate(t *testing.T) {
+	tmpl, err := Parse("{{slice .S 1 3 4}}", nil)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	_, err = BuildTree(tmpl, map[string]interface{}{"S": "hello"}, &Context{IncludeStatics: true})
+	if err == nil {
+		t.Fatal("expected error when 3-indexing a string via template")
+	}
+	if !strings.Contains(err.Error(), "cannot 3-index slice a string") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}

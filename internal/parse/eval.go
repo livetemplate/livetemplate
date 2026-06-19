@@ -369,7 +369,7 @@ func resolveFieldChain(value interface{}, fields []string) (interface{}, error) 
 func callMethod(method reflect.Value) (interface{}, error) {
 	mt := method.Type()
 	if mt.NumIn() != 0 {
-		return method.Interface(), nil // Return the method itself (it's a callable)
+		return method.Interface(), nil
 	}
 	results := method.Call(nil)
 	if len(results) == 0 {
