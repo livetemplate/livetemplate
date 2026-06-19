@@ -26,7 +26,7 @@ type WSConn interface {
 // The Template field is per-connection because ExecuteUpdates() maintains state (lastTree, lastData)
 // for tree diffing, which must be independent for each connection.
 //
-// Type Safety Note: Template, Stores, and Uploads are interface{} to avoid circular imports with the parent
+// Type Safety Note: Template, State, and Uploads are interface{} to avoid circular imports with the parent
 // livetemplate package. Consumers should use type assertions with the safe pattern:
 //
 //	tmpl, ok := conn.Template.(*livetemplate.Template)
@@ -36,14 +36,14 @@ type WSConn interface {
 //
 // Expected types:
 //   - Template: *livetemplate.Template
-//   - Stores: livetemplate.Stores (map[string]Store)
+//   - State: the per-connection typed State value, updated per-action (for peer fan-out)
 //   - Uploads: *upload.Registry
 type Connection struct {
 	Conn     WSConn      // WebSocket connection
 	GroupID  string      // Session group ID (shared state boundary)
 	UserID   string      // User identity ("" for anonymous)
 	Template interface{} // Per-connection template for tree diffing (*livetemplate.Template)
-	Stores   interface{} // State snapshot, updated per-action.
+	State    interface{} // Per-connection typed State snapshot, updated per-action (for peer fan-out).
 	Uploads  interface{} // Per-connection upload registry (*upload.Registry)
 	mu       sync.Mutex  // Protects writes to Conn
 

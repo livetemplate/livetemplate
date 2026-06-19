@@ -587,13 +587,13 @@ func TestRedisBroadcaster_ReconnectPreservesDynamicSubscriptions(t *testing.T) {
 	var broadcastMsgs []*BroadcastMessage
 	var serverActionMsgs []*ServerActionMessage
 
-	if err := subscriber.SubscribeServerActions(func(msg *ServerActionMessage) error {
+	if err := subscriber.RegisterServerActionHandler(func(msg *ServerActionMessage) error {
 		mu.Lock()
 		serverActionMsgs = append(serverActionMsgs, msg)
 		mu.Unlock()
 		return nil
 	}); err != nil {
-		t.Fatalf("SubscribeServerActions failed: %v", err)
+		t.Fatalf("RegisterServerActionHandler failed: %v", err)
 	}
 
 	if err := subscriber.Subscribe(func(msg *BroadcastMessage) error {

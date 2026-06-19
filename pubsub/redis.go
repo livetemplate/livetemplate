@@ -318,11 +318,11 @@ func (b *RedisBroadcaster) Subscribe(handler MessageHandler) error {
 	return nil
 }
 
-// SubscribeServerActions starts listening for server action messages.
+// RegisterServerActionHandler starts listening for server action messages.
 //
 // The handler will be called for each received server action message.
 // It should trigger the action on relevant local connections.
-func (b *RedisBroadcaster) SubscribeServerActions(handler ServerActionHandler) error {
+func (b *RedisBroadcaster) RegisterServerActionHandler(handler ServerActionHandler) error {
 	if handler == nil {
 		return fmt.Errorf("handler cannot be nil")
 	}
@@ -389,8 +389,8 @@ func (b *RedisBroadcaster) PublishGroupAction(groupID string, action string, dat
 	return b.publishJSON(channelGroupAction+groupID, msg)
 }
 
-// SubscribeGroupActions starts listening for group action messages.
-func (b *RedisBroadcaster) SubscribeGroupActions(handler GroupActionHandler) error {
+// RegisterGroupActionHandler starts listening for group action messages.
+func (b *RedisBroadcaster) RegisterGroupActionHandler(handler GroupActionHandler) error {
 	if handler == nil {
 		return fmt.Errorf("handler cannot be nil")
 	}
@@ -446,7 +446,7 @@ func (b *RedisBroadcaster) PublishToTopic(topic string, action string, data map[
 }
 
 // SubscribeToTopicActions registers the handler invoked for every received
-// topic action message from other instances. Mirrors SubscribeGroupActions.
+// topic action message from other instances. Mirrors RegisterGroupActionHandler.
 func (b *RedisBroadcaster) SubscribeToTopicActions(handler GroupActionHandler) error {
 	if handler == nil {
 		return fmt.Errorf("handler cannot be nil")
