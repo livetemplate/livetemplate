@@ -5,6 +5,15 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Breaking (pubsub):** renamed broadcaster handler-registration methods to use the `Register*Handler` convention, disambiguating one-time handler registration from the per-entity, reference-counted `SubscribeTo*` subscription methods. Implementers and callers of these `pubsub` interfaces must update:
+  - `Broadcaster.SubscribeServerActions` → `Broadcaster.RegisterServerActionHandler`
+  - `GroupActionBroadcaster.SubscribeGroupActions` → `GroupActionBroadcaster.RegisterGroupActionHandler`
+  - `TopicActionBroadcaster.SubscribeToTopicActions` → `TopicActionBroadcaster.RegisterTopicActionHandler`
+
 ## [v0.14.0] - 2026-06-13
 
 ### Changes

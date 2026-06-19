@@ -81,6 +81,9 @@ func TestEnqueueDispatch_DropIncrementsMetric(t *testing.T) {
 
 	// First enqueue fills the buffer; second is dropped and must increment the metric.
 	conn.EnqueueDispatch(&DispatchRequest{Action: "First"})
+	if got := len(conn.DispatchChan); got != 1 {
+		t.Fatalf("precondition: expected buffer full (len 1) before drop, got %d", got)
+	}
 	conn.EnqueueDispatch(&DispatchRequest{Action: "Second"})
 
 	if metrics.dispatchDropped != 1 {

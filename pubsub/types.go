@@ -146,9 +146,9 @@ type TopicActionBroadcaster interface {
 	// to a PSUBSCRIBE, not because publishers expand patterns).
 	PublishToTopic(topic string, action string, data map[string]interface{}) error
 
-	// SubscribeToTopicActions registers the handler invoked for every received
+	// RegisterTopicActionHandler registers the handler invoked for every received
 	// topic action message (from other instances). Mirrors RegisterGroupActionHandler.
-	SubscribeToTopicActions(handler GroupActionHandler) error
+	RegisterTopicActionHandler(handler GroupActionHandler) error
 }
 
 // TopicChannelSubscriber allows subscribing to per-topic channels at runtime.

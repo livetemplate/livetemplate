@@ -445,9 +445,9 @@ func (b *RedisBroadcaster) PublishToTopic(topic string, action string, data map[
 	return b.publishJSON(channelTopic+topic, msg)
 }
 
-// SubscribeToTopicActions registers the handler invoked for every received
+// RegisterTopicActionHandler registers the handler invoked for every received
 // topic action message from other instances. Mirrors RegisterGroupActionHandler.
-func (b *RedisBroadcaster) SubscribeToTopicActions(handler GroupActionHandler) error {
+func (b *RedisBroadcaster) RegisterTopicActionHandler(handler GroupActionHandler) error {
 	if handler == nil {
 		return fmt.Errorf("handler cannot be nil")
 	}

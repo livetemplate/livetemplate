@@ -1711,7 +1711,7 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 			// its own broadcaster. Contract recorded for Phase 6 docs in
 			// learnings/phase-2.md "Open questions".
 			if tab, ok := mountCfg.PubSubBroadcaster.(pubsub.TopicActionBroadcaster); ok {
-				if err := tab.SubscribeToTopicActions(handler.handleTopicActionMessage); err != nil {
+				if err := tab.RegisterTopicActionHandler(handler.handleTopicActionMessage); err != nil {
 					slog.Error("Failed to subscribe to topic actions",
 						slog.String("component", "live_handler"),
 						slog.String("event", "topic_action_subscribe_failed"),
