@@ -56,6 +56,16 @@ Fields tagged with `lvt:"persist"` follow this persistence schedule. Untagged fi
 | Server action | Persisted (once per group) | In-memory for connection lifetime |
 | Page refresh | Restored from store | Zero value, loaded by Mount() |
 
+### Persistence and Path Navigation
+
+`lvt:"persist"` fields survive a **same-URL page refresh** (F5) and a **WebSocket reconnect**. They do **not** survive navigation to a different path:
+
+- Persistence is keyed by `groupID`, not by URL path.
+- When a GET request arrives on a path different from the group's last-seen path, LiveTemplate resets to fresh state for the new URL (persist fields go back to their zero values, then `Mount()` runs) and **overwrites** the group's stored persist fields with that fresh state.
+- Because the store is overwritten on navigation, navigating **back** to the original path does **not** restore the previously persisted values — they were replaced. Persist fields only ever round-trip across a refresh/reconnect on the *same* path.
+
+This matches the pre-`lvt:"persist"` behavior where a path change always meant fresh state. Treat `lvt:"persist"` as "survives refresh," not "survives navigation."
+
 ### Explicit Peer Refresh
 
 ```go
@@ -235,6 +245,8 @@ type SessionStore interface {
     List(ctx context.Context) []string
 }
 ```
+
+**`[]byte` contract for selective persistence:** when the framework persists `lvt:"persist"` fields, it always passes `[]byte` (JSON) to `Set()` and requires `Get()` to return that same `[]byte` (or `nil`) unchanged. A custom `SessionStore` that transforms the value on the round-trip — for example, JSON-unmarshalling it into a `map` — breaks persistence: persist fields silently fall back to fresh state on every request (a warning is logged, no error returned). Both built-in stores honor this automatically; see the `SessionStore` doc comment for the full contract.
 
 ### SingleStoreSetter
 

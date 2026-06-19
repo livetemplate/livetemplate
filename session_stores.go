@@ -23,15 +23,27 @@ import (
 // For authenticated users: groupID is typically the userID (each user has isolated state).
 //
 // Thread-safety: All implementations must be safe for concurrent access from multiple goroutines.
+// Selective persistence ([]byte contract): when the framework persists
+// lvt:"persist" fields, it always passes []byte (JSON) to Set and requires
+// Get to return that same []byte (or nil) unchanged. A custom implementation
+// that transforms the value on the round-trip (e.g. unmarshals it into a map)
+// will cause persist fields to silently fall back to fresh state on every
+// request — no error, just a warning log. Both built-in stores honor this:
+// MemorySessionStore returns the value as-is, and RedisSessionStore returns
+// the stored JSON as []byte. Values other than []byte (e.g. the struct passed
+// by SessionStoreHealthChecker) are accepted but are outside the persistence
+// contract.
 type SessionStore interface {
 	// Get retrieves the state for a session group.
 	// Returns nil if the group doesn't exist.
 	// The context can be used for cancellation, timeouts, and tracing.
+	// For selective persistence, must return the []byte passed to Set unchanged.
 	Get(ctx context.Context, groupID string) interface{}
 
 	// Set stores state for a session group.
 	// Creates a new group if it doesn't exist, updates if it does.
 	// The context can be used for cancellation, timeouts, and tracing.
+	// For selective persistence, the framework always passes []byte (JSON).
 	Set(ctx context.Context, groupID string, state interface{})
 
 	// Delete removes a session group and all its state.
@@ -439,7 +451,11 @@ func (s *RedisSessionStore) Set(ctx context.Context, groupID string, state inter
 		return
 	}
 
-	// State can be raw JSON bytes (from selective persistence) or a struct
+	// State can be raw JSON bytes or a struct. Selective persistence
+	// (persistState in mount.go) always passes []byte and takes the first
+	// branch. The json.Marshal branch is NOT dead: SessionStoreHealthChecker.Check
+	// passes a *healthCheckState struct, and custom callers may pass arbitrary
+	// values, so both paths must be supported.
 	var stateJSON []byte
 	var err error
 	if raw, ok := state.([]byte); ok {
