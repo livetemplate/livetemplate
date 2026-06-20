@@ -137,11 +137,21 @@ type LiveHandler interface {
 	Publish(topic, action string, data map[string]interface{}) error
 }
 
-// ephemeralSweepTTL is how long idle HTTP template cache entries survive in ephemeral
-// mode before being evicted by the sweep loop. 30 minutes balances memory reclamation
-// for abandoned sessions vs keeping diff baselines alive for active users between
-// interactions (e.g., reading a page before submitting a form).
-const ephemeralSweepTTL = 30 * time.Minute
+// defaultEphemeralSweepTTL is how long idle HTTP template cache entries survive in
+// ephemeral mode before being evicted by the sweep loop, unless overridden via
+// WithEphemeralSweepTTL. 30 minutes balances memory reclamation for abandoned
+// sessions vs keeping diff baselines alive for active users between interactions
+// (e.g., reading a page before submitting a form).
+const defaultEphemeralSweepTTL = 30 * time.Minute
+
+// defaultSweepInterval is how often the sweep loop runs. In ephemeral mode the
+// interval is reduced to the configured TTL (floored) so a short TTL is actually
+// honored rather than rounded up to the next sweep.
+const defaultSweepInterval = 10 * time.Minute
+
+// minSweepInterval bounds how fast the ephemeral sweep goroutine can spin when a
+// very short TTL is configured.
+const minSweepInterval = time.Minute
 
 // mountConfig configures the mount handler (internal only)
 type mountConfig struct {
@@ -176,6 +186,11 @@ type liveHandler struct {
 	needsStreaming  bool     // true if any field needs the streaming multipart path: Proxied or Volume-with-Dir (static, computed at Handle)
 	httpTemplates   sync.Map // groupID → *httpTemplateCacheEntry (cached for HTTP POST diff optimization)
 	httpLastPaths   sync.Map // groupID → string (last served request path, for detecting URL changes)
+
+	// ephemeralSweepTTL is the idle TTL for HTTP template cache entries in
+	// ephemeral mode (no persist fields). Always positive; defaults to
+	// defaultEphemeralSweepTTL.
+	ephemeralSweepTTL time.Duration
 
 	// Graceful shutdown state
 	shutdownOnce sync.Once
@@ -1907,12 +1922,24 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 	}
 }
 
+// sweepInterval picks how often the sweep loop runs. In ephemeral mode it shrinks
+// the interval toward the TTL (floored at minSweepInterval) so a short TTL is
+// honored instead of rounded up to the default interval. Persistent mode keeps the
+// default interval (its eviction is SessionStore-driven, not TTL-driven, so a
+// tighter interval would only add SessionStore.List load).
+func sweepInterval(ephemeral bool, ttl time.Duration) time.Duration {
+	if !ephemeral || ttl >= defaultSweepInterval {
+		return defaultSweepInterval
+	}
+	return max(ttl, minSweepInterval)
+}
+
 // httpTemplateSweepLoop periodically removes cached HTTP templates to prevent
 // unbounded memory growth. In persistent mode, evicts entries whose session no
 // longer exists in the SessionStore. In ephemeral mode (no SessionStore), evicts
-// entries idle for longer than ephemeralSweepTTL.
+// entries idle for longer than the configured ephemeralSweepTTL.
 func (h *liveHandler) httpTemplateSweepLoop() {
-	ticker := time.NewTicker(10 * time.Minute)
+	ticker := time.NewTicker(sweepInterval(h.persistable == nil, h.ephemeralSweepTTL))
 	defer ticker.Stop()
 
 	for {
@@ -1929,8 +1956,8 @@ func (h *liveHandler) sweepStaleHTTPTemplates() {
 	sweptSessions := make(map[string]struct{})
 
 	if h.persistable == nil {
-		// No persist fields: no SessionStore to check. Evict entries idle for >30 minutes.
-		cutoff := time.Now().Add(-ephemeralSweepTTL).Unix()
+		// No persist fields: no SessionStore to check. Evict entries idle longer than the TTL.
+		cutoff := time.Now().Add(-h.ephemeralSweepTTL).Unix()
 		h.httpTemplates.Range(func(key, value any) bool {
 			groupID := key.(string)
 			entry := value.(*httpTemplateCacheEntry)
