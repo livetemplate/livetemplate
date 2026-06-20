@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking (`FormRule`):** unified the optional-bound sentinels. `MinLength`/`MaxLength` no longer use `-1` to mean "not set"; all four numeric bounds are now gated by paired `Has*` booleans — new `HasMinLength`/`HasMaxLength` join the existing `HasMin`/`HasMax`. Code that constructed a `FormRule` with `MinLength: -1` (or read it expecting the `-1` sentinel) must switch to the `Has*` flags. Callers using `ExtractFormSchema`/`ValidateForm` normally are unaffected.
 - **Breaking (pubsub):** renamed broadcaster handler-registration methods to use the `Register*Handler` convention, disambiguating one-time handler registration from the per-entity, reference-counted `SubscribeTo*` subscription methods. Implementers and callers of these `pubsub` interfaces must update:
   - `Broadcaster.SubscribeServerActions` → `Broadcaster.RegisterServerActionHandler`
   - `GroupActionBroadcaster.SubscribeGroupActions` → `GroupActionBroadcaster.RegisterGroupActionHandler`

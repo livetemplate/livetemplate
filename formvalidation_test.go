@@ -36,11 +36,11 @@ func TestExtractFormSchema_BasicAttributes(t *testing.T) {
 	if email.InputType != "email" {
 		t.Errorf("Email type = %q, want email", email.InputType)
 	}
-	if email.MinLength != 5 {
-		t.Errorf("Email minlength = %d, want 5", email.MinLength)
+	if !email.HasMinLength || email.MinLength != 5 {
+		t.Errorf("Email minlength = %v/%d, want true/5", email.HasMinLength, email.MinLength)
 	}
-	if email.MaxLength != 100 {
-		t.Errorf("Email maxlength = %d, want 100", email.MaxLength)
+	if !email.HasMaxLength || email.MaxLength != 100 {
+		t.Errorf("Email maxlength = %v/%d, want true/100", email.HasMaxLength, email.MaxLength)
 	}
 
 	// Age rule
@@ -87,7 +87,7 @@ func TestExtractFormSchema_NoNameAttr(t *testing.T) {
 func TestFormSchema_Validate_Required(t *testing.T) {
 	schema := &FormSchema{
 		Rules: []FormRule{
-			{Field: "Title", Required: true, MinLength: -1, MaxLength: -1},
+			{Field: "Title", Required: true},
 		},
 	}
 
@@ -110,7 +110,7 @@ func TestFormSchema_Validate_Required(t *testing.T) {
 func TestFormSchema_Validate_Email(t *testing.T) {
 	schema := &FormSchema{
 		Rules: []FormRule{
-			{Field: "Email", InputType: "email", MinLength: -1, MaxLength: -1},
+			{Field: "Email", InputType: "email"},
 		},
 	}
 
@@ -128,7 +128,7 @@ func TestFormSchema_Validate_Email(t *testing.T) {
 func TestFormSchema_Validate_MinMaxLength(t *testing.T) {
 	schema := &FormSchema{
 		Rules: []FormRule{
-			{Field: "Name", MinLength: 3, MaxLength: 10},
+			{Field: "Name", MinLength: 3, HasMinLength: true, MaxLength: 10, HasMaxLength: true},
 		},
 	}
 
@@ -151,7 +151,7 @@ func TestFormSchema_Validate_MinMaxLength(t *testing.T) {
 func TestFormSchema_Validate_MinMax(t *testing.T) {
 	schema := &FormSchema{
 		Rules: []FormRule{
-			{Field: "Age", HasMin: true, Min: 18, HasMax: true, Max: 120, MinLength: -1, MaxLength: -1},
+			{Field: "Age", HasMin: true, Min: 18, HasMax: true, Max: 120},
 		},
 	}
 
@@ -174,7 +174,7 @@ func TestFormSchema_Validate_MinMax(t *testing.T) {
 func TestFormSchema_Validate_Pattern(t *testing.T) {
 	schema := &FormSchema{
 		Rules: []FormRule{
-			{Field: "Code", Pattern: "[A-Z]{3}", PatternRe: regexp.MustCompile("^(?:[A-Z]{3})$"), MinLength: -1, MaxLength: -1},
+			{Field: "Code", Pattern: "[A-Z]{3}", PatternRe: regexp.MustCompile("^(?:[A-Z]{3})$")},
 		},
 	}
 
@@ -192,8 +192,8 @@ func TestFormSchema_Validate_Pattern(t *testing.T) {
 func TestFormSchema_Validate_MultipleErrors(t *testing.T) {
 	schema := &FormSchema{
 		Rules: []FormRule{
-			{Field: "Name", Required: true, MinLength: -1, MaxLength: -1},
-			{Field: "Email", Required: true, InputType: "email", MinLength: -1, MaxLength: -1},
+			{Field: "Name", Required: true},
+			{Field: "Email", Required: true, InputType: "email"},
 		},
 	}
 
@@ -222,7 +222,7 @@ func TestFormSchema_Validate_NilSchema(t *testing.T) {
 func TestContext_ValidateForm(t *testing.T) {
 	schema := &FormSchema{
 		Rules: []FormRule{
-			{Field: "Title", Required: true, MinLength: 3, MaxLength: -1},
+			{Field: "Title", Required: true, MinLength: 3, HasMinLength: true},
 		},
 	}
 
