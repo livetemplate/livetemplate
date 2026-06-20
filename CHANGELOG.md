@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `WithEphemeralSweepTTL(ttl)` `HandleOption` to tune how long idle HTTP template cache entries survive in ephemeral mode (state with no `lvt:"persist"` fields) before the sweep loop evicts them. Defaults to 30 minutes; no effect in persistent mode (eviction follows the SessionStore there). A short TTL also tightens the sweep interval (floored at 1 minute) so the value is actually honored.
+
 ### Changed
 
 - **Breaking (pubsub):** renamed broadcaster handler-registration methods to use the `Register*Handler` convention, disambiguating one-time handler registration from the per-entity, reference-counted `SubscribeTo*` subscription methods. Implementers and callers of these `pubsub` interfaces must update:

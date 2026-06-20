@@ -1658,15 +1658,21 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 		ps = p
 	}
 
+	sweepTTL := config.ephemeralSweepTTL
+	if sweepTTL <= 0 {
+		sweepTTL = defaultEphemeralSweepTTL
+	}
+
 	handler := &liveHandler{
-		config:          mountCfg,
-		persistable:     ps,
-		registry:        session.NewConnectionRegistry(),
-		limits:          limits,
-		metricsExporter: metricsExporter,
-		tempFileManager: tempFileManager,
-		needsStreaming:  uploadConfigsNeedStreaming(t.config.UploadConfigs),
-		shutdownChan:    make(chan struct{}),
+		config:            mountCfg,
+		persistable:       ps,
+		registry:          session.NewConnectionRegistry(),
+		limits:            limits,
+		metricsExporter:   metricsExporter,
+		tempFileManager:   tempFileManager,
+		needsStreaming:    uploadConfigsNeedStreaming(t.config.UploadConfigs),
+		ephemeralSweepTTL: sweepTTL,
+		shutdownChan:      make(chan struct{}),
 	}
 
 	// Wire up metrics to registry for WebSocket observability
@@ -1728,7 +1734,8 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 type HandleOption func(*handleConfig)
 
 type handleConfig struct {
-	sessionStore SessionStore
+	sessionStore      SessionStore
+	ephemeralSweepTTL time.Duration
 }
 
 // WithStore sets the session store for state persistence.
@@ -1736,6 +1743,19 @@ type handleConfig struct {
 func WithStore(store SessionStore) HandleOption {
 	return func(c *handleConfig) {
 		c.sessionStore = store
+	}
+}
+
+// WithEphemeralSweepTTL sets how long an idle HTTP template cache entry survives
+// in ephemeral mode (state with no lvt:"persist" fields) before the sweep loop
+// evicts it. Defaults to 30 minutes when unset or non-positive. Has no effect in
+// persistent mode, where eviction follows the SessionStore instead.
+//
+// Eviction runs on a periodic sweep, so an entry may persist up to one sweep
+// interval beyond the TTL; very short TTLs are floored to keep the sweep cheap.
+func WithEphemeralSweepTTL(ttl time.Duration) HandleOption {
+	return func(c *handleConfig) {
+		c.ephemeralSweepTTL = ttl
 	}
 }
 

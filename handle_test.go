@@ -784,6 +784,136 @@ func TestWebSocketDisabled_StatePersistsAcrossRequests(t *testing.T) {
 	}
 }
 
+// mountObsState/mountObsController record the Count that Mount observes on each
+// request, to verify the persistent-mode HTTP ordering: load from SessionStore →
+// Mount → action.
+type mountObsState struct {
+	Count int `lvt:"persist"`
+}
+
+type mountObsController struct {
+	mountCounts []int // Count seen at the start of each Mount (calls are sequential in tests)
+}
+
+func (c *mountObsController) Mount(s mountObsState, _ *Context) (mountObsState, error) {
+	c.mountCounts = append(c.mountCounts, s.Count)
+	return s, nil
+}
+
+func (c *mountObsController) Increment(s mountObsState, _ *Context) (mountObsState, error) {
+	s.Count++
+	return s, nil
+}
+
+func TestPersistentMode_MountOnPostReceivesPersistedState(t *testing.T) {
+	ctrl := &mountObsController{}
+	tmpl, err := New("test", WithWebSocketDisabled())
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>Count: {{.Count}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+	handler := tmpl.Handle(ctrl, AsState(&mountObsState{}))
+
+	// GET creates the session (Mount sees the initial Count=0).
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
+	cookie := extractSessionCookie(rec)
+	if cookie == nil {
+		t.Fatal("expected session cookie to be set")
+	}
+
+	// postIncrement issues an Increment action. In progressive-enhancement mode this
+	// is a POST-Redirect-GET, so the POST response is a 303 with no rendered body —
+	// state is observed via a follow-up GET (and via the recording Mount).
+	postIncrement := func() {
+		form := url.Values{}
+		form.Set("lvt-action", "Increment")
+		r := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.Header.Set("Accept", "text/html")
+		r.AddCookie(cookie)
+		handler.ServeHTTP(httptest.NewRecorder(), r)
+	}
+
+	getCount := func() string {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.AddCookie(cookie)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w.Body.String()
+	}
+
+	// First POST increments to 1 and persists it.
+	postIncrement()
+	idxBeforeSecondPost := len(ctrl.mountCounts)
+
+	// Second POST: Mount must receive the persisted Count=1 (load → Mount → action),
+	// not a fresh clone with Count=0. This is the core ordering assertion.
+	postIncrement()
+	if idxBeforeSecondPost >= len(ctrl.mountCounts) {
+		t.Fatalf("expected Mount to run during the second POST; mountCounts=%v", ctrl.mountCounts)
+	}
+	if got := ctrl.mountCounts[idxBeforeSecondPost]; got != 1 {
+		t.Errorf("Mount on second POST should receive persisted Count=1, got %d (all observed: %v)", got, ctrl.mountCounts)
+	}
+
+	// Both increments persisted end-to-end.
+	if body := getCount(); !strings.Contains(body, "Count: 2") {
+		t.Errorf("after two increments, expected 'Count: 2', got: %s", body)
+	}
+}
+
+func TestWithEphemeralSweepTTL(t *testing.T) {
+	build := func(opts ...HandleOption) *liveHandler {
+		tmpl, err := New("test")
+		if err != nil {
+			t.Fatalf("New failed: %v", err)
+		}
+		tmpl, err = tmpl.Parse("<div>{{.Count}}</div>")
+		if err != nil {
+			t.Fatalf("Parse failed: %v", err)
+		}
+		return tmpl.Handle(&wsDisabledController{}, AsState(&wsDisabledState{}), opts...).(*liveHandler)
+	}
+
+	if got := build().ephemeralSweepTTL; got != defaultEphemeralSweepTTL {
+		t.Errorf("unset: ephemeralSweepTTL = %v, want default %v", got, defaultEphemeralSweepTTL)
+	}
+	if got := build(WithEphemeralSweepTTL(5 * time.Minute)).ephemeralSweepTTL; got != 5*time.Minute {
+		t.Errorf("custom: ephemeralSweepTTL = %v, want 5m", got)
+	}
+	if got := build(WithEphemeralSweepTTL(0)).ephemeralSweepTTL; got != defaultEphemeralSweepTTL {
+		t.Errorf("zero: ephemeralSweepTTL = %v, want default %v", got, defaultEphemeralSweepTTL)
+	}
+	if got := build(WithEphemeralSweepTTL(-time.Second)).ephemeralSweepTTL; got != defaultEphemeralSweepTTL {
+		t.Errorf("negative: ephemeralSweepTTL = %v, want default %v", got, defaultEphemeralSweepTTL)
+	}
+}
+
+func TestSweepInterval(t *testing.T) {
+	tests := []struct {
+		name      string
+		ephemeral bool
+		ttl       time.Duration
+		want      time.Duration
+	}{
+		{"persistent keeps default", false, 2 * time.Minute, defaultSweepInterval},
+		{"ephemeral long TTL keeps default", true, 30 * time.Minute, defaultSweepInterval},
+		{"ephemeral short TTL shrinks to TTL", true, 3 * time.Minute, 3 * time.Minute},
+		{"ephemeral tiny TTL floored", true, 5 * time.Second, minSweepInterval},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := sweepInterval(tt.ephemeral, tt.ttl); got != tt.want {
+				t.Errorf("sweepInterval(%v, %v) = %v, want %v", tt.ephemeral, tt.ttl, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestWebSocketDisabled_SessionIsolation(t *testing.T) {
 	handler := newWSDisabledHandler(t)
 
