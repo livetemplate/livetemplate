@@ -14,6 +14,11 @@ var errorInterface = reflect.TypeOf((*error)(nil)).Elem()
 type methodMeta struct {
 	Name  string
 	Index int
+	// ValueIndex is the method's index in the value type's method set, or -1 when
+	// the method has a pointer receiver (so it appears only in the pointer type's
+	// set). This lets value-input structs invoke value-receiver methods without
+	// allocating a pointer via reflect.New.
+	ValueIndex int
 	// HasError is true when the method returns (value, error).
 	HasError bool
 }
@@ -27,6 +32,7 @@ func getMethodMeta(ptrType reflect.Type) []methodMeta {
 	if cached, ok := methodMetaCache.Load(ptrType); ok {
 		return cached.([]methodMeta)
 	}
+	valType := ptrType.Elem()
 	var meta []methodMeta
 	for i := 0; i < ptrType.NumMethod(); i++ {
 		method := ptrType.Method(i)
@@ -38,12 +44,18 @@ func getMethodMeta(ptrType reflect.Type) []methodMeta {
 		if numIn != 1 {
 			continue
 		}
+		// A value-receiver method also appears in the value type's method set;
+		// a pointer-receiver method does not (ValueIndex stays -1).
+		valueIndex := -1
+		if vm, ok := valType.MethodByName(method.Name); ok {
+			valueIndex = vm.Index
+		}
 		switch mt.NumOut() {
 		case 1:
-			meta = append(meta, methodMeta{Name: method.Name, Index: i})
+			meta = append(meta, methodMeta{Name: method.Name, Index: i, ValueIndex: valueIndex})
 		case 2:
 			if mt.Out(1) == errorInterface {
-				meta = append(meta, methodMeta{Name: method.Name, Index: i, HasError: true})
+				meta = append(meta, methodMeta{Name: method.Name, Index: i, ValueIndex: valueIndex, HasError: true})
 			}
 		}
 	}
@@ -152,15 +164,32 @@ func buildDataMapWithContext(data interface{}, lvtContext *TemplateContext) inte
 		// on every render, even if the template doesn't reference them. Methods that
 		// return (T, error) are omitted with a warning when error is non-nil (unlike
 		// html/template which would stop execution with the error).
+		methods := getMethodMeta(reflect.PointerTo(typ))
+
+		// For value-type input, only allocate a pointer (reflect.New) if some
+		// qualifying method has a pointer receiver. When every method is a value
+		// receiver, call them directly on val and skip the per-render allocation.
 		if !ptrVal.IsValid() {
-			ptrVal = reflect.New(typ)
-			ptrVal.Elem().Set(val)
+			for _, m := range methods {
+				if m.ValueIndex < 0 {
+					ptrVal = reflect.New(typ)
+					ptrVal.Elem().Set(val)
+					break
+				}
+			}
 		}
-		for _, m := range getMethodMeta(ptrVal.Type()) {
+
+		for _, m := range methods {
 			if _, exists := dataMap[m.Name]; exists {
 				continue
 			}
-			results, panicked := safeMethodCall(ptrVal.Method(m.Index))
+			var method reflect.Value
+			if ptrVal.IsValid() {
+				method = ptrVal.Method(m.Index)
+			} else {
+				method = val.Method(m.ValueIndex)
+			}
+			results, panicked := safeMethodCall(method)
 			if panicked {
 				continue
 			}
