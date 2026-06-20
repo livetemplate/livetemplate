@@ -3,6 +3,7 @@ package context
 import (
 	"fmt"
 	"html/template"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -256,5 +257,47 @@ func TestBuildDataMap_MethodsWithPointerReceiverOnValueInput(t *testing.T) {
 	dm := dataMap.(map[string]interface{})
 	if _, ok := dm["Greeting"]; !ok {
 		t.Fatal("Pointer receiver method should be captured even when passed by value")
+	}
+}
+
+// MixedReceiverState has both a value-receiver and a pointer-receiver zero-arg
+// method, to exercise the receiver-kind bookkeeping in getMethodMeta.
+type MixedReceiverState struct {
+	Name string
+}
+
+func (s MixedReceiverState) ValueGreeting() string { return "value " + s.Name }
+
+func (s *MixedReceiverState) PtrGreeting() string { return "ptr " + s.Name }
+
+// TestGetMethodMeta_ValueIndexReceiverKinds locks the mechanism behind the
+// reflect.New optimization: value-receiver methods carry a real ValueIndex,
+// pointer-receiver methods carry -1.
+func TestGetMethodMeta_ValueIndexReceiverKinds(t *testing.T) {
+	meta := getMethodMeta(reflect.PointerTo(reflect.TypeOf(MixedReceiverState{})))
+	byName := make(map[string]methodMeta, len(meta))
+	for _, m := range meta {
+		byName[m.Name] = m
+	}
+
+	if vm, ok := byName["ValueGreeting"]; !ok || vm.ValueIndex < 0 {
+		t.Errorf("ValueGreeting should be value-receiver (ValueIndex >= 0), got %+v (ok=%v)", vm, ok)
+	}
+	if pm, ok := byName["PtrGreeting"]; !ok || pm.ValueIndex != -1 {
+		t.Errorf("PtrGreeting should be pointer-receiver (ValueIndex == -1), got %+v (ok=%v)", pm, ok)
+	}
+}
+
+// TestBuildDataMap_MixedReceiversOnValueInput is the correctness trap: a value
+// input that has at least one pointer-receiver method must allocate the pointer
+// and route ALL calls through it, so the value-receiver method still resolves.
+func TestBuildDataMap_MixedReceiversOnValueInput(t *testing.T) {
+	dm := BuildDataMap(MixedReceiverState{Name: "x"}, nil, false, nil).(map[string]interface{})
+
+	if got := dm["ValueGreeting"]; got != "value x" {
+		t.Errorf("ValueGreeting: got %v, want %q", got, "value x")
+	}
+	if got := dm["PtrGreeting"]; got != "ptr x" {
+		t.Errorf("PtrGreeting: got %v, want %q", got, "ptr x")
 	}
 }
