@@ -11,18 +11,22 @@ import (
 )
 
 // FormRule represents a validation rule inferred from HTML input attributes.
+// Optional numeric bounds use a paired Has* boolean to signal "set" (the zero
+// value is a valid bound, so a sentinel won't do).
 type FormRule struct {
-	Field     string
-	Required  bool
-	InputType string // "email", "url", "number", "tel"
-	MinLength int    // -1 if not set
-	MaxLength int    // -1 if not set
-	Min       float64
-	Max       float64
-	HasMin    bool
-	HasMax    bool
-	Pattern   string         // raw pattern string
-	PatternRe *regexp.Regexp // pre-compiled pattern (nil if invalid or absent)
+	Field        string
+	Required     bool
+	InputType    string // "email", "url", "number", "tel"
+	MinLength    int
+	MaxLength    int
+	Min          float64
+	Max          float64
+	HasMinLength bool
+	HasMaxLength bool
+	HasMin       bool
+	HasMax       bool
+	Pattern      string         // raw pattern string
+	PatternRe    *regexp.Regexp // pre-compiled pattern (nil if invalid or absent)
 }
 
 // FormSchema holds validation rules inferred from template statics.
@@ -71,11 +75,7 @@ func ExtractFormSchema(statics []string) *FormSchema {
 			continue
 		}
 
-		rule := FormRule{
-			Field:     name,
-			MinLength: -1,
-			MaxLength: -1,
-		}
+		rule := FormRule{Field: name}
 
 		if _, ok := attrs["required"]; ok {
 			rule.Required = true
@@ -88,12 +88,14 @@ func ExtractFormSchema(statics []string) *FormSchema {
 		if v, ok := attrs["minlength"]; ok {
 			if n, err := strconv.Atoi(v); err == nil {
 				rule.MinLength = n
+				rule.HasMinLength = true
 			}
 		}
 
 		if v, ok := attrs["maxlength"]; ok {
 			if n, err := strconv.Atoi(v); err == nil {
 				rule.MaxLength = n
+				rule.HasMaxLength = true
 			}
 		}
 
@@ -118,7 +120,7 @@ func ExtractFormSchema(statics []string) *FormSchema {
 		}
 
 		if rule.Required || rule.InputType == "email" || rule.InputType == "url" ||
-			rule.MinLength >= 0 || rule.MaxLength >= 0 || rule.HasMin || rule.HasMax || rule.Pattern != "" {
+			rule.HasMinLength || rule.HasMaxLength || rule.HasMin || rule.HasMax || rule.Pattern != "" {
 			schema.Rules = append(schema.Rules, rule)
 		}
 	}
@@ -180,11 +182,11 @@ func (s *FormSchema) Validate(data map[string]interface{}) error {
 		}
 
 		// Use rune count for minlength/maxlength (HTML counts Unicode code points, not bytes)
-		if rule.MinLength >= 0 && utf8.RuneCountInString(strVal) < rule.MinLength {
+		if rule.HasMinLength && utf8.RuneCountInString(strVal) < rule.MinLength {
 			errs = append(errs, FieldError{Field: toSnakeCase(rule.Field), Message: fmt.Sprintf("%s must be at least %d characters", fieldName, rule.MinLength)})
 		}
 
-		if rule.MaxLength >= 0 && utf8.RuneCountInString(strVal) > rule.MaxLength {
+		if rule.HasMaxLength && utf8.RuneCountInString(strVal) > rule.MaxLength {
 			errs = append(errs, FieldError{Field: toSnakeCase(rule.Field), Message: fmt.Sprintf("%s must be at most %d characters", fieldName, rule.MaxLength)})
 		}
 
