@@ -251,6 +251,44 @@ func TestStdlibParity_Pipelines(t *testing.T) {
 	}
 }
 
+// TestStdlibParity_SliceThreeIndex verifies the slice builtin's 3-index form
+// (slice x i j k → x[i:j:k]) matches text/template, including capacity behavior.
+func TestStdlibParity_SliceThreeIndex(t *testing.T) {
+	tests := []struct {
+		name string
+		tmpl string
+		data interface{}
+	}{
+		{
+			name: "three-index slice elements",
+			tmpl: "{{slice .S 1 3 5}}",
+			data: map[string]interface{}{"S": []int{0, 1, 2, 3, 4, 5}},
+		},
+		{
+			name: "three-index then len",
+			tmpl: "{{len (slice .S 1 4 6)}}",
+			data: map[string]interface{}{"S": []int{0, 1, 2, 3, 4, 5}},
+		},
+		{
+			// slice .S 0 2 5 → len 2, cap 5; re-slicing to len 4 only succeeds if
+			// the capacity bound was applied, so this exercises 3-index semantics.
+			name: "three-index capacity allows re-slice",
+			tmpl: "{{slice (slice .S 0 2 5) 0 4}}",
+			data: map[string]interface{}{"S": []int{0, 1, 2, 3, 4, 5}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stdlib := stdlibRender(t, tt.tmpl, tt.data, nil)
+			lvt := lvtRender(t, tt.tmpl, tt.data, nil)
+			if stdlib != lvt {
+				t.Errorf("output mismatch:\n  stdlib: %q\n  lvt:    %q", stdlib, lvt)
+			}
+		})
+	}
+}
+
 // TestStdlibParity_WithBlocks tests with block behavior.
 func TestStdlibParity_WithBlocks(t *testing.T) {
 	tests := []struct {
