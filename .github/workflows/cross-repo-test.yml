@@ -163,8 +163,8 @@ jobs:
         # go.sum auto-detection can key the cache off the wrong module.
         cache-dependency-path: |
           livetemplate/go.sum
-          lvt/go.sum
           docs/go.sum
+          lvt/go.sum
 
     - name: Set up Node.js
       uses: actions/setup-node@v4
