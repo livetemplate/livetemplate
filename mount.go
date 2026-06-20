@@ -151,7 +151,7 @@ const defaultSweepInterval = 10 * time.Minute
 
 // minSweepInterval bounds how fast the ephemeral sweep goroutine can spin when a
 // very short TTL is configured.
-const minSweepInterval = 1 * time.Minute
+const minSweepInterval = time.Minute
 
 // mountConfig configures the mount handler (internal only)
 type mountConfig struct {
@@ -188,8 +188,8 @@ type liveHandler struct {
 	httpLastPaths   sync.Map // groupID → string (last served request path, for detecting URL changes)
 
 	// ephemeralSweepTTL is the idle TTL for HTTP template cache entries in
-	// ephemeral mode (no persist fields). Resolved at Handle: WithEphemeralSweepTTL
-	// or defaultEphemeralSweepTTL.
+	// ephemeral mode (no persist fields). Always positive; defaults to
+	// defaultEphemeralSweepTTL.
 	ephemeralSweepTTL time.Duration
 
 	// Graceful shutdown state
