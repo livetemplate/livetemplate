@@ -41,6 +41,11 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: '1.26'
+        # Explicit paths: with multiple Go modules checked out, setup-go's
+        # go.sum auto-detection can key the cache off the wrong module.
+        cache-dependency-path: |
+          livetemplate/go.sum
+          lvt/go.sum
 
     - name: Install sqlc
       run: |
@@ -154,6 +159,12 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: '1.26'
+        # Explicit paths: with multiple Go modules checked out, setup-go's
+        # go.sum auto-detection can key the cache off the wrong module.
+        cache-dependency-path: |
+          livetemplate/go.sum
+          docs/go.sum
+          lvt/go.sum
 
     - name: Set up Node.js
       uses: actions/setup-node@v4
@@ -224,6 +235,12 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: '1.26'
+        # Explicit paths: with multiple Go modules checked out, setup-go's
+        # go.sum auto-detection can key the cache off the wrong module.
+        cache-dependency-path: |
+          livetemplate/go.sum
+          tinkerdown/go.sum
+          lvt/go.sum
 
     - name: Set up Node.js
       uses: actions/setup-node@v4
