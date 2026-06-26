@@ -1070,8 +1070,10 @@ func (t *Template) Parse(text string) (*Template, error) {
 	// This prevents issues when formatters add spaces like "{{ range" instead of "{{range"
 	text = compat.NormalizeTemplateSpacing(text)
 
-	// Determine if this is a full HTML document
-	isFullHTML := strings.Contains(text, "<!DOCTYPE") || strings.Contains(text, "<html")
+	// Strip HTML comments before parsing so they match html/template (which
+	// drops them in its escape pass) and so a {{define}}/{{block}} living inside
+	// a comment is removed rather than resolved during composition. See #468.
+	text = compat.StripHTMLComments(text)
 
 	// Always generate wrapper ID for consistent update targeting
 	t.wrapperID = compat.GenerateRandomID()
@@ -1086,12 +1088,12 @@ func (t *Template) Parse(text string) (*Template, error) {
 		return nil, fmt.Errorf("template '%s' parse error: %w", t.name, err)
 	}
 
-	return t.parseInternal(text, tmpl, isFullHTML)
+	return t.parseInternal(text, tmpl)
 }
 
 // parseInternal handles the common logic for parsing templates:
 // flattening, wrapper injection, final parsing, and validation.
-func (t *Template) parseInternal(text string, baseTemplate *template.Template, isFullHTML bool) (*Template, error) {
+func (t *Template) parseInternal(text string, baseTemplate *template.Template) (*Template, error) {
 	// Check if template uses composition features and flatten if needed
 	if parse.HasTemplateComposition(baseTemplate) {
 		// Flatten the template to resolve all {{define}}/{{template}}/{{block}}
@@ -1104,6 +1106,13 @@ func (t *Template) parseInternal(text string, baseTemplate *template.Template, i
 		// This ensures updates use the flattened template
 		text = flattenedStr
 	}
+
+	// Determine if this is a full HTML document. Computed here (after any
+	// flattening) on the already comment-stripped text — callers strip before
+	// parsing (see #468) — so a `<!DOCTYPE`/`<html` marker that existed only
+	// inside a removed comment cannot route a bare fragment through the
+	// full-document wrapper path.
+	isFullHTML := strings.Contains(text, "<!DOCTYPE") || strings.Contains(text, "<html")
 
 	// Expand multi-action bracket syntax before parsing.
 	// e.g. lvt-el:addClass:on:[save,delete]:pending="X" → individual attributes.
@@ -1185,8 +1194,8 @@ func (t *Template) ParseFiles(filenames ...string) (*Template, error) {
 	// Normalize template spacing
 	text := compat.NormalizeTemplateSpacing(string(content))
 
-	// Determine if this is a full HTML document
-	isFullHTML := strings.Contains(text, "<!DOCTYPE") || strings.Contains(text, "<html")
+	// Strip HTML comments before parsing (see #468).
+	text = compat.StripHTMLComments(text)
 
 	// Always generate wrapper ID for consistent update targeting
 	t.wrapperID = compat.GenerateRandomID()
@@ -1223,14 +1232,15 @@ func (t *Template) ParseFiles(filenames ...string) (*Template, error) {
 			}
 
 			// Parse additional templates into the same template set
-			_, err = tmpl.Parse(string(content))
+			// (comments stripped first — see #468).
+			_, err = tmpl.Parse(compat.StripHTMLComments(string(content)))
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse file %s: %w", filename, err)
 			}
 		}
 	}
 
-	return t.parseInternal(text, tmpl, isFullHTML)
+	return t.parseInternal(text, tmpl)
 }
 
 // ParseGlob parses the template definitions from the files identified by the pattern.
@@ -1290,7 +1300,8 @@ func (t *Template) parseComponentTemplates(sets []*TemplateSet) error {
 			}
 
 			// Parse the template content - this adds any {{define}} blocks to the template set
-			_, err = t.tmpl.Parse(string(content))
+			// (comments stripped first to match html/template — see #468).
+			_, err = t.tmpl.Parse(compat.StripHTMLComments(string(content)))
 			if err != nil {
 				return fmt.Errorf("component %q: failed to parse %q: %w", set.Namespace, match, err)
 			}

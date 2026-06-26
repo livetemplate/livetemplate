@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- HTML comments (`<!-- ... -->`) are now stripped from template output, matching `html/template` (which removes them during its escape pass). LiveTemplate builds statics by walking the raw parse tree, which never triggers that pass, so developer/internal comments previously shipped verbatim to the client (visible in view-source) and over WebSocket tree updates. Stripping uses the HTML tokenizer, so comment-like text in attribute values is preserved and comments inside `<script>`/`<style>`/`<textarea>` are left verbatim. See `docs/references/template-support-matrix.md` for residual divergences. (#468)
 - `NewGorillaUpgrader` now gives each upgrader its own write-buffer `sync.Pool` instead of sharing a package-level global, so upgraders configured with different `WriteBufferSize` values can no longer draw mismatched buffers from a shared pool.
 
 ## [v0.14.0] - 2026-06-13
