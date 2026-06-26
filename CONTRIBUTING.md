@@ -205,7 +205,7 @@ livetemplate/
 │   ├── parse/           # Phase 1: Template parsing (AST evaluation)
 │   ├── build/           # Phase 2: Tree types, fingerprinting, wrapper injection
 │   ├── diff/            # Phase 3: Tree comparison and update generation
-│   ├── render/          # Phase 4: HTML rendering and minification
+│   ├── render/          # Phase 4: HTML rendering
 │   ├── send/            # Phase 5: Message parsing and serialization
 │   ├── session/         # WebSocket connection registry
 │   ├── observe/         # Metrics and Prometheus export

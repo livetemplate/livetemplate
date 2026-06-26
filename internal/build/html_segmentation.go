@@ -3,7 +3,6 @@ package build
 import (
 	"strings"
 
-	"github.com/livetemplate/livetemplate/internal/render"
 	"golang.org/x/net/html"
 )
 
@@ -83,13 +82,12 @@ func CreateHTMLStructureBasedTree(htmlDoc string) *TreeNode {
 			dynamics = append(dynamics, htmlDoc[lastPos:])
 		}
 
-		// Build the tree
+		// Build the tree. Dynamic HTML is passed through verbatim (like
+		// statics): minifying it is CSS-blind and silently collapses
+		// whitespace-significant content driven by class (e.g.
+		// white-space:pre-wrap), corrupting highlighted code/diffs. See #467.
 		tree := NewTreeNodeWithStatics(statics)
 		for i, dyn := range dynamics {
-			// Minify HTML content if it's a string containing HTML
-			if strDyn, ok := dyn.(string); ok && strings.Contains(strDyn, "<") {
-				dyn = render.MinifyHTML(strDyn)
-			}
 			tree.SetDynamic(i, dyn)
 		}
 
@@ -99,8 +97,9 @@ func CreateHTMLStructureBasedTree(htmlDoc string) *TreeNode {
 		}
 	}
 
-	// Fallback to single segment strategy
+	// Fallback to single segment strategy. Dynamic HTML is passed through
+	// verbatim — see the per-segment note above (#467).
 	fallback := NewTreeNodeWithStatics([]string{"", ""})
-	fallback.SetDynamic(0, render.MinifyHTML(htmlDoc))
+	fallback.SetDynamic(0, htmlDoc)
 	return fallback
 }

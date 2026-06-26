@@ -27,7 +27,7 @@ livetemplate/
 │   ├── keys/               # Range item key generation
 │   ├── observe/            # Metrics and Prometheus export
 │   ├── parse/              # Template parsing into tree structures
-│   ├── render/             # HTML rendering and minification
+│   ├── render/             # HTML rendering
 │   ├── send/               # Message parsing and serialization
 │   ├── session/            # WebSocket connection registry
 │   ├── testutil/           # Test utilities (Redis helpers)
@@ -393,21 +393,19 @@ livetemplate/
 
 ---
 
-### Phase 4: Render — `internal/render/` (217 lines)
+### Phase 4: Render — `internal/render/`
 
-**Purpose:** HTML rendering and minification
+**Purpose:** HTML rendering
 
 **Files:**
-| File | Lines | Purpose |
-|------|-------|---------|
-| `html.go` | 154 | Tree → HTML rendering, void element detection |
-| `minify.go` | 63 | HTML whitespace minification |
+| File | Purpose |
+|------|---------|
+| `html.go` | Tree → HTML rendering, void element detection |
 
 **Key Functions:**
 - `Node(w *strings.Builder, n *html.Node)` - Render HTML node to builder
 - `TreeToHTML(tree map[string]interface{}) (string, error)` - Convert tree to HTML
 - `IsVoidElement(tagName string) bool` - Check if element is self-closing
-- `MinifyHTML(htmlContent string) string` - Remove unnecessary whitespace
 
 ---
 

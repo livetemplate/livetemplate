@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Dynamic HTML values are no longer minified before being placed in the tree. The minifier (`tdewolff/minify`) is HTML-tag-aware but CSS-blind, so it silently collapsed whitespace inside elements made whitespace-significant by a CSS class (e.g. `white-space: pre-wrap` on `<span class="chroma">`), corrupting syntax-highlighted code, diffs, and ASCII art rendered through the structure-based/diff tree paths. Dynamic content now passes through verbatim, matching how statics are already handled. The `internal/render.MinifyHTML` helper and the `github.com/tdewolff/minify/v2` dependency were removed. (#467)
 - `NewGorillaUpgrader` now gives each upgrader its own write-buffer `sync.Pool` instead of sharing a package-level global, so upgraders configured with different `WriteBufferSize` values can no longer draw mismatched buffers from a shared pool.
 
 ## [v0.14.0] - 2026-06-13

@@ -3,7 +3,6 @@ package build
 import (
 	"strings"
 
-	"github.com/livetemplate/livetemplate/internal/render"
 	"github.com/livetemplate/livetemplate/internal/util"
 )
 
@@ -45,9 +44,10 @@ func AnalyzeChangeAndCreateTree(oldHTML, newHTML string) (*TreeNode, error) {
 
 	// If we have stable prefix/suffix, create tree with static parts
 	if commonPrefix != "" || commonSuffix != "" {
+		// Dynamic HTML is passed through verbatim (not minified) — see #467.
 		dynamicPart := newHTML[changeStart:changeEnd]
 		tree := NewTreeNodeWithStatics([]string{commonPrefix, commonSuffix})
-		tree.SetDynamic(0, render.MinifyHTML(dynamicPart))
+		tree.SetDynamic(0, dynamicPart)
 		return tree, nil
 	}
 

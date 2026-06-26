@@ -162,19 +162,3 @@ func BenchmarkNodeRenderComplex(b *testing.B) {
 		Node(&w, root)
 	}
 }
-
-func BenchmarkMinifyHTML(b *testing.B) {
-	htmlWithWhitespace := `
-		<div>
-			<h1>Title</h1>
-			<p>
-				Paragraph with    extra spaces
-			</p>
-		</div>
-	`
-
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		_ = MinifyHTML(htmlWithWhitespace)
-	}
-}

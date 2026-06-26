@@ -11,7 +11,6 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/json-iterator/go v1.1.12
 	github.com/redis/go-redis/v9 v9.17.2
-	github.com/tdewolff/minify/v2 v2.24.8
 	github.com/testcontainers/testcontainers-go/modules/redis v0.39.0
 	golang.org/x/net v0.49.0
 	golang.org/x/time v0.14.0
@@ -69,7 +68,6 @@ require (
 	github.com/shirou/gopsutil/v4 v4.25.6 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/stretchr/testify v1.11.0 // indirect
-	github.com/tdewolff/parse/v2 v2.8.5 // indirect
 	github.com/testcontainers/testcontainers-go v0.39.0 // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
