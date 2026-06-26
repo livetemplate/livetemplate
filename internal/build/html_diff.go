@@ -44,9 +44,7 @@ func AnalyzeChangeAndCreateTree(oldHTML, newHTML string) (*TreeNode, error) {
 
 	// If we have stable prefix/suffix, create tree with static parts
 	if commonPrefix != "" || commonSuffix != "" {
-		// Dynamic HTML is passed through verbatim (not minified). Text-only
-		// dynamics too — the former normalizeWhitespace side-effect was equally
-		// unsafe for whitespace-significant content. See #467.
+		// Dynamics (HTML and text-only) pass through verbatim, never minified — see #467.
 		dynamicPart := newHTML[changeStart:changeEnd]
 		tree := NewTreeNodeWithStatics([]string{commonPrefix, commonSuffix})
 		tree.SetDynamic(0, dynamicPart)

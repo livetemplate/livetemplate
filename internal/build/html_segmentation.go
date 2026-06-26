@@ -82,13 +82,7 @@ func CreateHTMLStructureBasedTree(htmlDoc string) *TreeNode {
 			dynamics = append(dynamics, htmlDoc[lastPos:])
 		}
 
-		// Build the tree. Dynamic HTML is passed through verbatim (like
-		// statics): minifying it is CSS-blind and silently collapses
-		// whitespace-significant content driven by class (e.g.
-		// white-space:pre-wrap), corrupting highlighted code/diffs. Text-only
-		// dynamics are also passed verbatim — the former normalizeWhitespace
-		// side-effect was equally unsafe for whitespace-significant content.
-		// See #467.
+		// Dynamics (HTML and text-only) pass through verbatim, never minified — see #467.
 		tree := NewTreeNodeWithStatics(statics)
 		for i, dyn := range dynamics {
 			tree.SetDynamic(i, dyn)
@@ -100,8 +94,7 @@ func CreateHTMLStructureBasedTree(htmlDoc string) *TreeNode {
 		}
 	}
 
-	// Fallback to single segment strategy. Dynamic HTML is passed through
-	// verbatim — see the per-segment note above (#467).
+	// Fallback to single segment strategy (dynamic passed verbatim — see #467).
 	fallback := NewTreeNodeWithStatics([]string{"", ""})
 	fallback.SetDynamic(0, htmlDoc)
 	return fallback
