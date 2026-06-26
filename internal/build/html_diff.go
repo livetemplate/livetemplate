@@ -44,9 +44,8 @@ func AnalyzeChangeAndCreateTree(oldHTML, newHTML string) (*TreeNode, error) {
 
 	// If we have stable prefix/suffix, create tree with static parts
 	if commonPrefix != "" || commonSuffix != "" {
-		// Pass the dynamic verbatim: a tag-aware minifier can't see CSS, so it
-		// collapses whitespace made significant by a class (e.g. white-space:
-		// pre-wrap), corrupting highlighted code, diffs, and ASCII art.
+		// Pass verbatim: a tag-aware minifier cannot see CSS and will collapse
+		// whitespace that white-space:pre-wrap makes significant.
 		dynamicPart := newHTML[changeStart:changeEnd]
 		tree := NewTreeNodeWithStatics([]string{commonPrefix, commonSuffix})
 		tree.SetDynamic(0, dynamicPart)

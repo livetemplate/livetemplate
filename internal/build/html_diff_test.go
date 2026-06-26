@@ -2,9 +2,6 @@ package build
 
 import "testing"
 
-// TestAnalyzeChangeAndCreateTree_PreservesDynamicWhitespace confirms the diff
-// path (common prefix/suffix with a changed middle) passes the dynamic part
-// through verbatim rather than minifying it.
 func TestAnalyzeChangeAndCreateTree_PreservesDynamicWhitespace(t *testing.T) {
 	oldHTML := `<div class="chroma">OLD</div>`
 	newHTML := `<div class="chroma">` + preWrapDynamic + `</div>`

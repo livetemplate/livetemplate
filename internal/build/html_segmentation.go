@@ -82,9 +82,8 @@ func CreateHTMLStructureBasedTree(htmlDoc string) *TreeNode {
 			dynamics = append(dynamics, htmlDoc[lastPos:])
 		}
 
-		// Pass dynamics verbatim: a tag-aware minifier can't see CSS, so it
-		// collapses whitespace made significant by a class (e.g. white-space:
-		// pre-wrap), corrupting highlighted code, diffs, and ASCII art.
+		// Pass verbatim: a tag-aware minifier cannot see CSS and will collapse
+		// whitespace that white-space:pre-wrap makes significant.
 		tree := NewTreeNodeWithStatics(statics)
 		for i, dyn := range dynamics {
 			tree.SetDynamic(i, dyn)
@@ -96,7 +95,7 @@ func CreateHTMLStructureBasedTree(htmlDoc string) *TreeNode {
 		}
 	}
 
-	// Fallback to single segment strategy; the dynamic is passed verbatim.
+	// Fallback to single segment strategy
 	fallback := NewTreeNodeWithStatics([]string{"", ""})
 	fallback.SetDynamic(0, htmlDoc)
 	return fallback

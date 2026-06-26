@@ -216,14 +216,10 @@ func TestCreateHTMLStructureBasedTree_DecoyInputDoesNotSegment(t *testing.T) {
 	}
 }
 
-// preWrapDynamic is a CSS-whitespace-significant fragment: the doubled/odd
-// spaces are meaningful because a class (not a tag name) makes the element
-// white-space:pre-wrap. tdewolff's minifier is tag-aware but CSS-blind and used
-// to collapse this, corrupting highlighted code/diffs/ASCII art. See #467.
+// preWrapDynamic is whitespace-significant via CSS: a class (not a tag name)
+// makes it white-space:pre-wrap, which a tag-aware minifier cannot see.
 const preWrapDynamic = `  indented   code  `
 
-// TestCreateHTMLStructureBasedTree_PreservesDynamicWhitespace confirms the
-// fallback single-segment path passes dynamic HTML through verbatim. See #467.
 func TestCreateHTMLStructureBasedTree_PreservesDynamicWhitespace(t *testing.T) {
 	// No block-level tags -> findBlockTagBoundaries returns empty -> the
 	// fallback single-segment tree carries the whole input as one dynamic.
@@ -239,9 +235,6 @@ func TestCreateHTMLStructureBasedTree_PreservesDynamicWhitespace(t *testing.T) {
 	}
 }
 
-// TestCreateHTMLStructureBasedTree_MultiSegmentPreservesWhitespace confirms the
-// block-tag multi-segment path (not the fallback) stores its dynamic segments
-// verbatim too. See #467.
 func TestCreateHTMLStructureBasedTree_MultiSegmentPreservesWhitespace(t *testing.T) {
 	// Several block-level <div>s spaced beyond segmentSize (len/8) so the
 	// segmentation loop emits multiple dynamic segments; the final segment
