@@ -255,7 +255,7 @@ func TestCreateHTMLStructureBasedTree_MultiSegmentPreservesWhitespace(t *testing
 	}
 
 	// The final dynamic is deterministically htmlDoc[lastPos:] = lastSegment.
-	last := tree.DynamicLen() - 1
+	last := len(tree.Dynamics) - 1
 	got, ok := tree.GetDynamic(last)
 	if !ok {
 		t.Fatalf("expected a dynamic at index %d, tree=%#v", last, tree)
