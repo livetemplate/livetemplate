@@ -4,8 +4,7 @@ import "testing"
 
 // TestAnalyzeChangeAndCreateTree_PreservesDynamicWhitespace confirms the diff
 // path (common prefix/suffix with a changed middle) passes the dynamic part
-// through verbatim rather than minifying it. See #467. (preWrapDynamic is
-// declared in html_segmentation_test.go.)
+// through verbatim rather than minifying it.
 func TestAnalyzeChangeAndCreateTree_PreservesDynamicWhitespace(t *testing.T) {
 	oldHTML := `<div class="chroma">OLD</div>`
 	newHTML := `<div class="chroma">` + preWrapDynamic + `</div>`
