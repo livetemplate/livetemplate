@@ -1,6 +1,9 @@
 package build
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // preWrapDynamic is a CSS-whitespace-significant fragment: the doubled/odd
 // spaces are meaningful because a class (not a tag name) makes the element
@@ -24,6 +27,44 @@ func TestCreateHTMLStructureBasedTree_PreservesDynamicWhitespace(t *testing.T) {
 	}
 	if got != input {
 		t.Errorf("dynamic HTML was not preserved verbatim:\n got: %q\nwant: %q", got, input)
+	}
+}
+
+// TestCreateHTMLStructureBasedTree_MultiSegmentPreservesWhitespace confirms the
+// *block-tag* multi-segment path (not the fallback) also stores dynamic
+// segments verbatim. Real block tags make findBlockTagBoundaries return
+// boundaries, exercising the `for i, dyn := range dynamics` loop where
+// minification was removed. Regression test for #467.
+func TestCreateHTMLStructureBasedTree_MultiSegmentPreservesWhitespace(t *testing.T) {
+	// Several block-level <div>s spaced far enough apart to exceed segmentSize
+	// (len/8), so the segmentation loop emits multiple dynamic segments. The
+	// final segment carries the whitespace-significant content.
+	pad := strings.Repeat("x", 80)
+	chroma := `<span class="chroma">` + preWrapDynamic + `</span>`
+	input := `<div>` + pad + `</div>` +
+		`<div>` + pad + `</div>` +
+		`<div>` + pad + `</div>` +
+		`<div>` + chroma + `</div>`
+
+	tree := CreateHTMLStructureBasedTree(input)
+
+	// The fallback path produces exactly 2 statics; the multi-segment path
+	// produces more. Guard that we are actually exercising the intended path.
+	if len(tree.Statics) <= 2 {
+		t.Fatalf("expected multi-segment tree (>2 statics), got %d — test no longer exercises the block-tag path", len(tree.Statics))
+	}
+
+	found := false
+	for i := 0; i < tree.DynamicLen(); i++ {
+		if v, ok := tree.GetDynamic(i); ok {
+			if s, isStr := v.(string); isStr && strings.Contains(s, preWrapDynamic) {
+				found = true
+				break
+			}
+		}
+	}
+	if !found {
+		t.Errorf("whitespace-significant content was collapsed or missing across multi-segment dynamics: %#v", tree.Dynamics)
 	}
 }
 
