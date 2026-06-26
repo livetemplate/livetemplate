@@ -114,7 +114,6 @@ BenchmarkTreeToHTMLScale/medium-100-8     	  168198	      7146 ns/op	    3721 B/
 BenchmarkTreeToHTMLScale/large-1000-8     	   16425	     73113 ns/op	   66995 B/op	    1017 allocs/op
 BenchmarkIsVoidElement-8                  	13137397	        91.54 ns/op	       0 B/op	       0 allocs/op
 BenchmarkNodeRenderComplex-8              	 5196253	       230.5 ns/op	     248 B/op	       5 allocs/op
-BenchmarkMinifyHTML-8                     	 1000000	      1123 ns/op	    1680 B/op	      13 allocs/op
 BenchmarkParseActionFromHTTP-8        	  590948	      1968 ns/op	    6962 B/op	      30 allocs/op
 BenchmarkParseActionFromWebSocket-8   	 1451036	       827.0 ns/op	     656 B/op	      13 allocs/op
 BenchmarkPrepareUpdate/without-errors-8         	1000000000	         0.3640 ns/op	       0 B/op	       0 allocs/op

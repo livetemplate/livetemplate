@@ -1,6 +1,6 @@
 module github.com/livetemplate/livetemplate/e2e/docker/app
 
-go 1.24
+go 1.26.0
 
 require (
 	github.com/livetemplate/livetemplate v0.0.0
@@ -20,8 +20,6 @@ require (
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421 // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
-	github.com/tdewolff/minify/v2 v2.24.8 // indirect
-	github.com/tdewolff/parse/v2 v2.8.5 // indirect
 	golang.org/x/crypto v0.47.0 // indirect
 	golang.org/x/net v0.49.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
