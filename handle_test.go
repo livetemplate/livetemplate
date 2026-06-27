@@ -440,8 +440,14 @@ func TestProgressiveEnhancement_FlashCookieConsumed(t *testing.T) {
 		t.Fatal("Expected lvt-flash cookie in POST response")
 	}
 
-	// Step 2: Follow redirect GET with flash cookie
-	req = httptest.NewRequest("GET", rec.Header().Get("Location"), nil)
+	// Step 2: Follow redirect GET with flash cookie. The PRG Location is a
+	// relative reference ("./"), so resolve it against the original request URL
+	// the way a browser would before issuing the follow-up request.
+	loc, err := req.URL.Parse(rec.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("parse redirect Location: %v", err)
+	}
+	req = httptest.NewRequest("GET", loc.String(), nil)
 	if sessionCookie != nil {
 		req.AddCookie(sessionCookie)
 	}
@@ -3366,6 +3372,97 @@ func TestRedirect_RelativeSelf_UnderStripPrefix(t *testing.T) {
 	}
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("final status = %d, want 200", resp.StatusCode)
+	}
+}
+
+type prgFallbackController struct{}
+type prgFallbackState struct{ Hits int }
+
+func (prgFallbackController) Mount(s prgFallbackState, ctx *Context) (prgFallbackState, error) {
+	return s, nil
+}
+
+// Save succeeds WITHOUT calling ctx.Redirect, so the progressive-enhancement
+// POST-Redirect-GET fallback in mount.go is the code path that produces the
+// redirect — the subject under test.
+func (prgFallbackController) Save(s prgFallbackState, ctx *Context) (prgFallbackState, error) {
+	s.Hits++
+	return s, nil
+}
+
+// Regression guard for #444 (cf. #434/#443 for ctx.Redirect): the non-JS
+// POST-Redirect-GET fallback (mount.go) must redirect a form POST back to its
+// own mount when mounted behind http.StripPrefix. Before the fix it redirected
+// to the stripped r.URL.Path (here ""), emitting an empty Location. The
+// framework now emits a relative Location the client resolves against the full
+// (un-stripped) request URL. ProgressiveEnhancement defaults to true, and
+// Accept: text/html makes this a non-JSON client, so the fallback runs. The
+// query sub-case guards the separate branch that re-appends r.URL.Query() to the
+// relative reference, so dropping it can't pass silently.
+func TestPRGFallback_RelativeSelf_UnderStripPrefix(t *testing.T) {
+	const prefix = "/apps/login/"
+	cases := []struct {
+		name         string
+		query        string // appended to the POST URL, including leading "?"
+		wantRawQuery string
+	}{
+		{name: "no query", query: "", wantRawQuery: ""},
+		{name: "preserves query", query: "?plan=pro&ref=x", wantRawQuery: "plan=pro&ref=x"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpl, err := New("test")
+			if err != nil {
+				t.Fatalf("New failed: %v", err)
+			}
+			tmpl, err = tmpl.Parse(`<div>hits {{.Hits}}</div>`)
+			if err != nil {
+				t.Fatalf("Parse failed: %v", err)
+			}
+			handler := tmpl.Handle(&prgFallbackController{}, AsState(&prgFallbackState{}))
+
+			mux := http.NewServeMux()
+			mux.Handle(prefix, http.StripPrefix(prefix, handler))
+			ts := httptest.NewServer(mux)
+			defer ts.Close()
+
+			var followed []*http.Request
+			client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				followed = append(followed, req) // req.URL is the client-resolved Location
+				if len(via) >= 10 {
+					return errors.New("too many redirects")
+				}
+				return nil
+			}}
+
+			form := url.Values{}
+			form.Set("lvt-action", "Save")
+			req, err := http.NewRequest("POST", ts.URL+prefix+tc.query, strings.NewReader(form.Encode()))
+			if err != nil {
+				t.Fatalf("NewRequest failed: %v", err)
+			}
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.Header.Set("Accept", "text/html")
+
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatalf("client.Do failed: %v", err)
+			}
+			defer func() { _ = resp.Body.Close() }()
+
+			if len(followed) == 0 {
+				t.Fatal("expected a PRG self-redirect, got none (relative Location not emitted)")
+			}
+			if got := followed[0].URL.Path; got != prefix {
+				t.Errorf("redirect resolved to %q, want %q", got, prefix)
+			}
+			if got := followed[0].URL.RawQuery; got != tc.wantRawQuery {
+				t.Errorf("redirect query = %q, want %q", got, tc.wantRawQuery)
+			}
+			if resp.StatusCode != http.StatusOK {
+				t.Errorf("final status = %d, want 200", resp.StatusCode)
+			}
+		})
 	}
 }
 

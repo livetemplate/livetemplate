@@ -1630,8 +1630,13 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Success: redirect to prevent duplicate submissions on refresh (PRG pattern)
-		redirectURL := r.URL.Path
+		// Success: redirect to prevent duplicate submissions on refresh (PRG pattern).
+		// Emit a relative self-reference rather than r.URL.Path — under
+		// http.StripPrefix the latter is the stripped path ("/" or ""), which would
+		// redirect the non-JS client to the wrong location. The browser resolves the
+		// relative reference against its own un-stripped URL. This assumes a
+		// trailing-slash mount; see relativeSelfReference for the exact-match caveat.
+		redirectURL := relativeSelfReference(r)
 		if encoded := r.URL.Query().Encode(); encoded != "" {
 			redirectURL += "?" + encoded
 		}
@@ -1648,7 +1653,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 
-		http.Redirect(w, r, redirectURL, http.StatusSeeOther) // 303 See Other
+		writeRelativeRedirect(w, r, redirectURL, http.StatusSeeOther)
 		return
 	}
 
