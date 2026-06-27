@@ -1653,7 +1653,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 
-		writeRelativeRedirect(w, r, redirectURL, http.StatusSeeOther) // 303 See Other
+		writeRelativeRedirect(w, r, redirectURL, http.StatusSeeOther)
 		return
 	}
 

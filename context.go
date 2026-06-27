@@ -369,16 +369,10 @@ func relativeSelfReference(r *http.Request) string {
 // writeRelativeRedirect emits target RAW in the Location header so the client
 // resolves it against its effective (un-stripped) request URI — http.Redirect
 // would instead resolve it server-side against the http.StripPrefix-stripped
-// path, the bug this avoids. It mirrors http.Redirect's method-aware tail so
-// behaviour matches the absolute-path branch apart from URL resolution: a short
-// HTML body plus Content-Type for GET, Content-Type only for HEAD, neither for
-// POST (the action / PRG path), unless the caller already set a Content-Type.
+// path, the bug this avoids. It mirrors http.Redirect's method-aware tail.
 func writeRelativeRedirect(w http.ResponseWriter, r *http.Request, target string, code int) {
 	h := w.Header()
 	_, hadCT := h["Content-Type"]
-	// Percent-encode non-ASCII bytes so the Location stays within HTTP's ASCII
-	// header constraint — http.Redirect does this for the absolute branch via
-	// its own (unexported) helper.
 	h.Set("Location", hexEscapeNonASCII(target))
 	if !hadCT && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
 		h.Set("Content-Type", "text/html; charset=utf-8")
