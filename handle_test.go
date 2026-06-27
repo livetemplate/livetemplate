@@ -3396,56 +3396,73 @@ func (prgFallbackController) Save(s prgFallbackState, ctx *Context) (prgFallback
 // to the stripped r.URL.Path (here ""), emitting an empty Location. The
 // framework now emits a relative Location the client resolves against the full
 // (un-stripped) request URL. ProgressiveEnhancement defaults to true, and
-// Accept: text/html makes this a non-JSON client, so the fallback runs.
+// Accept: text/html makes this a non-JSON client, so the fallback runs. The
+// query sub-case guards the separate branch that re-appends r.URL.Query() to the
+// relative reference, so dropping it can't pass silently.
 func TestPRGFallback_RelativeSelf_UnderStripPrefix(t *testing.T) {
-	tmpl, err := New("test")
-	if err != nil {
-		t.Fatalf("New failed: %v", err)
-	}
-	tmpl, err = tmpl.Parse(`<div>hits {{.Hits}}</div>`)
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
-	}
-	handler := tmpl.Handle(&prgFallbackController{}, AsState(&prgFallbackState{}))
-
 	const prefix = "/apps/login/"
-	mux := http.NewServeMux()
-	mux.Handle(prefix, http.StripPrefix(prefix, handler))
-	ts := httptest.NewServer(mux)
-	defer ts.Close()
-
-	var followed []*http.Request
-	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
-		followed = append(followed, req) // req.URL is the client-resolved Location
-		if len(via) >= 10 {
-			return errors.New("too many redirects")
-		}
-		return nil
-	}}
-
-	form := url.Values{}
-	form.Set("lvt-action", "Save")
-	req, err := http.NewRequest("POST", ts.URL+prefix, strings.NewReader(form.Encode()))
-	if err != nil {
-		t.Fatalf("NewRequest failed: %v", err)
+	cases := []struct {
+		name         string
+		query        string // appended to the POST URL, including leading "?"
+		wantRawQuery string
+	}{
+		{name: "no query", query: "", wantRawQuery: ""},
+		{name: "preserves query", query: "?plan=pro&ref=x", wantRawQuery: "plan=pro&ref=x"},
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "text/html")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpl, err := New("test")
+			if err != nil {
+				t.Fatalf("New failed: %v", err)
+			}
+			tmpl, err = tmpl.Parse(`<div>hits {{.Hits}}</div>`)
+			if err != nil {
+				t.Fatalf("Parse failed: %v", err)
+			}
+			handler := tmpl.Handle(&prgFallbackController{}, AsState(&prgFallbackState{}))
 
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("client.Do failed: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
+			mux := http.NewServeMux()
+			mux.Handle(prefix, http.StripPrefix(prefix, handler))
+			ts := httptest.NewServer(mux)
+			defer ts.Close()
 
-	if len(followed) == 0 {
-		t.Fatal("expected a PRG self-redirect, got none (relative Location not emitted)")
-	}
-	if got := followed[0].URL.Path; got != prefix {
-		t.Errorf("redirect resolved to %q, want %q", got, prefix)
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("final status = %d, want 200", resp.StatusCode)
+			var followed []*http.Request
+			client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				followed = append(followed, req) // req.URL is the client-resolved Location
+				if len(via) >= 10 {
+					return errors.New("too many redirects")
+				}
+				return nil
+			}}
+
+			form := url.Values{}
+			form.Set("lvt-action", "Save")
+			req, err := http.NewRequest("POST", ts.URL+prefix+tc.query, strings.NewReader(form.Encode()))
+			if err != nil {
+				t.Fatalf("NewRequest failed: %v", err)
+			}
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.Header.Set("Accept", "text/html")
+
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatalf("client.Do failed: %v", err)
+			}
+			defer func() { _ = resp.Body.Close() }()
+
+			if len(followed) == 0 {
+				t.Fatal("expected a PRG self-redirect, got none (relative Location not emitted)")
+			}
+			if got := followed[0].URL.Path; got != prefix {
+				t.Errorf("redirect resolved to %q, want %q", got, prefix)
+			}
+			if got := followed[0].URL.RawQuery; got != tc.wantRawQuery {
+				t.Errorf("redirect query = %q, want %q", got, tc.wantRawQuery)
+			}
+			if resp.StatusCode != http.StatusOK {
+				t.Errorf("final status = %d, want 200", resp.StatusCode)
+			}
+		})
 	}
 }
 
