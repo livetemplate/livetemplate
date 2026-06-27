@@ -345,36 +345,52 @@ func (c *Context) Redirect(url string, code int) error {
 		// breaks clients) and resolves back to the current URL.
 		target := url
 		if target == "" {
-			_, last := path.Split(c.r.URL.EscapedPath())
-			target = "./" + last
+			target = relativeSelfReference(c.r)
 		}
-		// Mirror http.Redirect's method-aware tail so the two branches behave
-		// identically apart from URL resolution: a short HTML body plus
-		// Content-Type for GET, Content-Type only for HEAD, neither for POST
-		// (the action / PRG path), unless the caller already set a Content-Type.
-		h := c.w.Header()
-		_, hadCT := h["Content-Type"]
-		// Percent-encode non-ASCII bytes so the Location stays within HTTP's
-		// ASCII header constraint — http.Redirect does this for the absolute
-		// branch via its own (unexported) helper.
-		h.Set("Location", hexEscapeNonASCII(target))
-		if !hadCT && (c.r.Method == http.MethodGet || c.r.Method == http.MethodHead) {
-			h.Set("Content-Type", "text/html; charset=utf-8")
-		}
-		c.w.WriteHeader(code)
-		if !hadCT && c.r.Method == http.MethodGet {
-			if _, err := fmt.Fprintf(c.w, "<a href=\"%s\">%s</a>.\n", html.EscapeString(target), http.StatusText(code)); err != nil {
-				slog.Warn("Failed to write redirect body",
-					slog.String("component", "context"),
-					slog.Any("error", err))
-			}
-		}
+		writeRelativeRedirect(c.w, c.r, target, code)
 	}
 
 	if c.redirected != nil {
 		*c.redirected = true
 	}
 	return nil
+}
+
+// relativeSelfReference returns "./<last-segment>", a relative reference a
+// browser resolves back to the request's own (un-stripped) URL. It is the
+// StripPrefix-safe "reload self" target shared by ctx.Redirect("") and the
+// progressive-enhancement POST-Redirect-GET fallback (mount.go), neither of
+// which can see the prefix http.StripPrefix removed from r.URL.Path.
+func relativeSelfReference(r *http.Request) string {
+	_, last := path.Split(r.URL.EscapedPath())
+	return "./" + last
+}
+
+// writeRelativeRedirect emits target RAW in the Location header so the client
+// resolves it against its effective (un-stripped) request URI — http.Redirect
+// would instead resolve it server-side against the http.StripPrefix-stripped
+// path, the bug this avoids. It mirrors http.Redirect's method-aware tail so
+// behaviour matches the absolute-path branch apart from URL resolution: a short
+// HTML body plus Content-Type for GET, Content-Type only for HEAD, neither for
+// POST (the action / PRG path), unless the caller already set a Content-Type.
+func writeRelativeRedirect(w http.ResponseWriter, r *http.Request, target string, code int) {
+	h := w.Header()
+	_, hadCT := h["Content-Type"]
+	// Percent-encode non-ASCII bytes so the Location stays within HTTP's ASCII
+	// header constraint — http.Redirect does this for the absolute branch via
+	// its own (unexported) helper.
+	h.Set("Location", hexEscapeNonASCII(target))
+	if !hadCT && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+		h.Set("Content-Type", "text/html; charset=utf-8")
+	}
+	w.WriteHeader(code)
+	if !hadCT && r.Method == http.MethodGet {
+		if _, err := fmt.Fprintf(w, "<a href=\"%s\">%s</a>.\n", html.EscapeString(target), http.StatusText(code)); err != nil {
+			slog.Warn("Failed to write redirect body",
+				slog.String("component", "context"),
+				slog.Any("error", err))
+		}
+	}
 }
 
 // hexEscapeNonASCII percent-encodes bytes >= 0x80 so a relative Location value
