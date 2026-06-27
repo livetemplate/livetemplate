@@ -26,9 +26,35 @@ This document provides a comprehensive matrix of Go template patterns and their 
 |---------|--------|-------|---------|-------|
 | Simple field output | ✅ | Baseline | `{{.Name}}` | Core feature |
 | Nested field access | ✅ | Baseline | `{{.User.Name}}` | Tested in multiple contexts |
-| Comments | ✅ | Phase 5 | `{{/* comment */}}` | Properly ignored during parsing |
+| Template comments | ✅ | Phase 5 | `{{/* comment */}}` | Properly ignored during parsing |
+| HTML comments | ✅ | Phase 1 | `<!-- comment -->` | Stripped to match `html/template` (see note below) |
 | Empty templates | ✅ | Phase 5 | `` (empty string) | Handles gracefully |
 | Comment-only templates | ✅ | Phase 5 | `{{/* only comment */}}` | Valid template |
+
+#### HTML comment stripping
+
+`html/template` removes HTML comments (`<!-- ... -->`) during its escape pass.
+LiveTemplate builds its static segments by walking the raw parse tree, which
+never triggers that pass, so comments are stripped explicitly at parse time
+(`render.StripHTMLComments`, applied in `parseInternal`) to keep output
+consistent with `html/template` and to avoid leaking developer/internal
+comments to the client. A comment that wraps an action (`<!-- {{.X}} -->`) is
+removed in full, action included — matching `html/template`.
+
+Stripping uses the HTML tokenizer (not a regex), so it is context-aware:
+
+- A literal `<!--` inside a `{{...}}` action (e.g. `{{"<!--"}}`, a
+  `{{/* <!-- */}}` template comment, or a quoted argument) is **preserved** and
+  never mistaken for an HTML comment — action spans are masked out before
+  stripping, matching `html/template`, which never strips inside an action.
+- Comment-like text inside an attribute value (`title="<!-- x -->"`) is real
+  content and is **preserved**.
+- Comment markup inside `<script>`, `<style>`, and `<textarea>` (RAWTEXT /
+  RCDATA) is **left verbatim**, since the tokenizer does not treat it as a
+  comment there. Note two residual divergences from `html/template` in these
+  contexts (both pre-existing, unchanged by the stripping): in `<script>`,
+  `html/template` rejects `<!--` outright; in `<textarea>`/RCDATA it escapes
+  `<!--` to `&lt;!--`. LiveTemplate preserves both verbatim.
 
 ### 2. Whitespace Handling
 
