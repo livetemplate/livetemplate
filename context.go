@@ -357,10 +357,12 @@ func (c *Context) Redirect(url string, code int) error {
 }
 
 // relativeSelfReference returns "./<last-segment>", a relative reference a
-// browser resolves back to the request's own (un-stripped) URL. It is the
-// StripPrefix-safe "reload self" target shared by ctx.Redirect("") and the
-// progressive-enhancement POST-Redirect-GET fallback (mount.go), neither of
-// which can see the prefix http.StripPrefix removed from r.URL.Path.
+// browser resolves back to the request's own URL under a trailing-slash mount.
+// It is the StripPrefix-safe "reload self" target shared by ctx.Redirect("") and
+// the progressive-enhancement POST-Redirect-GET fallback (mount.go), neither of
+// which can see the prefix http.StripPrefix removed from r.URL.Path. Under an
+// exact-match mount without a trailing slash a browser resolves "./" to the
+// parent path; see Context.Redirect's doc for that caveat.
 func relativeSelfReference(r *http.Request) string {
 	_, last := path.Split(r.URL.EscapedPath())
 	return "./" + last

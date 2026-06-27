@@ -3390,14 +3390,13 @@ func (prgFallbackController) Save(s prgFallbackState, ctx *Context) (prgFallback
 	return s, nil
 }
 
-// TestPRGFallback_RelativeSelf_UnderStripPrefix is the regression guard for
-// issue #444: the non-JS POST-Redirect-GET fallback (mount.go), like ctx.Redirect
-// (#434/#443), must redirect a form POST back to its own mount when mounted behind
-// http.StripPrefix. Before the fix the fallback redirected to the stripped
-// r.URL.Path ("/"), landing the client at the wrong location. The framework now
-// emits a relative Location the client resolves against the full (un-stripped)
-// request URL. ProgressiveEnhancement defaults to true, and Accept: text/html
-// makes the client a non-JSON client, so the fallback runs.
+// Regression guard for #444 (cf. #434/#443 for ctx.Redirect): the non-JS
+// POST-Redirect-GET fallback (mount.go) must redirect a form POST back to its
+// own mount when mounted behind http.StripPrefix. Before the fix it redirected
+// to the stripped r.URL.Path (here ""), emitting an empty Location. The
+// framework now emits a relative Location the client resolves against the full
+// (un-stripped) request URL. ProgressiveEnhancement defaults to true, and
+// Accept: text/html makes this a non-JSON client, so the fallback runs.
 func TestPRGFallback_RelativeSelf_UnderStripPrefix(t *testing.T) {
 	tmpl, err := New("test")
 	if err != nil {
