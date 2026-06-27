@@ -3587,8 +3587,8 @@ func TestAnalyzeChangeAndCreateTree_PartialChangeKeepsStatics(t *testing.T) {
 		t.Fatalf("expected string dynamic, got %#v", tree.Dynamics[0])
 	}
 
-	if strings.TrimSpace(dynamic) != "World" {
-		t.Fatalf("expected normalized dynamic \"World\", got %q", dynamic)
+	if dynamic != " World" {
+		t.Fatalf("expected verbatim dynamic \" World\" (boundary split, no normalization), got %q", dynamic)
 	}
 }
 

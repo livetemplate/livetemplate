@@ -42,7 +42,7 @@ LiveTemplate is a reactive web framework for Go that uses tree-based DOM diffing
 │  Package: internal/render/                                      │
 │  Input:   Tree or Changes                                       │
 │  Output:  HTML (for testing and validation)                     │
-│  Job:     HTML rendering and minification                       │
+│  Job:     HTML rendering                                        │
 └──────────────────────────┬─────────────────────────────────────┘
                            ↓
 ┌────────────────────────────────────────────────────────────────┐
@@ -63,7 +63,7 @@ LiveTemplate is a reactive web framework for Go that uses tree-based DOM diffing
 | `internal/parse/` | 1: Parse | Template parsing into tree structures via custom AST evaluation |
 | `internal/build/` | 2: Build | Tree types, fingerprinting, wrapper injection |
 | `internal/diff/` | 3: Diff | Tree comparison and minimal update generation |
-| `internal/render/` | 4: Render | HTML rendering and minification |
+| `internal/render/` | 4: Render | HTML rendering |
 | `internal/send/` | 5: Send | Action message parsing, update serialization |
 | `internal/keys/` | Support | Sequential key generation for range items |
 | `internal/session/` | Support | WebSocket connection registry with async write pump |

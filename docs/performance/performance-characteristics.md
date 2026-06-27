@@ -243,13 +243,11 @@ BenchmarkRangeDiff_TreeNode_LargeList 317231 ns/op  449505 B/op  1038 allocs/op
 
 - HTML node rendering
 - Tree to HTML conversion
-- HTML minification (optional)
 - Void element handling
 
 ### Complexity
 
 - **Node rendering:** O(n) where n = nodes in tree
-- **Minification:** O(html length)
 
 ### Optimizations
 
@@ -260,10 +258,6 @@ BenchmarkRangeDiff_TreeNode_LargeList 317231 ns/op  449505 B/op  1038 allocs/op
 2. **Void Element Handling**
    - Correct self-closing tags (`<br>`, `<img>`, etc.)
    - Single map lookup per element
-
-3. **Minification Optional**
-   - Only enabled in production
-   - Removes whitespace, comments
 
 ### Benchmark Results
 

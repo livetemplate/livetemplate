@@ -3,7 +3,6 @@ package build
 import (
 	"strings"
 
-	"github.com/livetemplate/livetemplate/internal/render"
 	"golang.org/x/net/html"
 )
 
@@ -83,13 +82,10 @@ func CreateHTMLStructureBasedTree(htmlDoc string) *TreeNode {
 			dynamics = append(dynamics, htmlDoc[lastPos:])
 		}
 
-		// Build the tree
+		// Pass verbatim: a tag-aware minifier cannot see CSS and will collapse
+		// whitespace that white-space:pre-wrap makes significant.
 		tree := NewTreeNodeWithStatics(statics)
 		for i, dyn := range dynamics {
-			// Minify HTML content if it's a string containing HTML
-			if strDyn, ok := dyn.(string); ok && strings.Contains(strDyn, "<") {
-				dyn = render.MinifyHTML(strDyn)
-			}
 			tree.SetDynamic(i, dyn)
 		}
 
@@ -101,6 +97,6 @@ func CreateHTMLStructureBasedTree(htmlDoc string) *TreeNode {
 
 	// Fallback to single segment strategy
 	fallback := NewTreeNodeWithStatics([]string{"", ""})
-	fallback.SetDynamic(0, render.MinifyHTML(htmlDoc))
+	fallback.SetDynamic(0, htmlDoc)
 	return fallback
 }

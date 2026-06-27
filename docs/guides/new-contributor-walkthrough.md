@@ -676,8 +676,6 @@ Continuing with our Task Manager example, the render phase can convert the TreeN
   - `Node(w *strings.Builder, n *html.Node)` - Recursively render an HTML node to a builder
   - `IsVoidElement(tagName string) bool` - Check for self-closing tags (`<br>`, `<img>`, etc.)
   - Used primarily for testing and validation
-- [`minify.go`](../../internal/render/minify.go) - HTML minification
-  - `MinifyHTML(htmlContent string) string` - Minify HTML or normalize whitespace for text-only content
 
 ### When This Phase Runs
 
@@ -1293,7 +1291,7 @@ See: [`internal/keys/generator.go`](../../internal/keys/generator.go)
 | **1. Parse** | `internal/parse/` | `parse.go`, `field.go`, `conditional.go`, `range.go` | `go test ./internal/parse -v` |
 | **2. Build** | `internal/build/` | `types.go`, `fingerprint.go`, `wrapper.go` | `go test ./internal/build -v` |
 | **3. Diff** | `internal/diff/` | `tree_compare.go`, `range_ops.go`, `prepare.go` | `go test ./internal/diff -v` |
-| **4. Render** | `internal/render/` | `html.go`, `minify.go` | `go test ./internal/render -v` |
+| **4. Render** | `internal/render/` | `html.go` | `go test ./internal/render -v` |
 | **5. Send** | `internal/send/` | `message.go`, `response.go`, `json.go` | `go test ./internal/send -v` |
 
 | Public API File | Purpose |

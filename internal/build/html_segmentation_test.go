@@ -215,3 +215,52 @@ func TestCreateHTMLStructureBasedTree_DecoyInputDoesNotSegment(t *testing.T) {
 		t.Errorf("expected 1 dynamic in fallback tree, got %d", tree.DynamicLen())
 	}
 }
+
+// preWrapDynamic is whitespace-significant via CSS: a class (not a tag name)
+// makes it white-space:pre-wrap, which a tag-aware minifier cannot see.
+const preWrapDynamic = `  indented   code  `
+
+func TestCreateHTMLStructureBasedTree_PreservesDynamicWhitespace(t *testing.T) {
+	// No block-level tags -> findBlockTagBoundaries returns empty -> the
+	// fallback single-segment tree carries the whole input as one dynamic.
+	input := `<span class="chroma">` + preWrapDynamic + `</span>`
+
+	tree := CreateHTMLStructureBasedTree(input)
+	got, ok := tree.GetDynamic(0)
+	if !ok {
+		t.Fatalf("expected a dynamic at index 0, tree=%#v", tree)
+	}
+	if got != input {
+		t.Errorf("dynamic HTML was not preserved verbatim:\n got: %q\nwant: %q", got, input)
+	}
+}
+
+func TestCreateHTMLStructureBasedTree_MultiSegmentPreservesWhitespace(t *testing.T) {
+	// Several block-level <div>s spaced beyond segmentSize (len/8) so the
+	// segmentation loop emits multiple dynamic segments; the final segment
+	// (htmlDoc[lastPos:]) carries the whitespace-significant content.
+	pad := strings.Repeat("x", 80)
+	lastSegment := `<div><span class="chroma">` + preWrapDynamic + `</span></div>`
+	input := `<div>` + pad + `</div>` +
+		`<div>` + pad + `</div>` +
+		`<div>` + pad + `</div>` +
+		lastSegment
+
+	tree := CreateHTMLStructureBasedTree(input)
+
+	// The fallback path produces exactly 2 statics; the multi-segment path
+	// produces more. Guard that we are exercising the intended path.
+	if len(tree.Statics) <= 2 {
+		t.Fatalf("expected multi-segment tree (>2 statics), got %d — test no longer exercises the block-tag path", len(tree.Statics))
+	}
+
+	// The final dynamic is deterministically htmlDoc[lastPos:] = lastSegment.
+	last := len(tree.Dynamics) - 1
+	got, ok := tree.GetDynamic(last)
+	if !ok {
+		t.Fatalf("expected a dynamic at index %d, tree=%#v", last, tree)
+	}
+	if got != lastSegment {
+		t.Errorf("final multi-segment dynamic not preserved verbatim:\n got: %q\nwant: %q", got, lastSegment)
+	}
+}
