@@ -439,3 +439,254 @@ func TestMount_AutoWiresFormSchema_NoFormFields(t *testing.T) {
 		t.Errorf("Expected formSchema=nil for template without inputs, got %+v", tmpl.formSchema)
 	}
 }
+
+// --- #239: server-side formnovalidate -------------------------------------
+
+func TestExtractFormSchema_FormNoValidate(t *testing.T) {
+	statics := []string{
+		`<form method="POST">`,
+		`<input type="text" name="name" required minlength="3">`,
+		`<button name="save">Save</button>`,
+		`<button name="save-draft" formnovalidate>Save Draft</button>`,
+		`<input type="submit" name="quick-draft" formnovalidate value="Quick">`,
+		`<button formnovalidate>Unnamed</button>`, // no name: not recorded
+		`</form>`,
+	}
+	schema := ExtractFormSchema(statics)
+
+	want := map[string]bool{"save-draft": true, "quick-draft": true}
+	if len(schema.NoValidateSubmitters) != len(want) {
+		t.Fatalf("NoValidateSubmitters = %v, want keys %v", schema.NoValidateSubmitters, want)
+	}
+	for name := range want {
+		if !schema.NoValidateSubmitters[name] {
+			t.Errorf("expected %q in NoValidateSubmitters, got %v", name, schema.NoValidateSubmitters)
+		}
+	}
+	if schema.NoValidateSubmitters["save"] {
+		t.Error(`"save" (no formnovalidate) must not be recorded`)
+	}
+}
+
+func TestExtractFormSchema_NoFormNoValidate(t *testing.T) {
+	// A plain submit button leaves the set nil (not an empty map) so the common
+	// case allocates nothing.
+	schema := ExtractFormSchema([]string{
+		`<form><input name="name" required><button name="save">Save</button></form>`,
+	})
+	if schema.NoValidateSubmitters != nil {
+		t.Errorf("NoValidateSubmitters = %v, want nil when no formnovalidate present", schema.NoValidateSubmitters)
+	}
+}
+
+// TestValidateForm_FormNoValidate is the unit-level proof that the skip keys on
+// the submitter, with action as the fallback. The submitter-only case (action
+// not in the set, submitter is) is what justifies the separate Context.submitter
+// field — under lvt-on:submit routing the action is the handler, not the button.
+func TestValidateForm_FormNoValidate(t *testing.T) {
+	schema := &FormSchema{
+		Rules:                []FormRule{{Field: "name", Required: true, MinLength: 3, HasMinLength: true}},
+		NoValidateSubmitters: map[string]bool{"save-draft": true},
+	}
+	data := map[string]interface{}{"name": "ab"} // too short → invalid
+
+	cases := []struct {
+		name      string
+		action    string
+		submitter string
+		wantSkip  bool
+	}{
+		{name: "normal submitter validates", action: "save", submitter: "save", wantSkip: false},
+		{name: "formnovalidate via action fallback (button-name routing)", action: "save-draft", submitter: "", wantSkip: true},
+		{name: "formnovalidate via submitter, action differs (lvt-on:submit)", action: "save", submitter: "save-draft", wantSkip: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := NewContext(context.TODO(), tc.action, data)
+			ctx.submitter = tc.submitter
+			ctx = ctx.WithFormSchema(schema)
+			err := ctx.ValidateForm()
+			if tc.wantSkip && err != nil {
+				t.Errorf("expected validation skipped, got error: %v", err)
+			}
+			if !tc.wantSkip && err == nil {
+				t.Error("expected validation error, got nil")
+			}
+		})
+	}
+}
+
+// fnvController validates inside every action; the only reason a submission
+// skips validation is the formnovalidate attribute on the submitting control.
+// A skipped submission therefore reports meta.success=true (the action ran and
+// validation was bypassed) where a validated one reports the field errors.
+type fnvController struct{}
+type fnvState struct{ Errors map[string]string }
+
+func (fnvController) Mount(s fnvState, ctx *Context) (fnvState, error) { return s, nil }
+
+func (fnvController) validate(s fnvState, ctx *Context) (fnvState, error) {
+	if err := ctx.ValidateForm(); err != nil {
+		var multi MultiError
+		if errors.As(err, &multi) {
+			out := make(map[string]string, len(multi))
+			for _, fe := range multi {
+				out[fe.Field] = fe.Message
+			}
+			s.Errors = out
+		}
+		return s, err
+	}
+	s.Errors = nil
+	return s, nil
+}
+
+func (c fnvController) Save(s fnvState, ctx *Context) (fnvState, error) { return c.validate(s, ctx) }
+func (c fnvController) SaveDraft(s fnvState, ctx *Context) (fnvState, error) {
+	return c.validate(s, ctx)
+}
+func (c fnvController) Submit(s fnvState, ctx *Context) (fnvState, error) { return c.validate(s, ctx) }
+
+// Uses the canonical kebab-case button name (<button name="save-draft">), which
+// routes to SaveDraft via methodNameToActions' kebab variant — exercising the
+// no-JS button-name path end-to-end alongside formnovalidate.
+const fnvTemplate = `<div>
+	<form method="POST">
+		<input type="text" name="name" required minlength="3">
+		<button name="save">Save</button>
+		<button name="save-draft" formnovalidate>Save Draft</button>
+	</form>
+</div>`
+
+func newFNVHandler(t *testing.T) http.Handler {
+	t.Helper()
+	tmpl, err := New("fnv")
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	if _, err := tmpl.Parse(fnvTemplate); err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+	if tmpl.formSchema == nil || !tmpl.formSchema.NoValidateSubmitters["save-draft"] {
+		t.Fatalf("expected save-draft auto-wired into NoValidateSubmitters, got %+v", tmpl.formSchema)
+	}
+	return tmpl.Handle(&fnvController{}, AsState(&fnvState{}))
+}
+
+func postFNV(t *testing.T, handler http.Handler, form url.Values) string {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	return rec.Body.String()
+}
+
+// TestFormNoValidate_NoJS_ButtonName covers the pure no-JS tier: native POST
+// where the clicked button arrives as an empty-value form field and is resolved
+// to the action via detectSubmitButtonName. The formnovalidate button skips
+// validation; the normal button does not.
+func TestFormNoValidate_NoJS_ButtonName(t *testing.T) {
+	handler := newFNVHandler(t)
+
+	// formnovalidate button (empty value → detected as submitter) → skipped.
+	// Assert the SaveDraft action actually ran (ran:SaveDraft) AND no error, so
+	// this can't pass on a routing miss (ErrMethodNotFound never sets Ran).
+	draft := postFNV(t, handler, url.Values{"save-draft": {""}, "name": {"ab"}})
+	if strings.Contains(draft, "at least 3 characters") {
+		t.Errorf("formnovalidate button should skip validation, got error in: %s", draft)
+	}
+	// meta.success is true only if the action ran AND validation passed/skipped —
+	// a routing miss (ErrMethodNotFound) never reports success.
+	if !strings.Contains(draft, `"success":true`) {
+		t.Errorf("expected success (action ran, validation skipped), body: %s", draft)
+	}
+
+	// normal button → validation runs.
+	save := postFNV(t, handler, url.Values{"save": {""}, "name": {"ab"}})
+	if !strings.Contains(save, "at least 3 characters") {
+		t.Errorf("normal button should validate, got no error in: %s", save)
+	}
+}
+
+// TestFormNoValidate_ExplicitSubmitter covers the JS tiers where the client
+// sends lvt-action (the handler) separately from lvt-submitter (the clicked
+// button). Skipping here depends on the submitter, not the action — this is the
+// case that earns the Context.submitter field.
+func TestFormNoValidate_ExplicitSubmitter(t *testing.T) {
+	handler := newFNVHandler(t)
+
+	// action routes to Save (not formnovalidate) but the submitter is the
+	// formnovalidate button → validation skipped. Only the submitter differs
+	// between this and the next case, so it isolates the Context.submitter field.
+	skip := postFNV(t, handler, url.Values{"lvt-action": {"Save"}, "lvt-submitter": {"save-draft"}, "name": {"ab"}})
+	if strings.Contains(skip, "at least 3 characters") {
+		t.Errorf("formnovalidate submitter should skip validation, got error in: %s", skip)
+	}
+	if !strings.Contains(skip, `"success":true`) {
+		t.Errorf("expected success (Save ran, validation skipped via submitter), body: %s", skip)
+	}
+
+	// same action, ordinary submitter → validation runs.
+	run := postFNV(t, handler, url.Values{"lvt-action": {"Save"}, "lvt-submitter": {"save"}, "name": {"ab"}})
+	if !strings.Contains(run, "at least 3 characters") {
+		t.Errorf("ordinary submitter should validate, got no error in: %s", run)
+	}
+}
+
+// TestFormNoValidate_NoJS_ValuedButtonBoundary locks the documented no-JS
+// boundary: detectSubmitButtonName only treats an EMPTY-value field as the
+// submitter, so a formnovalidate button carrying a value is not recognized as
+// the submitter on the no-JS tier. The action falls through to the default
+// "submit", which validates. (JS tiers are unaffected — they send an explicit
+// submitter; see TestFormNoValidate_ExplicitSubmitter.)
+func TestFormNoValidate_NoJS_ValuedButtonBoundary(t *testing.T) {
+	handler := newFNVHandler(t)
+
+	valued := url.Values{"save-draft": {"1"}, "name": {"ab"}}
+	body := postFNV(t, handler, valued)
+	if !strings.Contains(body, "at least 3 characters") {
+		t.Errorf("value-bearing formnovalidate button is not the no-JS submitter, validation should run; got: %s", body)
+	}
+}
+
+// TestFormNoValidate_WS_ExplicitSubmitter covers the WebSocket action path
+// (mount.go threads msg.Submitter there too). The frame routes to Save but the
+// submitter is the formnovalidate button, so validation is skipped — exercising
+// submitter≠action over WS, distinct from the HTTP path.
+func TestFormNoValidate_WS_ExplicitSubmitter(t *testing.T) {
+	tmpl, err := New("fnv-ws")
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	if _, err := tmpl.Parse(fnvTemplate); err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+	handler := tmpl.Handle(&fnvController{}, AsState(&fnvState{}))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+	ws := connectWS(t, wsURL)
+	defer func() { _ = ws.Close() }()
+
+	// action=Save (ordinary), submitter=save-draft (formnovalidate) → skip.
+	sendWSActionWithSubmitter(t, ws, "Save", "save-draft", map[string]interface{}{"name": "ab"})
+	resp := readWSUpdate(t, ws, 3*time.Second)
+	meta, ok := resp["meta"].(map[string]any)
+	if !ok {
+		t.Fatalf("response has no meta: %#v", resp)
+	}
+	if success, _ := meta["success"].(bool); !success {
+		t.Errorf("meta.success = false, want true (formnovalidate submitter should skip validation): %#v", meta)
+	}
+
+	// action=Save, submitter=save (ordinary) → validation runs.
+	sendWSActionWithSubmitter(t, ws, "Save", "save", map[string]interface{}{"name": "ab"})
+	resp = readWSUpdate(t, ws, 3*time.Second)
+	meta, _ = resp["meta"].(map[string]any)
+	if success, _ := meta["success"].(bool); success {
+		t.Errorf("meta.success = true, want false (ordinary submitter should validate): %#v", meta)
+	}
+}

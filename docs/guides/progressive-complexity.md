@@ -108,7 +108,7 @@ The button's `name` routes to the corresponding Go method. Button `value` and `d
 
 ## 4. Validation from HTML Attributes
 
-> **Note:** Auto-wiring the form schema from template statics is not yet implemented. Currently you must call `ctx.WithFormSchema(ExtractFormSchema(statics))` manually. For production validation, use `ctx.BindAndValidate()` with struct tags. `formnovalidate` on buttons is not yet respected server-side.
+> **Note:** The form schema is auto-wired from your template's HTML attributes, so `ctx.ValidateForm()` works without calling `WithFormSchema` manually. For production validation with custom rules, use `ctx.BindAndValidate()` with struct tags.
 
 HTML validation attributes (`required`, `pattern`, `min`, `max`, `minlength`, `maxlength`, `type`) can be extracted by the framework. Use `ctx.ValidateForm()` instead of writing Go struct tags:
 
@@ -144,12 +144,27 @@ func (c *Controller) Submit(state State, ctx *livetemplate.Context) (State, erro
 
 No Go struct tags needed. The `required`, `type="email"`, `minlength="5"`, `min="18"` attributes are the validation rules.
 
-Use `formnovalidate` on buttons that should skip validation:
+Use `formnovalidate` on a submit button to skip `ctx.ValidateForm()` for that
+submit path — the canonical "save draft" flow:
 
 ```html
-<button type="submit">Save</button>
+<button name="save">Save</button>
 <button name="save-draft" formnovalidate>Save Draft</button>
 ```
+
+The framework reads the `formnovalidate` button's `name` from your template and
+skips validation when that button is the submitter — on every tier (WebSocket,
+HTTP-fetch, and no-JS native POST). Three things to know:
+
+- **Name it.** The skip is matched by the submitter's `name`; a dynamic
+  (`{{...}}`) name can't be detected.
+- **No-JS: no `value`.** On the pure no-JS tier the server identifies the
+  submitter by its empty-value form field, so a `formnovalidate` button that
+  carries a `value` won't be recognized as the submitter there (JS tiers send an
+  explicit submitter and are unaffected).
+- **Not a security boundary.** Skipping is client-controlled convenience for
+  draft flows — enforce server-authoritative rules unconditionally where it
+  matters.
 
 ---
 

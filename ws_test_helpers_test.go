@@ -27,6 +27,24 @@ func sendWSAction(t *testing.T, ws *websocket.Conn, action string, data map[stri
 	}
 }
 
+// sendWSActionWithSubmitter sends an action message carrying an explicit
+// submitter (SubmitEvent.submitter.name), the wire shape the client uses under
+// lvt-on:submit routing where action and submitter differ.
+func sendWSActionWithSubmitter(t *testing.T, ws *websocket.Conn, action, submitter string, data map[string]interface{}) {
+	t.Helper()
+	msg := map[string]interface{}{"action": action, "submitter": submitter}
+	if data != nil {
+		msg["data"] = data
+	}
+	b, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("marshal action: %v", err)
+	}
+	if err := ws.WriteMessage(websocket.TextMessage, b); err != nil {
+		t.Fatalf("ws write: %v", err)
+	}
+}
+
 // assertTreeSlot checks that the parsed WS update response has the given
 // value at tree slot key. Navigate responses are tree UPDATES containing
 // only changed dynamic slot values, so this is the correct way to verify

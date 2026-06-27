@@ -50,31 +50,38 @@ func (e *DispatchError) Unwrap() error {
 }
 
 // methodNameToActions converts a method name to possible action names.
-// Returns multiple variations to handle different naming conventions.
+// Returns multiple variations to handle different naming conventions, so a
+// method routes from camelCase, snake_case, kebab-case, or exact-PascalCase
+// action strings. kebab-case matters for progressive enhancement: HTML button
+// names are conventionally kebab (<button name="save-draft">), so a no-JS POST
+// must reach SaveDraft via "save-draft".
 //
 // Examples:
 //   - "Increment" → ["increment", "Increment"]
-//   - "AddItem" → ["add_item", "addItem", "AddItem"]
-//   - "UpdateUserProfile" → ["update_user_profile", "updateUserProfile", "UpdateUserProfile"]
+//   - "AddItem" → ["addItem", "add_item", "add-item", "AddItem"]
+//   - "UpdateUserProfile" → ["updateUserProfile", "update_user_profile", "update-user-profile", "UpdateUserProfile"]
 func methodNameToActions(methodName string) []string {
-	actions := make([]string, 0, 3)
-
-	// 1. lowercase first letter (camelCase)
-	if len(methodName) > 0 {
-		camelCase := strings.ToLower(methodName[:1]) + methodName[1:]
-		actions = append(actions, camelCase)
+	if methodName == "" {
+		return nil
+	}
+	actions := make([]string, 0, 4)
+	add := func(s string) {
+		if s == "" {
+			return
+		}
+		for _, existing := range actions {
+			if existing == s {
+				return
+			}
+		}
+		actions = append(actions, s)
 	}
 
-	// 2. snake_case
-	snakeCase := toSnakeCase(methodName)
-	if snakeCase != "" && snakeCase != actions[0] {
-		actions = append(actions, snakeCase)
-	}
-
-	// 3. exact match (PascalCase)
-	if methodName != actions[0] {
-		actions = append(actions, methodName)
-	}
+	add(strings.ToLower(methodName[:1]) + methodName[1:]) // camelCase
+	snake := toSnakeCase(methodName)
+	add(snake)                               // snake_case
+	add(strings.ReplaceAll(snake, "_", "-")) // kebab-case (HTML button names)
+	add(methodName)                          // exact PascalCase
 
 	return actions
 }

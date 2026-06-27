@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Action routing now accepts **kebab-case** action names, so a method `SaveDraft` routes from `save-draft` (in addition to the existing `saveDraft`/`save_draft`/`SaveDraft`). This makes the documented progressive-enhancement button-name pattern — `<button name="save-draft">` — route on the no-JS tier, where the button `name` is the action verbatim. (#239)
+- `ctx.ValidateForm()` now honors `formnovalidate` on submit controls: when a form is submitted by a button/input carrying `formnovalidate` (e.g. `<button name="save-draft" formnovalidate>`), validation is skipped. The framework records the control's `name` from the template into the form schema (`FormSchema.NoValidateSubmitters`) and matches it against the submission's submitter, so the skip works on every tier — WebSocket, HTTP-fetch, and no-JS native POST — with no client change. Only named submitters are detected; on the no-JS tier the button must not carry a `value` (the submitter is identified by its empty-value field). The skip is client-controlled convenience, not a security boundary. (#239)
 - `WithEphemeralSweepTTL(ttl)` `HandleOption` to tune how long idle HTTP template cache entries survive in ephemeral mode (state with no `lvt:"persist"` fields) before the sweep loop evicts them. Defaults to 30 minutes; no effect in persistent mode (eviction follows the SessionStore there). A short TTL also tightens the sweep interval (floored at 1 minute) so the value is actually honored.
 
 ### Changed

@@ -124,7 +124,8 @@ func TestMethodNameToActions(t *testing.T) {
 		expected   []string
 	}{
 		{"Increment", []string{"increment", "Increment"}},
-		{"AddItem", []string{"addItem", "add_item", "AddItem"}},
+		{"AddItem", []string{"addItem", "add_item", "add-item", "AddItem"}},
+		{"SaveDraft", []string{"saveDraft", "save_draft", "save-draft", "SaveDraft"}},
 	}
 
 	for _, tt := range tests {

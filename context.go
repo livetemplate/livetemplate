@@ -91,6 +91,7 @@ func (k ConnectKind) String() string {
 type Context struct {
 	context.Context
 	action      string
+	submitter   string // SubmitEvent.submitter.name; distinct from action under lvt-on:submit routing (#239)
 	data        *ActionData
 	userID      string
 	groupID     string
@@ -552,10 +553,27 @@ func (c *Context) WithFormSchema(schema *FormSchema) *Context {
 // If no schema is set, returns nil (no validation). For production validation
 // with complex rules, use BindAndValidate() with go-playground/validator tags.
 //
+// Validation is skipped when the form was submitted by a control carrying the
+// formnovalidate attribute (e.g. <button name="save-draft" formnovalidate>) —
+// matched by the submitter's name. This is a client-controlled convenience for
+// draft/save-without-validation flows, NOT a security boundary: enforce
+// server-authoritative rules unconditionally where it matters.
+//
 // Known limitation: ExtractFormSchema merges all forms in a template into one
 // schema. If your template has multiple forms, use BindAndValidate() instead.
 func (c *Context) ValidateForm() error {
 	if c.formSchema == nil {
+		return nil
+	}
+	// The submitter is the clicked button's name; under button-name routing it
+	// equals the action (resolveSubmitterFallback collapses them), but under
+	// lvt-on:submit routing the action is the handler and the submitter is the
+	// button, so prefer submitter and fall back to action.
+	submitter := c.submitter
+	if submitter == "" {
+		submitter = c.action
+	}
+	if c.formSchema.NoValidateSubmitters[submitter] {
 		return nil
 	}
 	return c.formSchema.Validate(c.data.Raw())
