@@ -1634,7 +1634,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		// Emit a relative self-reference rather than r.URL.Path — under
 		// http.StripPrefix the latter is the stripped path ("/" or ""), which would
 		// redirect the non-JS client to the wrong location. The browser resolves the
-		// relative reference against its own un-stripped URL.
+		// relative reference against its own un-stripped URL. This assumes a
+		// trailing-slash mount; see relativeSelfReference for the exact-match caveat.
 		redirectURL := relativeSelfReference(r)
 		if encoded := r.URL.Query().Encode(); encoded != "" {
 			redirectURL += "?" + encoded
