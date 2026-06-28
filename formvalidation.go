@@ -40,7 +40,10 @@ type FormSchema struct {
 	NoValidateSubmitters map[string]bool
 }
 
-// inputAttrRegex matches HTML input/textarea/select elements and captures their attributes.
+// inputAttrRegex matches HTML input/textarea/select elements and captures their
+// attributes. Case-insensitive: raw template source may carry developer-authored
+// mixed-case tags (statics rendered by html/template are lowercase, but the
+// public ExtractFormSchema also takes hand-written statics).
 var inputAttrRegex = regexp.MustCompile(`(?is)<(?:input|textarea|select)\b([^>]*)>`)
 
 // Only submit controls (<button>, <input>) can carry formnovalidate — unlike
