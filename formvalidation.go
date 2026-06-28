@@ -44,8 +44,10 @@ type FormSchema struct {
 var inputAttrRegex = regexp.MustCompile(`<(?:input|textarea|select)\b([^>]*)>`)
 
 // Only submit controls (<button>, <input>) can carry formnovalidate — unlike
-// inputAttrRegex, this deliberately excludes <select> and <textarea>.
-var submitControlRegex = regexp.MustCompile(`<(?:button|input)\b([^>]*)>`)
+// inputAttrRegex, this deliberately excludes <select> and <textarea>. The tag is
+// captured so a <button>'s default-submit type can be distinguished from an
+// <input>'s explicit type.
+var submitControlRegex = regexp.MustCompile(`<(button|input)\b([^>]*)>`)
 
 var templateDirectiveRegex = regexp.MustCompile(`(?s)\{\{.*?\}\}`)
 
@@ -82,6 +84,14 @@ func ExtractFormSchema(statics []string) *FormSchema {
 
 		name := attrs["name"]
 		if name == "" {
+			continue
+		}
+
+		// Skip non-data controls: submit/image/button/reset inputs carry no field
+		// value, so a `required` on one would raise a spurious error for a field
+		// that is never in the POST body unless it is the submitter.
+		switch strings.ToLower(attrs["type"]) {
+		case "submit", "image", "button", "reset":
 			continue
 		}
 
@@ -136,8 +146,18 @@ func ExtractFormSchema(statics []string) *FormSchema {
 	}
 
 	for _, match := range submitControlRegex.FindAllStringSubmatch(fullHTML, -1) {
-		attrs := parseHTMLAttributes(match[1])
+		tag := strings.ToLower(match[1])
+		attrs := parseHTMLAttributes(match[2])
 		if _, ok := attrs["formnovalidate"]; !ok {
+			continue
+		}
+		// formnovalidate only submits — and so only skips validation — on a real
+		// submit control: a <button> (type defaults to submit) that is not
+		// type=button/reset, or an <input type=submit|image>.
+		typ := strings.ToLower(attrs["type"])
+		isSubmit := (tag == "button" && typ != "button" && typ != "reset") ||
+			(tag == "input" && (typ == "submit" || typ == "image"))
+		if !isSubmit {
 			continue
 		}
 		name := attrs["name"]

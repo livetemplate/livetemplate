@@ -135,12 +135,14 @@ func (c *Context) withSubmitter(name string) *Context {
 	return &newCtx
 }
 
-// Submitter returns the name of the control that submitted the form
-// (SubmitEvent.submitter.name), or "" if none was sent. Under button-name
-// routing the submitter equals Action; under lvt-on:submit routing Action is the
-// handler while Submitter is the clicked button. Use it to branch custom
-// validation in BindAndValidate flows, mirroring how ValidateForm honors
-// formnovalidate.
+// Submitter returns the name of the control that submitted the form — the
+// clicked submit button — across all tiers: the client sends it explicitly on
+// the WebSocket and HTTP-fetch paths, and the no-JS path resolves it from the
+// submit button's form field. It is "" when no form submitter applies (e.g. a
+// non-form action, or a no-JS submit button that carried a value). Under
+// lvt-on:submit routing Action is the handler while Submitter is the button. Use
+// it to branch custom validation in BindAndValidate flows, mirroring how
+// ValidateForm honors formnovalidate.
 func (c *Context) Submitter() string {
 	return c.submitter
 }
@@ -585,15 +587,11 @@ func (c *Context) ValidateForm() error {
 	if c.formSchema == nil {
 		return nil
 	}
-	// The submitter is the clicked button's name; under button-name routing it
-	// equals the action (resolveSubmitterFallback collapses them), but under
-	// lvt-on:submit routing the action is the handler and the submitter is the
-	// button, so prefer submitter and fall back to action.
-	submitter := c.submitter
-	if submitter == "" {
-		submitter = c.action
-	}
-	if c.formSchema.NoValidateSubmitters[submitter] {
+	// c.submitter is the clicked button's name on every form-submit tier — the
+	// client sends it explicitly (WS / HTTP-fetch), and the no-JS button-name
+	// path sets it from the empty-value submit field (parseURLEncodedForm). So a
+	// single lookup suffices; "" (no submitter) is simply not in the set.
+	if c.formSchema.NoValidateSubmitters[c.submitter] {
 		return nil
 	}
 	return c.formSchema.Validate(c.data.Raw())

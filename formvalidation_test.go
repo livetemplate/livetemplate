@@ -447,9 +447,12 @@ func TestExtractFormSchema_FormNoValidate(t *testing.T) {
 		`<form method="POST">`,
 		`<input type="text" name="name" required minlength="3">`,
 		`<button name="save">Save</button>`,
-		`<button name="save-draft" formnovalidate>Save Draft</button>`,
-		`<input type="submit" name="quick-draft" formnovalidate value="Quick">`,
-		`<button formnovalidate>Unnamed</button>`, // no name: not recorded
+		`<button name="save-draft" formnovalidate>Save Draft</button>`,          // default type=submit
+		`<input type="submit" name="quick-draft" formnovalidate value="Quick">`, // submit input
+		`<button formnovalidate>Unnamed</button>`,                               // no name: not recorded
+		`<button type="button" name="clear" formnovalidate>Clear</button>`,      // type=button: can't submit
+		`<button type="reset" name="reset-btn" formnovalidate>Reset</button>`,   // type=reset: can't submit
+		`<input type="text" name="weird" formnovalidate>`,                       // non-submit input
 		`</form>`,
 	}
 	schema := ExtractFormSchema(statics)
@@ -463,8 +466,30 @@ func TestExtractFormSchema_FormNoValidate(t *testing.T) {
 			t.Errorf("expected %q in NoValidateSubmitters, got %v", name, schema.NoValidateSubmitters)
 		}
 	}
-	if schema.NoValidateSubmitters["save"] {
-		t.Error(`"save" (no formnovalidate) must not be recorded`)
+	// Controls that can't submit a form must never be recorded as skip-submitters,
+	// or a crafted lvt-submitter could bypass validation.
+	for _, name := range []string{"save", "clear", "reset-btn", "weird"} {
+		if schema.NoValidateSubmitters[name] {
+			t.Errorf("%q must not be a skip-submitter", name)
+		}
+	}
+}
+
+// TestExtractFormSchema_SubmitInputNoSpuriousRule guards against a submit/image/
+// button/reset input being treated as a data field: its name carries no value in
+// the POST body, so a `required` on it would raise a spurious error.
+func TestExtractFormSchema_SubmitInputNoSpuriousRule(t *testing.T) {
+	schema := ExtractFormSchema([]string{
+		`<form><input type="text" name="title" required>`,
+		`<input type="submit" name="save-draft" required formnovalidate value="Draft"></form>`,
+	})
+	for _, r := range schema.Rules {
+		if r.Field == "save-draft" {
+			t.Errorf("submit input must not produce a validation rule, got %+v", r)
+		}
+	}
+	if !schema.NoValidateSubmitters["save-draft"] {
+		t.Error("submit input with formnovalidate should still be a skip-submitter")
 	}
 }
 
@@ -479,10 +504,11 @@ func TestExtractFormSchema_NoFormNoValidate(t *testing.T) {
 	}
 }
 
-// TestValidateForm_FormNoValidate is the unit-level proof that the skip keys on
-// the submitter, with action as the fallback. The submitter-only case (action
-// not in the set, submitter is) is what justifies the separate Context.submitter
-// field — under lvt-on:submit routing the action is the handler, not the button.
+// TestValidateForm_FormNoValidate is the unit-level proof that the skip keys
+// solely on the submitter. The submitter-differs case (action not in the set,
+// submitter is) justifies the separate Context.submitter field — under
+// lvt-on:submit routing the action is the handler, not the button — and the
+// empty-submitter case proves a bare action no longer skips.
 func TestValidateForm_FormNoValidate(t *testing.T) {
 	schema := &FormSchema{
 		Rules:                []FormRule{{Field: "name", Required: true, MinLength: 3, HasMinLength: true}},
@@ -497,13 +523,13 @@ func TestValidateForm_FormNoValidate(t *testing.T) {
 		wantSkip  bool
 	}{
 		{name: "normal submitter validates", action: "save", submitter: "save", wantSkip: false},
-		{name: "formnovalidate via action fallback (button-name routing)", action: "save-draft", submitter: "", wantSkip: true},
-		{name: "formnovalidate via submitter, action differs (lvt-on:submit)", action: "save", submitter: "save-draft", wantSkip: true},
+		{name: "formnovalidate submitter skips (button-name routing: submitter==action)", action: "save-draft", submitter: "save-draft", wantSkip: true},
+		{name: "formnovalidate submitter, action differs (lvt-on:submit)", action: "save", submitter: "save-draft", wantSkip: true},
+		{name: "no submitter does not skip even if action matches", action: "save-draft", submitter: "", wantSkip: false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := NewContext(context.TODO(), tc.action, data)
-			ctx.submitter = tc.submitter
+			ctx := NewContext(context.TODO(), tc.action, data).withSubmitter(tc.submitter)
 			ctx = ctx.WithFormSchema(schema)
 			err := ctx.ValidateForm()
 			if tc.wantSkip && err != nil {
@@ -708,7 +734,7 @@ func TestContext_Submitter(t *testing.T) {
 	if got := ctx.Submitter(); got != "" {
 		t.Errorf("default Submitter() = %q, want empty", got)
 	}
-	ctx.submitter = "save-draft"
+	ctx = ctx.withSubmitter("save-draft")
 	if got := ctx.Submitter(); got != "save-draft" {
 		t.Errorf("Submitter() = %q, want save-draft", got)
 	}

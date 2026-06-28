@@ -265,6 +265,10 @@ func parseURLEncodedForm(r *http.Request) (ActionMessage, error) {
 	if msg.Action == "" {
 		if name := detectSubmitButtonName(r.Form, actionFields); name != "" {
 			msg.Action = name
+			// The detected empty-value field IS the clicked submit button, so it
+			// is also the submitter — record it so ctx.Submitter() is correct on
+			// the no-JS tier, not just ctx.Action().
+			msg.Submitter = name
 			actionFields[name] = true
 		}
 	}

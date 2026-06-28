@@ -1285,3 +1285,26 @@ func TestMergeData(t *testing.T) {
 		})
 	}
 }
+
+// TestParseActionFromHTTP_ButtonNameSetsSubmitter verifies the no-JS button-name
+// path records the clicked button as the submitter, not just the action — so
+// ctx.Submitter() is correct without JavaScript.
+func TestParseActionFromHTTP_ButtonNameSetsSubmitter(t *testing.T) {
+	body := strings.NewReader("save-draft=&name=ab")
+	req := httptest.NewRequest("POST", "/", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	msg, err := ParseActionFromHTTP(req)
+	if err != nil {
+		t.Fatalf("ParseActionFromHTTP: %v", err)
+	}
+	if msg.Action != "save-draft" {
+		t.Errorf("Action = %q, want save-draft", msg.Action)
+	}
+	if msg.Submitter != "save-draft" {
+		t.Errorf("Submitter = %q, want save-draft (button-name path must set submitter)", msg.Submitter)
+	}
+	if _, ok := msg.Data["save-draft"]; ok {
+		t.Error("button-name field must be excluded from data")
+	}
+}
