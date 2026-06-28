@@ -122,8 +122,8 @@ func BuildActionFromValues(values map[string][]string) ActionMessage {
 		if name := detectSubmitButtonName(values, actionFields); name != "" {
 			msg.Action = name
 			// The detected empty-value field IS the clicked submit button, so it
-			// is also the submitter — record it so ctx.Submitter() is correct on
-			// the no-JS streaming-upload tier, not just ctx.Action().
+			// is also the submitter — record it (alongside Action) so ctx.Submitter()
+			// is correct on the no-JS tiers, not just ctx.Action().
 			msg.Submitter = name
 			actionFields[name] = true
 		}
@@ -209,10 +209,7 @@ func parseMultipartForm(r *http.Request) (ActionMessage, error) {
 		if msg.Action == "" && r.MultipartForm != nil {
 			if name := detectSubmitButtonName(r.MultipartForm.Value, actionFields); name != "" {
 				msg.Action = name
-				// The detected empty-value field IS the clicked submit button, so it
-				// is also the submitter — record it so ctx.Submitter() is correct on
-				// the no-JS multipart tier, not just ctx.Action().
-				msg.Submitter = name
+				msg.Submitter = name // button name is also the submitter (see BuildActionFromValues)
 				actionFields[name] = true
 			}
 		}
@@ -273,10 +270,7 @@ func parseURLEncodedForm(r *http.Request) (ActionMessage, error) {
 	if msg.Action == "" {
 		if name := detectSubmitButtonName(r.Form, actionFields); name != "" {
 			msg.Action = name
-			// The detected empty-value field IS the clicked submit button, so it
-			// is also the submitter — record it so ctx.Submitter() is correct on
-			// the no-JS tier, not just ctx.Action().
-			msg.Submitter = name
+			msg.Submitter = name // button name is also the submitter (see BuildActionFromValues)
 			actionFields[name] = true
 		}
 	}

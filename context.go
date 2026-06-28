@@ -593,7 +593,7 @@ func (c *Context) ValidateForm() error {
 	if c.data == nil {
 		return nil
 	}
-	// One lookup covers all tiers — the submitter is unified upstream (Submitter godoc).
+	// Submitter is unified across all tiers upstream (see Submitter godoc).
 	if c.formSchema.NoValidateSubmitters[c.submitter] {
 		return nil
 	}
