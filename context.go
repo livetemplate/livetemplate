@@ -125,8 +125,7 @@ func (c *Context) Action() string {
 	return c.action
 }
 
-// withSubmitter returns a copy with the form submitter set (unexported:
-// framework-populated from the wire submitter; apps read via Submitter()).
+// withSubmitter returns a copy with the submitter set (unexported; apps read via Submitter()).
 func (c *Context) withSubmitter(name string) *Context {
 	newCtx := *c
 	newCtx.submitter = name
@@ -585,9 +584,8 @@ func (c *Context) ValidateForm() error {
 	if c.formSchema == nil {
 		return nil
 	}
-	// A formnovalidate-only template caches a non-nil schema with no rules, so
-	// ValidateForm is reachable on no-data contexts (Mount connect, dispatched
-	// actions); guard like every other c.data accessor.
+	// Guard direct Context construction; dispatch always produces non-nil data
+	// via NewContext → newActionData, so this only fires for zero-value Contexts.
 	if c.data == nil {
 		return nil
 	}
