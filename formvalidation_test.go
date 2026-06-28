@@ -690,3 +690,26 @@ func TestFormNoValidate_WS_ExplicitSubmitter(t *testing.T) {
 		t.Errorf("meta.success = true, want false (ordinary submitter should validate): %#v", meta)
 	}
 }
+
+func TestExtractFormSchemaFromTemplateStr_KeepsFormNoValidateOnlySchema(t *testing.T) {
+	// A form with a formnovalidate button but no validation rules still yields a
+	// schema (NoValidateSubmitters populated) — the nil guard must not discard it.
+	schema := extractFormSchemaFromTemplateStr(`<form method="POST"><button name="save-draft" formnovalidate>Draft</button></form>`)
+	if schema == nil {
+		t.Fatal("expected non-nil schema for a formnovalidate-only form")
+	}
+	if !schema.NoValidateSubmitters["save-draft"] {
+		t.Errorf("expected save-draft in NoValidateSubmitters, got %+v", schema)
+	}
+}
+
+func TestContext_Submitter(t *testing.T) {
+	ctx := NewContext(context.TODO(), "Save", nil)
+	if got := ctx.Submitter(); got != "" {
+		t.Errorf("default Submitter() = %q, want empty", got)
+	}
+	ctx.submitter = "save-draft"
+	if got := ctx.Submitter(); got != "save-draft" {
+		t.Errorf("Submitter() = %q, want save-draft", got)
+	}
+}

@@ -91,7 +91,7 @@ func (k ConnectKind) String() string {
 type Context struct {
 	context.Context
 	action      string
-	submitter   string // SubmitEvent.submitter.name; distinct from action under lvt-on:submit routing (#239)
+	submitter   string // SubmitEvent.submitter.name; distinct from action under lvt-on:submit routing
 	data        *ActionData
 	userID      string
 	groupID     string
@@ -123,6 +123,16 @@ func NewContext(ctx context.Context, action string, data map[string]interface{})
 // Action returns the action name that triggered this context.
 func (c *Context) Action() string {
 	return c.action
+}
+
+// Submitter returns the name of the control that submitted the form
+// (SubmitEvent.submitter.name), or "" if none was sent. Under button-name
+// routing the submitter equals Action; under lvt-on:submit routing Action is the
+// handler while Submitter is the clicked button. Use it to branch custom
+// validation in BindAndValidate flows, mirroring how ValidateForm honors
+// formnovalidate.
+func (c *Context) Submitter() string {
+	return c.submitter
 }
 
 // UserID returns the authenticated user's ID.

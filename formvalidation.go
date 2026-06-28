@@ -36,15 +36,15 @@ type FormSchema struct {
 	// carry the formnovalidate attribute (e.g. <button name="save-draft"
 	// formnovalidate>). ValidateForm skips validation when the form's submitter
 	// matches one. Only named submitters are recorded; a dynamic ({{...}}) name
-	// is blanked before extraction, so it is not detected. (#239)
+	// is blanked before extraction, so it is not detected.
 	NoValidateSubmitters map[string]bool
 }
 
 // inputAttrRegex matches HTML input/textarea/select elements and captures their attributes.
 var inputAttrRegex = regexp.MustCompile(`<(?:input|textarea|select)\b([^>]*)>`)
 
-// submitControlRegex matches <button> and <input> elements — the controls that
-// can submit a form and so can carry formnovalidate.
+// Only submit controls (<button>, <input>) can carry formnovalidate — unlike
+// inputAttrRegex, this deliberately excludes <select> and <textarea>.
 var submitControlRegex = regexp.MustCompile(`<(?:button|input)\b([^>]*)>`)
 
 var templateDirectiveRegex = regexp.MustCompile(`(?s)\{\{.*?\}\}`)
@@ -56,7 +56,7 @@ func extractFormSchemaFromTemplateStr(templateStr string) *FormSchema {
 	blanked := dynamicNameAttrRegex.ReplaceAllString(templateStr, `${1}"`)
 	stripped := templateDirectiveRegex.ReplaceAllString(blanked, "")
 	schema := ExtractFormSchema([]string{stripped})
-	if schema == nil || len(schema.Rules) == 0 {
+	if schema == nil || (len(schema.Rules) == 0 && len(schema.NoValidateSubmitters) == 0) {
 		return nil
 	}
 	return schema

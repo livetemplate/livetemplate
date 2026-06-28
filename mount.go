@@ -887,7 +887,7 @@ eventLoop:
 			// They're already available in Mount/OnConnect via wsQueryData.
 			// WebSocket actions use only msg.Data from the client message.
 			actionCtx := NewContext(r.Context(), msg.Action, msg.Data)
-			actionCtx.submitter = msg.Submitter // formnovalidate correlation; survives With*() copies (#239)
+			actionCtx.submitter = msg.Submitter // formnovalidate correlation; survives With*() copies
 			actionCtx = actionCtx.WithUserID(userID)
 			actionCtx = actionCtx.WithGroupID(groupID)
 			actionCtx = actionCtx.WithTopicSubscriber(h.topicSubscriberFor(connection, r))
@@ -1530,7 +1530,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Create Context for action dispatch (with HTTP context for SetCookie, Redirect)
 	actionCtx := NewContext(r.Context(), msg.Action, mergedData)
-	actionCtx.submitter = msg.Submitter // formnovalidate correlation; survives With*() copies (#239)
+	actionCtx.submitter = msg.Submitter // formnovalidate correlation; survives With*() copies
 	actionCtx = actionCtx.WithUserID(userID)
 	actionCtx = actionCtx.WithGroupID(groupID)
 	actionCtx = actionCtx.WithTopicSubscriber(h.topicSubscriberFor(nil, r))
