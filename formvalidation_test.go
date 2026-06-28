@@ -735,8 +735,9 @@ func TestExtractFormSchemaFromTemplateStr_KeepsFormNoValidateOnlySchema(t *testi
 // contexts can carry nil data. ValidateForm must not dereference nil data.
 func TestValidateForm_NilData_NoPanic(t *testing.T) {
 	schema := &FormSchema{NoValidateSubmitters: map[string]bool{"save-draft": true}}
-	// Construct directly: NewContext wraps nil in a non-nil *ActionData, but the
-	// dispatched/Mount path leaves c.data as a nil pointer (the panic scenario).
+	// Construct directly — this bypasses NewContext, which would wrap nil in a
+	// non-nil *ActionData. A nil c.data is only reachable from direct struct
+	// construction, not from dispatch; the guard exists for exactly this case.
 	// submitter "save" is not in the set, so without the guard execution reaches
 	// c.data.Raw() and panics.
 	ctx := &Context{formSchema: schema, submitter: "save"}

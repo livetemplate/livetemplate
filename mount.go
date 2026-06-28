@@ -1411,7 +1411,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			func(part *multipart.Part, values map[string][]string) error {
 				// Form fields seen before this file part are readable in OnUpload
 				// (ordering invariant — see the UploadStreamer docstring).
-				partCtx := streamCtx.WithData(send.BuildActionFromValues(values).Data)
+				partMsg := send.BuildActionFromValues(values)
+				partCtx := streamCtx.WithData(partMsg.Data).withSubmitter(partMsg.Submitter)
 				return h.streamProxiedPart(part, uploadRegistry, partCtx)
 			},
 			// Staged sink: a Volume file part sharing a streaming request is

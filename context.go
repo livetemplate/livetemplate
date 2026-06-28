@@ -125,10 +125,8 @@ func (c *Context) Action() string {
 	return c.action
 }
 
-// withSubmitter returns a copy with the form submitter set. Unexported: the
-// submitter is framework-populated from the client's SubmitEvent at dispatch
-// time, not a value applications set when building a Context (read it via
-// Submitter()).
+// withSubmitter returns a copy with the form submitter set (unexported:
+// framework-populated from the wire submitter; apps read via Submitter()).
 func (c *Context) withSubmitter(name string) *Context {
 	newCtx := *c
 	newCtx.submitter = name
