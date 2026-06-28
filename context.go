@@ -125,6 +125,16 @@ func (c *Context) Action() string {
 	return c.action
 }
 
+// withSubmitter returns a copy with the form submitter set. Unexported: the
+// submitter is framework-populated from the client's SubmitEvent at dispatch
+// time, not a value applications set when building a Context (read it via
+// Submitter()).
+func (c *Context) withSubmitter(name string) *Context {
+	newCtx := *c
+	newCtx.submitter = name
+	return &newCtx
+}
+
 // Submitter returns the name of the control that submitted the form
 // (SubmitEvent.submitter.name), or "" if none was sent. Under button-name
 // routing the submitter equals Action; under lvt-on:submit routing Action is the

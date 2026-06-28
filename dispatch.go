@@ -77,11 +77,11 @@ func methodNameToActions(methodName string) []string {
 		actions = append(actions, s)
 	}
 
-	add(strings.ToLower(methodName[:1]) + methodName[1:]) // camelCase
+	add(strings.ToLower(methodName[:1]) + methodName[1:])
 	snake := toSnakeCase(methodName)
-	add(snake)                               // snake_case
-	add(strings.ReplaceAll(snake, "_", "-")) // kebab-case (HTML button names)
-	add(methodName)                          // exact PascalCase
+	add(snake)
+	add(strings.ReplaceAll(snake, "_", "-"))
+	add(methodName)
 
 	return actions
 }
