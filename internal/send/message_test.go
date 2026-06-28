@@ -434,11 +434,34 @@ func TestParseActionFromHTTP_Multipart_ButtonNameAction(t *testing.T) {
 	if msg.Action != "updateProfile" {
 		t.Errorf("Action = %q, want %q", msg.Action, "updateProfile")
 	}
+	if msg.Submitter != "updateProfile" {
+		t.Errorf("Submitter = %q, want updateProfile (multipart button-name path must set submitter)", msg.Submitter)
+	}
 	if msg.Data["name"] != "Jane Doe" {
 		t.Errorf("Data[name] = %q, want %q", msg.Data["name"], "Jane Doe")
 	}
 	if _, ok := msg.Data["updateProfile"]; ok {
 		t.Error("Button name field should not appear in data map")
+	}
+}
+
+// TestBuildActionFromValues_ButtonNameSetsSubmitter covers the streaming-upload
+// path (r.MultipartForm never populated): the empty-value button name must
+// populate both Action and Submitter so ctx.Submitter() is correct on the no-JS
+// streaming-upload tier.
+func TestBuildActionFromValues_ButtonNameSetsSubmitter(t *testing.T) {
+	msg := BuildActionFromValues(map[string][]string{
+		"save-draft": {""}, // button name with empty value
+		"name":       {"ab"},
+	})
+	if msg.Action != "save-draft" {
+		t.Errorf("Action = %q, want save-draft", msg.Action)
+	}
+	if msg.Submitter != "save-draft" {
+		t.Errorf("Submitter = %q, want save-draft (streaming-upload button-name path must set submitter)", msg.Submitter)
+	}
+	if _, ok := msg.Data["save-draft"]; ok {
+		t.Error("button-name field must be excluded from data")
 	}
 }
 
@@ -1078,8 +1101,11 @@ func TestParseActionFromHTTP_Multipart_ExplicitSubmitter(t *testing.T) {
 		if msg.Action != "save" {
 			t.Errorf("Action = %q, want %q (heuristic should resolve when lvt-submitter is empty)", msg.Action, "save")
 		}
-		if msg.Submitter != "" {
-			t.Errorf("Submitter = %q, want empty", msg.Submitter)
+		// The heuristic-detected empty-value button IS the submitter (consistent
+		// with parseURLEncodedForm), so Submitter is populated from it rather than
+		// left empty by the no-op lvt-submitter.
+		if msg.Submitter != "save" {
+			t.Errorf("Submitter = %q, want save (heuristic-detected button is the submitter)", msg.Submitter)
 		}
 	})
 

@@ -587,10 +587,13 @@ func (c *Context) ValidateForm() error {
 	if c.formSchema == nil {
 		return nil
 	}
-	// c.submitter is the clicked button's name on every form-submit tier — the
-	// client sends it explicitly (WS / HTTP-fetch), and the no-JS button-name
-	// path sets it from the empty-value submit field (parseURLEncodedForm). So a
-	// single lookup suffices; "" (no submitter) is simply not in the set.
+	// A formnovalidate-only template caches a non-nil schema with no rules, so
+	// ValidateForm is reachable on no-data contexts (Mount connect, dispatched
+	// actions); guard like every other c.data accessor.
+	if c.data == nil {
+		return nil
+	}
+	// One lookup covers all tiers — the submitter is unified upstream (Submitter godoc).
 	if c.formSchema.NoValidateSubmitters[c.submitter] {
 		return nil
 	}

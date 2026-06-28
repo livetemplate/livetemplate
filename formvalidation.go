@@ -41,13 +41,13 @@ type FormSchema struct {
 }
 
 // inputAttrRegex matches HTML input/textarea/select elements and captures their attributes.
-var inputAttrRegex = regexp.MustCompile(`<(?:input|textarea|select)\b([^>]*)>`)
+var inputAttrRegex = regexp.MustCompile(`(?is)<(?:input|textarea|select)\b([^>]*)>`)
 
 // Only submit controls (<button>, <input>) can carry formnovalidate — unlike
 // inputAttrRegex, this deliberately excludes <select> and <textarea>. The tag is
 // captured so a <button>'s default-submit type can be distinguished from an
 // <input>'s explicit type.
-var submitControlRegex = regexp.MustCompile(`<(button|input)\b([^>]*)>`)
+var submitControlRegex = regexp.MustCompile(`(?is)<(button|input)\b([^>]*)>`)
 
 var templateDirectiveRegex = regexp.MustCompile(`(?s)\{\{.*?\}\}`)
 

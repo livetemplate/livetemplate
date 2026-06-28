@@ -121,6 +121,10 @@ func BuildActionFromValues(values map[string][]string) ActionMessage {
 	if msg.Action == "" {
 		if name := detectSubmitButtonName(values, actionFields); name != "" {
 			msg.Action = name
+			// The detected empty-value field IS the clicked submit button, so it
+			// is also the submitter — record it so ctx.Submitter() is correct on
+			// the no-JS streaming-upload tier, not just ctx.Action().
+			msg.Submitter = name
 			actionFields[name] = true
 		}
 	}
@@ -205,6 +209,10 @@ func parseMultipartForm(r *http.Request) (ActionMessage, error) {
 		if msg.Action == "" && r.MultipartForm != nil {
 			if name := detectSubmitButtonName(r.MultipartForm.Value, actionFields); name != "" {
 				msg.Action = name
+				// The detected empty-value field IS the clicked submit button, so it
+				// is also the submitter — record it so ctx.Submitter() is correct on
+				// the no-JS multipart tier, not just ctx.Action().
+				msg.Submitter = name
 				actionFields[name] = true
 			}
 		}

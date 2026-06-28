@@ -453,11 +453,12 @@ func TestExtractFormSchema_FormNoValidate(t *testing.T) {
 		`<button type="button" name="clear" formnovalidate>Clear</button>`,      // type=button: can't submit
 		`<button type="reset" name="reset-btn" formnovalidate>Reset</button>`,   // type=reset: can't submit
 		`<input type="text" name="weird" formnovalidate>`,                       // non-submit input
+		`<BUTTON name="upper-draft" FORMNOVALIDATE>Upper</BUTTON>`,              // uppercase tag/attr: case-insensitive
 		`</form>`,
 	}
 	schema := ExtractFormSchema(statics)
 
-	want := map[string]bool{"save-draft": true, "quick-draft": true}
+	want := map[string]bool{"save-draft": true, "quick-draft": true, "upper-draft": true}
 	if len(schema.NoValidateSubmitters) != len(want) {
 		t.Fatalf("NoValidateSubmitters = %v, want keys %v", schema.NoValidateSubmitters, want)
 	}
@@ -726,6 +727,21 @@ func TestExtractFormSchemaFromTemplateStr_KeepsFormNoValidateOnlySchema(t *testi
 	}
 	if !schema.NoValidateSubmitters["save-draft"] {
 		t.Errorf("expected save-draft in NoValidateSubmitters, got %+v", schema)
+	}
+}
+
+// TestValidateForm_NilData_NoPanic guards the dispatched/Mount path: a
+// formnovalidate-only template caches a non-nil schema with no rules, and such
+// contexts can carry nil data. ValidateForm must not dereference nil data.
+func TestValidateForm_NilData_NoPanic(t *testing.T) {
+	schema := &FormSchema{NoValidateSubmitters: map[string]bool{"save-draft": true}}
+	// Construct directly: NewContext wraps nil in a non-nil *ActionData, but the
+	// dispatched/Mount path leaves c.data as a nil pointer (the panic scenario).
+	// submitter "save" is not in the set, so without the guard execution reaches
+	// c.data.Raw() and panics.
+	ctx := &Context{formSchema: schema, submitter: "save"}
+	if err := ctx.ValidateForm(); err != nil {
+		t.Errorf("ValidateForm() with nil data = %v, want nil", err)
 	}
 }
 
