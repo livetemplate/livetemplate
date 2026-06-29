@@ -51,7 +51,7 @@ HTML validation attributes are extracted by `ctx.ValidateForm()`:
 | `min="N"` | Numeric minimum |
 | `max="N"` | Numeric maximum |
 | `pattern="regex"` | Must match regex |
-| `formnovalidate` on button | Skips validation for that action |
+| `formnovalidate` on a named submit button | `ctx.ValidateForm()` skips validation when that button is the submitter (all tiers; no-JS needs an empty-value button) |
 
 ## Dialog Routing
 

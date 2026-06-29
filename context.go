@@ -91,6 +91,7 @@ func (k ConnectKind) String() string {
 type Context struct {
 	context.Context
 	action      string
+	submitter   string // SubmitEvent.submitter.name; distinct from action under lvt-on:submit routing
 	data        *ActionData
 	userID      string
 	groupID     string
@@ -122,6 +123,25 @@ func NewContext(ctx context.Context, action string, data map[string]interface{})
 // Action returns the action name that triggered this context.
 func (c *Context) Action() string {
 	return c.action
+}
+
+// withSubmitter returns a copy with the submitter set (unexported; apps read via Submitter()).
+func (c *Context) withSubmitter(name string) *Context {
+	newCtx := *c
+	newCtx.submitter = name
+	return &newCtx
+}
+
+// Submitter returns the name of the control that submitted the form — the
+// clicked submit button — across all tiers: the client sends it explicitly on
+// the WebSocket and HTTP-fetch paths, and the no-JS path resolves it from the
+// submit button's form field. It is "" when no form submitter applies (e.g. a
+// non-form action, or a no-JS submit button that carried a value). Under
+// lvt-on:submit routing Action is the handler while Submitter is the button. Use
+// it to branch custom validation in BindAndValidate flows, mirroring how
+// ValidateForm honors formnovalidate.
+func (c *Context) Submitter() string {
+	return c.submitter
 }
 
 // UserID returns the authenticated user's ID.
@@ -552,10 +572,25 @@ func (c *Context) WithFormSchema(schema *FormSchema) *Context {
 // If no schema is set, returns nil (no validation). For production validation
 // with complex rules, use BindAndValidate() with go-playground/validator tags.
 //
+// Validation is skipped when the form was submitted by a control carrying the
+// formnovalidate attribute (e.g. <button name="save-draft" formnovalidate>) —
+// matched by the submitter's name. This is a client-controlled convenience for
+// draft/save-without-validation flows, NOT a security boundary: enforce
+// server-authoritative rules unconditionally where it matters.
+//
 // Known limitation: ExtractFormSchema merges all forms in a template into one
 // schema. If your template has multiple forms, use BindAndValidate() instead.
 func (c *Context) ValidateForm() error {
 	if c.formSchema == nil {
+		return nil
+	}
+	// Guard direct Context construction; dispatch always produces non-nil data
+	// via NewContext → newActionData, so this only fires for zero-value Contexts.
+	if c.data == nil {
+		return nil
+	}
+	// Submitter is unified across all tiers upstream (see Submitter godoc).
+	if c.formSchema.NoValidateSubmitters[c.submitter] {
 		return nil
 	}
 	return c.formSchema.Validate(c.data.Raw())

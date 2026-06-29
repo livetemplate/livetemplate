@@ -81,8 +81,8 @@ Use `ctx.IsHTTP()` to check which transport is active in an action method.
 
 | Limitation | Detail | Workaround |
 |-----------|--------|-----------|
-| Form schema not auto-wired from statics | `ExtractFormSchema()` exists but must be called manually via `ctx.WithFormSchema()` | Use `ctx.BindAndValidate()` with struct tags for production validation |
-| `formnovalidate` not respected server-side | `ctx.ValidateForm()` validates all fields regardless of the submitting button's `formnovalidate` attribute | Skip validation manually in the action method for draft/save-without-validation flows |
+| `ctx.ValidateForm()` merges all forms in a template into one schema | `ExtractFormSchema` builds a single schema for the whole template, so multiple distinct forms share one rule set | Use `ctx.BindAndValidate()` with struct tags for per-form rules |
+| `formnovalidate` skip needs an empty-value button on the no-JS tier | The no-JS submitter is identified by its empty-value form field, so a `formnovalidate` button carrying a `value` isn't recognized as the submitter without JavaScript (JS tiers send an explicit submitter and are unaffected) | Omit `value` on no-JS draft buttons, or skip validation explicitly in the action |
 
 ---
 

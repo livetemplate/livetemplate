@@ -32,10 +32,23 @@ type FormRule struct {
 // FormSchema holds validation rules inferred from template statics.
 type FormSchema struct {
 	Rules []FormRule
+	// NoValidateSubmitters is the set of submit-control name attributes that
+	// carry the formnovalidate attribute (e.g. <button name="save-draft"
+	// formnovalidate>). ValidateForm skips validation when the form's submitter
+	// matches one. Only named submitters are recorded; a dynamic ({{...}}) name
+	// is blanked before extraction, so it is not detected.
+	NoValidateSubmitters map[string]bool
 }
 
-// inputAttrRegex matches HTML input/textarea/select elements and captures their attributes.
-var inputAttrRegex = regexp.MustCompile(`<(?:input|textarea|select)\b([^>]*)>`)
+// inputAttrRegex matches HTML input/textarea/select elements and captures their
+// attributes. Case-insensitive: raw template source may carry developer-authored
+// mixed-case tags (statics rendered by html/template are lowercase, but the
+// public ExtractFormSchema also takes hand-written statics).
+var inputAttrRegex = regexp.MustCompile(`(?is)<(?:input|textarea|select)\b([^>]*)>`)
+
+// Only submit controls (<button>, <input>) can carry formnovalidate — unlike
+// inputAttrRegex, this deliberately excludes <select> and <textarea>.
+var submitControlRegex = regexp.MustCompile(`(?is)<(button|input)\b([^>]*)>`)
 
 var templateDirectiveRegex = regexp.MustCompile(`(?s)\{\{.*?\}\}`)
 
@@ -46,7 +59,7 @@ func extractFormSchemaFromTemplateStr(templateStr string) *FormSchema {
 	blanked := dynamicNameAttrRegex.ReplaceAllString(templateStr, `${1}"`)
 	stripped := templateDirectiveRegex.ReplaceAllString(blanked, "")
 	schema := ExtractFormSchema([]string{stripped})
-	if schema == nil || len(schema.Rules) == 0 {
+	if schema == nil || (len(schema.Rules) == 0 && len(schema.NoValidateSubmitters) == 0) {
 		return nil
 	}
 	return schema
@@ -72,6 +85,14 @@ func ExtractFormSchema(statics []string) *FormSchema {
 
 		name := attrs["name"]
 		if name == "" {
+			continue
+		}
+
+		// Skip non-data controls: submit/image/button/reset inputs carry no field
+		// value, so a `required` on one would raise a spurious error for a field
+		// that is never in the POST body unless it is the submitter.
+		switch strings.ToLower(attrs["type"]) {
+		case "submit", "image", "button", "reset":
 			continue
 		}
 
@@ -123,6 +144,31 @@ func ExtractFormSchema(statics []string) *FormSchema {
 			rule.HasMinLength || rule.HasMaxLength || rule.HasMin || rule.HasMax || rule.Pattern != "" {
 			schema.Rules = append(schema.Rules, rule)
 		}
+	}
+
+	for _, match := range submitControlRegex.FindAllStringSubmatch(fullHTML, -1) {
+		tag := strings.ToLower(match[1])
+		attrs := parseHTMLAttributes(match[2])
+		if _, ok := attrs["formnovalidate"]; !ok {
+			continue
+		}
+		// formnovalidate only submits — and so only skips validation — on a real
+		// submit control: a <button> (type defaults to submit) that is not
+		// type=button/reset, or an <input type=submit|image>.
+		typ := strings.ToLower(attrs["type"])
+		isSubmit := (tag == "button" && typ != "button" && typ != "reset") ||
+			(tag == "input" && (typ == "submit" || typ == "image"))
+		if !isSubmit {
+			continue
+		}
+		name := attrs["name"]
+		if name == "" {
+			continue
+		}
+		if schema.NoValidateSubmitters == nil {
+			schema.NoValidateSubmitters = make(map[string]bool)
+		}
+		schema.NoValidateSubmitters[name] = true
 	}
 
 	return schema

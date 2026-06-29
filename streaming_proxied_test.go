@@ -27,11 +27,15 @@ type proxiedController struct {
 	// ordered before the file part is readable mid-stream and one after is not.
 	onUploadBeforeField string
 	onUploadAfterField  string
+	// ctx.Submitter() seen inside OnUpload — proves the streaming-upload path
+	// threads the submitter into the per-part context, not just .Data.
+	onUploadSubmitter string
 }
 
 func (c *proxiedController) OnUpload(part *UploadPart, ctx *Context) error {
 	c.onUploadBeforeField = ctx.GetString("record_id")
 	c.onUploadAfterField = ctx.GetString("trailing")
+	c.onUploadSubmitter = ctx.Submitter()
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, part); err != nil {
 		return err // e.g. ErrUploadTooLarge — aborts before SetResult
@@ -396,5 +400,53 @@ func TestProxiedUpload_OnUploadReadsPrecedingFormField(t *testing.T) {
 	if ctrl.onUploadAfterField != "" {
 		t.Errorf("OnUpload must not see a field ordered after the file part: got trailing=%q want empty",
 			ctrl.onUploadAfterField)
+	}
+}
+
+// TestProxiedUpload_OnUploadReadsSubmitter proves the streaming-upload per-part
+// context threads the form submitter (empty-value button) into OnUpload, not
+// just the data map — so ctx.Submitter() is correct mid-stream.
+func TestProxiedUpload_OnUploadReadsSubmitter(t *testing.T) {
+	ctrl := &proxiedController{}
+	server, cookies := newProxiedServer(t, UploadConfig{Mode: UploadModeProxied}, ctrl)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	// Empty-value button ordered before the file part → the submitter the no-JS
+	// browser sends for <button name="save-draft">; must be visible in OnUpload.
+	if err := writer.WriteField("save-draft", ""); err != nil {
+		t.Fatalf("WriteField save-draft: %v", err)
+	}
+	filePart, err := writer.CreateFormFile("doc", "scan.png")
+	if err != nil {
+		t.Fatalf("CreateFormFile: %v", err)
+	}
+	if _, err := filePart.Write([]byte("bytes")); err != nil {
+		t.Fatalf("write file content: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("writer close: %v", err)
+	}
+
+	req, err := http.NewRequest("POST", server.URL+"/", &body)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Accept", "application/json")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Logf("body close: %v", err)
+	}
+
+	if ctrl.onUploadSubmitter != "save-draft" {
+		t.Errorf("OnUpload ctx.Submitter() = %q, want save-draft (streaming path must thread submitter)",
+			ctrl.onUploadSubmitter)
 	}
 }

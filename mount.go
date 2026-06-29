@@ -887,6 +887,7 @@ eventLoop:
 			// They're already available in Mount/OnConnect via wsQueryData.
 			// WebSocket actions use only msg.Data from the client message.
 			actionCtx := NewContext(r.Context(), msg.Action, msg.Data)
+			actionCtx = actionCtx.withSubmitter(msg.Submitter)
 			actionCtx = actionCtx.WithUserID(userID)
 			actionCtx = actionCtx.WithGroupID(groupID)
 			actionCtx = actionCtx.WithTopicSubscriber(h.topicSubscriberFor(connection, r))
@@ -1410,7 +1411,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			func(part *multipart.Part, values map[string][]string) error {
 				// Form fields seen before this file part are readable in OnUpload
 				// (ordering invariant — see the UploadStreamer docstring).
-				partCtx := streamCtx.WithData(send.BuildActionFromValues(values).Data)
+				partMsg := send.BuildActionFromValues(values)
+				partCtx := streamCtx.WithData(partMsg.Data).withSubmitter(partMsg.Submitter)
 				return h.streamProxiedPart(part, uploadRegistry, partCtx)
 			},
 			// Staged sink: a Volume file part sharing a streaming request is
@@ -1529,6 +1531,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Create Context for action dispatch (with HTTP context for SetCookie, Redirect)
 	actionCtx := NewContext(r.Context(), msg.Action, mergedData)
+	actionCtx = actionCtx.withSubmitter(msg.Submitter)
 	actionCtx = actionCtx.WithUserID(userID)
 	actionCtx = actionCtx.WithGroupID(groupID)
 	actionCtx = actionCtx.WithTopicSubscriber(h.topicSubscriberFor(nil, r))
