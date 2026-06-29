@@ -5,6 +5,26 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.15.0] - 2026-06-29
+
+### Changes
+
+- feat(formvalidation): honor formnovalidate server-side in ValidateForm (#239) (#472) (4a4e29b3)
+- fix(mount): PRG fallback emits relative self-reference under StripPrefix (#444) (#471) (56594677)
+- fix(render): pass dynamic HTML through verbatim, drop CSS-blind minify (#467) (#469) (94e78e76)
+- fix(parse): strip HTML comments to match html/template (#468) (#470) (b923c7b8)
+- ci(cross-repo): explicit cache-dependency-path on setup-go (#405) (#466) (7d82615c)
+- refactor(formvalidation): unify FormRule optional-bound sentinels (#241) (#465) (8bba2083)
+- feat(mount): WithEphemeralSweepTTL + persistent Mount-on-POST test (#304 #305) (#464) (0d918b2d)
+- perf(context): avoid reflect.New for value-receiver methods (#257) (#463) (fa7b4c74)
+- fix(parse): 3-index slice support + document callMethod arg behavior (#202 #203) (#460) (2cf60423)
+- docs(client-attributes): document lvt-on:click server-authoritative checkboxes (#461) (eb552f89)
+- fix(ws): WebSocket upgrader follow-ups (#243 #244 #245 #247) (#458) (56fa9749)
+- refactor(session): per-connection state follow-ups (#277 #278 #279 #280) (#457) (fdc6d333)
+- docs+test: selective-persistence cleanup follow-ups (#309 #310 #311 #312 #313 #314) (#456) (dac3dc2b)
+
+
+
 ## [Unreleased]
 
 ### Added
