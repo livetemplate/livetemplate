@@ -110,6 +110,9 @@ func (c *Connection) EnqueueDispatch(req *DispatchRequest) {
 	}
 	select {
 	case c.DispatchChan <- req:
+		if c.metrics != nil {
+			c.metrics.PublishSent()
+		}
 	case <-c.done:
 		return // connection closed between checks
 	default:
@@ -323,6 +326,7 @@ type MetricsRecorder interface {
 	WSWriteError()
 	WSAddBufferSize(delta int64)
 	WSDispatchDropped()
+	PublishSent()
 }
 
 // ConnectionRegistry tracks all active WebSocket connections with dual indexing.

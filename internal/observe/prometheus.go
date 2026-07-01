@@ -95,7 +95,7 @@ func (e *PrometheusExporter) WriteMetrics(w io.Writer) error {
 		e.metrics.treesDiffed.Load())
 
 	e.writeCounter(&sb, "livetemplate_publishes_sent_total",
-		"Total number of peer-fan-out publishes sent (ctx.Publish)",
+		"Total peer-fan-out dispatches enqueued for delivery, counted once per receiving connection (ctx.Publish, Session.TriggerAction, and cross-instance group/topic re-fan-out)",
 		e.metrics.publishesSent.Load())
 
 	e.writeCounter(&sb, "livetemplate_errors_total",

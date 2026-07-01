@@ -389,3 +389,82 @@ func TestPublish_ExplicitRefreshDispatchesToPeers(t *testing.T) {
 		t.Errorf("Expected 1 item 'buy milk', got %v", items)
 	}
 }
+
+// scrapePublishesSent reads the handler's Prometheus endpoint and returns the
+// current value of livetemplate_publishes_sent_total.
+func scrapePublishesSent(t *testing.T, handler LiveHandler) int {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	rec := httptest.NewRecorder()
+	handler.MetricsHandler().ServeHTTP(rec, req)
+
+	const prefix = "livetemplate_publishes_sent_total "
+	for _, line := range strings.Split(rec.Body.String(), "\n") {
+		if strings.HasPrefix(line, prefix) {
+			var v int
+			if _, err := fmt.Sscanf(strings.TrimPrefix(line, prefix), "%d", &v); err != nil {
+				t.Fatalf("failed to parse counter line %q: %v", line, err)
+			}
+			return v
+		}
+	}
+	t.Fatalf("metric livetemplate_publishes_sent_total not found in:\n%s", rec.Body.String())
+	return 0
+}
+
+// TestPublish_IncrementsPublishesSentPerSubscriber verifies the fix for #432:
+// livetemplate_publishes_sent_total advances once per receiving connection when
+// an action fans out via ctx.Publish. Three tabs share a group and all subscribe
+// to SelfTopic in Mount; a Publish from one tab (the sender is excluded) reaches
+// the other two, so the counter must advance by exactly 2.
+func TestPublish_IncrementsPublishesSentPerSubscriber(t *testing.T) {
+	auth := &fixedGroupAuth{groupID: "metrics-group"}
+	tmpl, err := New("test", WithAuthenticator(auth))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>{{.Count}} - {{.Message}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	handler := tmpl.Handle(&broadcastTestController{}, AsState(&broadcastTestState{}))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+
+	// Three tabs in the same group, each subscribed to SelfTopic in Mount.
+	var conns []*websocket.Conn
+	for i := 0; i < 3; i++ {
+		ws := connectWS(t, wsURL)
+		defer func(ws *websocket.Conn) {
+			if err := ws.Close(); err != nil {
+				t.Logf("ws close error: %v", err)
+			}
+		}(ws)
+		conns = append(conns, ws)
+	}
+
+	if before := scrapePublishesSent(t, handler); before != 0 {
+		t.Fatalf("precondition: expected 0 publishes before any action, got %d", before)
+	}
+
+	// Tab 0 publishes SyncMessage to SelfTopic; tabs 1 and 2 receive it.
+	msgBytes, _ := json.Marshal(map[string]interface{}{
+		"action": "set_message",
+		"data":   map[string]interface{}{"value": "hello"},
+	})
+	if err := conns[0].WriteMessage(websocket.TextMessage, msgBytes); err != nil {
+		t.Fatalf("ws0 write failed: %v", err)
+	}
+
+	// Drain the sender's own response and both peers' broadcasts so the
+	// synchronous fan-out (which increments the counter) has completed.
+	readWSUpdate(t, conns[0], 3*time.Second)
+	readWSUpdate(t, conns[1], 3*time.Second)
+	readWSUpdate(t, conns[2], 3*time.Second)
+
+	if got := scrapePublishesSent(t, handler); got != 2 {
+		t.Errorf("expected publishes_sent to advance by 2 (one per peer subscriber), got %d", got)
+	}
+}

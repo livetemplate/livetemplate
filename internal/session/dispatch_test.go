@@ -60,9 +60,10 @@ func TestEnqueueDispatch_DropsWhenFull(t *testing.T) {
 	}
 }
 
-// mockMetrics is a MetricsRecorder that counts dispatch drops for assertion.
+// mockMetrics is a MetricsRecorder that counts dispatch outcomes for assertion.
 type mockMetrics struct {
 	dispatchDropped int
+	publishSent     int
 }
 
 func (m *mockMetrics) WSBufferFull()           {}
@@ -70,6 +71,7 @@ func (m *mockMetrics) WSSlowClientClose()      {}
 func (m *mockMetrics) WSWriteError()           {}
 func (m *mockMetrics) WSAddBufferSize(_ int64) {}
 func (m *mockMetrics) WSDispatchDropped()      { m.dispatchDropped++ }
+func (m *mockMetrics) PublishSent()            { m.publishSent++ }
 
 func TestEnqueueDispatch_DropIncrementsMetric(t *testing.T) {
 	metrics := &mockMetrics{}
@@ -88,6 +90,31 @@ func TestEnqueueDispatch_DropIncrementsMetric(t *testing.T) {
 
 	if metrics.dispatchDropped != 1 {
 		t.Errorf("expected WSDispatchDropped to be called once, got %d", metrics.dispatchDropped)
+	}
+	if metrics.publishSent != 1 {
+		t.Errorf("expected PublishSent to be called once (for the delivered first enqueue), got %d", metrics.publishSent)
+	}
+}
+
+func TestEnqueueDispatch_SuccessIncrementsPublishSent(t *testing.T) {
+	metrics := &mockMetrics{}
+	conn := &Connection{
+		GroupID:      "group-1",
+		DispatchChan: make(chan *DispatchRequest, 4),
+		metrics:      metrics,
+	}
+
+	// Each delivered enqueue represents one peer-fan-out dispatch and must
+	// bump PublishSent exactly once.
+	conn.EnqueueDispatch(&DispatchRequest{Action: "First"})
+	conn.EnqueueDispatch(&DispatchRequest{Action: "Second"})
+	conn.EnqueueDispatch(&DispatchRequest{Action: "Third"})
+
+	if metrics.publishSent != 3 {
+		t.Errorf("expected PublishSent to be called 3 times, got %d", metrics.publishSent)
+	}
+	if metrics.dispatchDropped != 0 {
+		t.Errorf("expected no drops, got %d", metrics.dispatchDropped)
 	}
 }
 
