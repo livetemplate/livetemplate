@@ -79,7 +79,7 @@ mux.Handle("/metrics", handler.MetricsHandler()) // Prometheus text format
 - `livetemplate_templates_executed_total`
 - `livetemplate_trees_built_total`
 - `livetemplate_trees_diffed_total`
-- `livetemplate_publishes_sent_total` (peer-fan-out publishes via `ctx.Publish`)
+- `livetemplate_publishes_sent_total` (peer-fan-out dispatches, counted once per receiving connection — covers `ctx.Publish`, `Session.TriggerAction`, and cross-instance group/topic re-fan-out; counted at enqueue time, so a downstream slow-client close can still drop the resulting send)
 - `livetemplate_errors_total`
 - `livetemplate_connections_rejected_total`
 - `livetemplate_websocket_buffer_full_total`
@@ -111,7 +111,7 @@ v0.11.0 renames the broadcast metric family to reflect the new `ctx.Publish`/`ct
 |---|---|
 | `livetemplate_broadcasts_sent_total` | `livetemplate_publishes_sent_total` |
 
-> **Note:** `livetemplate_publishes_sent_total` currently reports 0 in production — the call site will be wired in a follow-up PR. Dashboards querying this metric will show 0 until that lands; this is expected.
+> **Note:** From v0.11.0 through v0.15.0, `livetemplate_publishes_sent_total` (and its predecessor `livetemplate_broadcasts_sent_total`) always reported 0 — the counter was defined but never incremented by any production call site (issue #432). The call site is wired in the first release published after v0.15.0; dashboards and alerts on this metric only produce meaningful data on that version or later. See the CHANGELOG "Fixed" entry referencing #432 for the exact release.
 
 The `livetemplate_websocket_dispatch_dropped_total` name is unchanged; only its help text was updated to use "publish dispatch" instead of "broadcast dispatch".
 

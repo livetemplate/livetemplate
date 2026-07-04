@@ -85,7 +85,10 @@ func (m *Metrics) TreeDiffed(duration time.Duration) {
 	m.diffDurations.Record(duration)
 }
 
-// PublishSent increments the publishes-sent counter (peer-fan-out via ctx.Publish).
+// PublishSent increments the publishes-sent counter. It is called once per
+// receiving connection each time a peer-fan-out dispatch is enqueued —
+// covering ctx.Publish, Session.TriggerAction, and cross-instance group/topic
+// re-fan-out.
 func (m *Metrics) PublishSent() {
 	m.publishesSent.Add(1)
 }
