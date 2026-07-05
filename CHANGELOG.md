@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - `livetemplate_publishes_sent_total` now actually increments. From v0.11.0 through v0.15.0 the counter (and its predecessor `livetemplate_broadcasts_sent_total`) was defined but never wired to a production call site, so it always reported 0 — a footgun for operators with dashboards or alerts on peer-fan-out rate. It is now incremented once per receiving connection whenever a peer-fan-out dispatch is enqueued, covering `ctx.Publish`, `Session.TriggerAction`, and cross-instance group/topic re-fan-out. The count is per instance (each instance counts only its own local deliveries, so a clustered publish is not double-counted) and is recorded at enqueue time, so a downstream slow-client close can still drop the resulting WebSocket send. (#432)
+- A bare template reference to an argument-requiring method (e.g. `{{.Get}}` where `Get(key string) string`) now errors like `text/template` (`wrong number of args for Get: want 1 got 0`) instead of silently stringifying the uncalled method as a Go func value. A bare reference to a *variadic* method (`{{.Tags}}` for `Tags(...string)`) is now called with no arguments, also matching `text/template`. The with-args method path (`{{.ctx.Get "key"}}`) is unchanged. The fix lives at the eval-node altitude in `internal/parse/eval.go`, where the presence of trailing args is known — `callMethod`/`resolveFieldChain` run before that and so cannot distinguish "awaiting args" from "bare reference". (#203, #459)
 
 ### Added
 

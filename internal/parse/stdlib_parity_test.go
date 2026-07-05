@@ -756,3 +756,98 @@ func TestStdlibParity_MethodCallOnMapValue(t *testing.T) {
 		})
 	}
 }
+
+// methodArgHelper exercises the three method-arity shapes for bare-reference
+// parity: a zero-arg method, an argument-requiring method, and a variadic method.
+type methodArgHelper struct{}
+
+func (methodArgHelper) Name() string             { return "zero-arg" }
+func (methodArgHelper) Get(k string) string      { return "got:" + k }
+func (methodArgHelper) Tags(xs ...string) string { return "tags:" + strings.Join(xs, ",") }
+
+// lvtRenderErr renders through LiveTemplate returning any parse/build error
+// instead of failing the test, so error-path parity can be asserted.
+func lvtRenderErr(tmplStr string, data interface{}) (string, error) {
+	tmpl, err := Parse(tmplStr, nil)
+	if err != nil {
+		return "", err
+	}
+	tree, err := BuildTree(tmpl, data, &Context{IncludeStatics: true})
+	if err != nil {
+		return "", err
+	}
+	return flatTreeToHTML(tree), nil
+}
+
+// stdlibRenderErr renders through html/template returning any error.
+func stdlibRenderErr(tmplStr string, data interface{}) (string, error) {
+	tmpl, err := template.New("test").Parse(tmplStr)
+	if err != nil {
+		return "", err
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
+
+// TestStdlibParity_BareMethodArgs locks the fix for #203/#459: a bare reference
+// to an argument-requiring method must error like text/template rather than
+// stringifying the uncalled method as a func value, while a bare variadic method
+// is called with no args and the with-args method-call path is unaffected.
+func TestStdlibParity_BareMethodArgs(t *testing.T) {
+	h := methodArgHelper{}
+	nested := map[string]interface{}{"ctx": h}
+
+	t.Run("output parity", func(t *testing.T) {
+		cases := []struct {
+			name string
+			tmpl string
+			data interface{}
+		}{
+			{"zero-arg method is called", `<span>{{.Name}}</span>`, h},
+			{"bare variadic method calls empty", `<span>{{.Tags}}</span>`, h},
+			{"variadic method with args", `<span>{{.Tags "a" "b"}}</span>`, h},
+			{"arg method with arg", `<span>{{.Get "key"}}</span>`, h},
+			{"nested arg method with arg", `<span>{{.ctx.Get "key"}}</span>`, nested},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				std := stdlibRender(t, tc.tmpl, tc.data, nil)
+				lvt := lvtRender(t, tc.tmpl, tc.data, nil)
+				if std != lvt {
+					t.Errorf("output mismatch:\n  stdlib: %q\n  lvt:    %q", std, lvt)
+				}
+			})
+		}
+	})
+
+	t.Run("error parity", func(t *testing.T) {
+		cases := []struct {
+			name string
+			tmpl string
+			data interface{}
+		}{
+			{"bare arg-requiring method", `{{.Get}}`, h},
+			{"bare arg-requiring method as function arg", `{{printf "%s" .Get}}`, h},
+			{"bare arg-requiring method in conditional", `{{if .Get}}x{{end}}`, h},
+			{"nested bare arg-requiring method", `{{.ctx.Get}}`, nested},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				_, stdErr := stdlibRenderErr(tc.tmpl, tc.data)
+				if stdErr == nil {
+					t.Fatalf("precondition: stdlib should error on %q but did not", tc.tmpl)
+				}
+				_, lvtErr := lvtRenderErr(tc.tmpl, tc.data)
+				if lvtErr == nil {
+					t.Fatalf("livetemplate did not error on %q (stdlib error: %v)", tc.tmpl, stdErr)
+				}
+				if !strings.Contains(lvtErr.Error(), "Get") {
+					t.Errorf("error should name the method Get, got: %v", lvtErr)
+				}
+			})
+		}
+	})
+}

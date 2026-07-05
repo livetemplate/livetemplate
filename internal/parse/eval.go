@@ -124,7 +124,7 @@ func (e *evaluator) evalFieldNode(dot interface{}, node *parse.FieldNode, args [
 		}
 		return e.callMethodOrFieldWithArgs(val, args, dot, varCtx, pipeArg)
 	}
-	return val, nil
+	return finalizeBareValue(val)
 }
 
 // evalChainNode evaluates a chain: (pipeline).Field1.Field2
@@ -153,7 +153,7 @@ func (e *evaluator) evalChainNode(dot interface{}, node *parse.ChainNode, args [
 	if len(args) > 0 || pipeArg != sentinel {
 		return e.callMethodOrFieldWithArgs(val, args, dot, varCtx, pipeArg)
 	}
-	return val, nil
+	return finalizeBareValue(val)
 }
 
 // evalVariableNode evaluates a variable reference: $var, $var.Field
@@ -194,7 +194,7 @@ func (e *evaluator) evalVariableNode(node *parse.VariableNode, args []parse.Node
 	if len(args) > 0 || pipeArg != sentinel {
 		return e.callMethodOrFieldWithArgs(val, args, dot, varCtx, pipeArg)
 	}
-	return val, nil
+	return finalizeBareValue(val)
 }
 
 // evalFunctionCall evaluates a function call: funcName arg1 arg2 ...
@@ -237,7 +237,11 @@ func (e *evaluator) evalArg(node parse.Node, dot interface{}, varCtx *varContext
 	case *parse.DotNode:
 		return dot, nil
 	case *parse.FieldNode:
-		return resolveFieldChain(dot, n.Ident)
+		val, err := resolveFieldChain(dot, n.Ident)
+		if err != nil {
+			return nil, err
+		}
+		return finalizeBareValue(val)
 	case *parse.VariableNode:
 		return e.evalVariableNode(n, nil, dot, varCtx, sentinel)
 	case *parse.StringNode:
@@ -265,7 +269,12 @@ func (e *evaluator) evalArg(node parse.Node, dot interface{}, varCtx *varContext
 // callMethodOrFieldWithArgs handles the case where a field/variable result
 // is followed by arguments — meaning it's a method call.
 func (e *evaluator) callMethodOrFieldWithArgs(val interface{}, args []parse.Node, dot interface{}, varCtx *varContext, pipeArg interface{}) (interface{}, error) {
+	// An uncalledMethod (a method resolveFieldChain left uncalled because it
+	// needs args) carries the bound method to invoke with these trailing args.
 	fn := reflect.ValueOf(val)
+	if um, ok := val.(uncalledMethod); ok {
+		fn = um.fn
+	}
 	if fn.Kind() != reflect.Func {
 		return nil, &ParseError{Phase: "eval", NodeType: "call", Msg: fmt.Sprintf("can't call non-function value of type %T", val)}
 	}
@@ -284,10 +293,22 @@ func (e *evaluator) callMethodOrFieldWithArgs(val interface{}, args []parse.Node
 func resolveFieldChain(value interface{}, fields []string) (interface{}, error) {
 	v := reflect.ValueOf(value)
 	for _, field := range fields {
+		// A prior field resolved to a method that needs args (uncalledMethod).
+		// Taking a further field on it forces evaluation now: a variadic method
+		// calls with no args (text/template parity), any other errors.
+		if um, ok := value.(uncalledMethod); ok {
+			called, err := um.callBare()
+			if err != nil {
+				return nil, err
+			}
+			value = called
+			v = reflect.ValueOf(value)
+		}
+
 		// Try method on pre-deref value first (for pointer receivers)
 		if v.IsValid() {
 			if method := v.MethodByName(field); method.IsValid() {
-				result, err := callMethod(method)
+				result, err := callMethod(method, field)
 				if err != nil {
 					return nil, err
 				}
@@ -305,7 +326,7 @@ func resolveFieldChain(value interface{}, fields []string) (interface{}, error) 
 
 		// Try method on dereferenced value
 		if method := v.MethodByName(field); method.IsValid() {
-			result, err := callMethod(method)
+			result, err := callMethod(method, field)
 			if err != nil {
 				return nil, err
 			}
@@ -352,17 +373,19 @@ func resolveFieldChain(value interface{}, fields []string) (interface{}, error) 
 	return value, nil
 }
 
-// callMethod calls a zero-argument method and returns its result. A method that
-// requires arguments is returned UNCALLED so the caller can still apply trailing
-// args (e.g. the {{.ctx.Get "key"}} chain): resolveFieldChain resolves the method
-// before arg presence is known, so it must not invoke one that may receive args.
-// A bare reference to an arg-requiring method therefore yields the uncalled value
-// rather than erroring like text/template; the eval-node-level fix is tracked in #459.
-func callMethod(method reflect.Value) (interface{}, error) {
-	mt := method.Type()
-	if mt.NumIn() != 0 {
-		return method.Interface(), nil
+// callMethod invokes a zero-argument method and returns its result. A method
+// that requires arguments is returned wrapped as an [uncalledMethod] rather than
+// invoked — see that type for why, and for how the caller finalizes it.
+func callMethod(method reflect.Value, name string) (interface{}, error) {
+	if method.Type().NumIn() != 0 {
+		return uncalledMethod{fn: method, name: name}, nil
 	}
+	return invokeNoArgs(method)
+}
+
+// invokeNoArgs calls method with no arguments and unpacks a T or (T, error)
+// return, mapping a non-nil trailing error to a Go error.
+func invokeNoArgs(method reflect.Value) (interface{}, error) {
 	results := method.Call(nil)
 	if len(results) == 0 {
 		return nil, nil
@@ -371,6 +394,43 @@ func callMethod(method reflect.Value) (interface{}, error) {
 		return nil, results[1].Interface().(error)
 	}
 	return results[0].Interface(), nil
+}
+
+// uncalledMethod holds a bound method that resolveFieldChain resolved but did
+// not call because it requires arguments. Wrapping it (rather than returning the
+// raw reflect method value) lets the eval nodes tell a method awaiting trailing
+// args apart from a genuinely bare reference, and keeps such a value from
+// leaking to valueToString as a stringified func.
+type uncalledMethod struct {
+	fn   reflect.Value
+	name string
+}
+
+// callBare evaluates the method as a bare reference (no trailing args). A
+// variadic method is called with an empty variadic ({{.Tags}} calls Tags());
+// a method that genuinely requires arguments returns a ParseError matching
+// text/template's "wrong number of args for X: want N got 0".
+func (m uncalledMethod) callBare() (interface{}, error) {
+	mt := m.fn.Type()
+	if mt.IsVariadic() && mt.NumIn() == 1 {
+		return invokeNoArgs(m.fn)
+	}
+	return nil, &ParseError{
+		Phase:    "eval",
+		NodeType: "method",
+		Expr:     m.name,
+		Msg:      fmt.Sprintf("wrong number of args for %s: want %d got 0", m.name, mt.NumIn()),
+	}
+}
+
+// finalizeBareValue converts a bare (no-trailing-args) resolution result into a
+// final value: an uncalledMethod is evaluated via callBare, anything else is
+// returned unchanged.
+func finalizeBareValue(val interface{}) (interface{}, error) {
+	if um, ok := val.(uncalledMethod); ok {
+		return um.callBare()
+	}
+	return val, nil
 }
 
 // isErrorResult checks if a reflect.Value contains a non-nil error.
