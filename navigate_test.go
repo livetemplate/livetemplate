@@ -35,14 +35,14 @@ func (c *navigateTestController) Noop(state navigateTestState, _ *Context) (navi
 	return state, nil
 }
 
-func setupNavigateTestServer(t *testing.T) (*httptest.Server, string) {
+func setupNavigateTestServer(t *testing.T, opts ...Option) (*httptest.Server, string) {
 	t.Helper()
 
 	// Each test gets a unique group ID derived from its name, preventing
 	// state bleed if tests ever run in parallel against a shared session store.
 	auth := &fixedGroupAuth{groupID: t.Name()}
 
-	tmpl, err := New("test", WithAuthenticator(auth))
+	tmpl, err := New("test", append([]Option{WithAuthenticator(auth)}, opts...)...)
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
