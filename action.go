@@ -47,6 +47,19 @@ const defaultFormAction = "submit"
 // DispatchWithState, so no controller method named "__navigate__" is required.
 const actionNavigate = "__navigate__"
 
+// actionPing is a reserved WebSocket-only action name for the client liveness
+// heartbeat. The event loop replies with a tiny pong and skips the
+// action/render pipeline entirely — it exists so a client can detect a
+// dead/zombie socket (one that still reports OPEN but whose TCP is gone, a
+// documented mobile behaviour) by the ABSENCE of a pong within its timeout, and
+// reconnect. No controller method named "__ping__" is required.
+const actionPing = "__ping__"
+
+// pongMessage is the fixed reply to an actionPing. Distinct top-level `pong`
+// key so the client recognises it before the normal tree-update path (it has no
+// Tree to morph). Kept as a package var so the write path allocates nothing.
+var pongMessage = []byte(`{"pong":true}`)
+
 // applyDefaultAction sets the action to defaultFormAction for forms that
 // submitted without explicit action routing. Called only for browser form
 // submissions (not JSON action requests).

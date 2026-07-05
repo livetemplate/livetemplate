@@ -864,6 +864,19 @@ eventLoop:
 				continue
 			}
 
+			// Liveness heartbeat: reply with a tiny pong and skip the whole
+			// action/render pipeline. The client sends actionPing on a timer and
+			// treats a missing pong as a dead/zombie socket → reconnect. Cheap and
+			// stateless, so it stays ahead of the upload/dispatch machinery.
+			if msg.Action == actionPing {
+				if err := writeUpdateWebSocket(connection, pongMessage); err != nil {
+					slog.Debug("pong write failed",
+						slog.String("component", "live_handler"),
+						slog.Any("error", err))
+				}
+				continue
+			}
+
 			// Check if this is an upload-related action
 			uploadHandled, err := h.handleUploadAction(r.Context(), rm.data, msg, connSt, uploadRegistry, connection)
 			if err != nil {
