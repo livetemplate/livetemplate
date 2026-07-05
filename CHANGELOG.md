@@ -5,6 +5,18 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.16.0] - 2026-07-05
+
+### Changes
+
+- feat(ws): add __ping__/pong liveness action for client heartbeats (#477) (c565bc63)
+- feat(origin): support RFC 7239 Forwarded header for scheme detection (#198) (#478) (a825b8c2)
+- perf(context): cap pooled render buffer capacity (#226) (#476) (d3cff3dd)
+- fix(observe): wire livetemplate_publishes_sent_total to the dispatch path (#432) (#475) (b74dc596)
+- docs(changelog): curate v0.15.0 notes (replace auto-generated commit dump) (5dc6fc58)
+
+
+
 ## [Unreleased]
 
 ### Fixed
