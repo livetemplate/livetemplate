@@ -4,13 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/gob"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
 	"sync"
 	"time"
 
+	"github.com/livetemplate/livetemplate/internal/jsonutil"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -378,7 +378,7 @@ func (s *RedisSessionStore) Get(ctx context.Context, groupID string) interface{}
 	// Check if this is a v2 hash (has _meta field)
 	if metaJSON, ok := hashData[metaField]; ok {
 		var meta sessionMeta
-		if err := json.Unmarshal([]byte(metaJSON), &meta); err == nil && meta.Version == schemaVersion2 {
+		if err := jsonutil.API.Unmarshal([]byte(metaJSON), &meta); err == nil && meta.Version == schemaVersion2 {
 			// This is v2 format - deserialize from hash
 			stores := s.deserializeFromHash(hashData)
 			if stores != nil {
@@ -453,7 +453,7 @@ func (s *RedisSessionStore) Set(ctx context.Context, groupID string, state inter
 
 	// State can be raw JSON bytes or a struct. Selective persistence
 	// (persistState in mount.go) always passes []byte and takes the first
-	// branch. The json.Marshal branch is NOT dead: SessionStoreHealthChecker.Check
+	// branch. The jsonutil.API.Marshal branch is NOT dead: SessionStoreHealthChecker.Check
 	// passes a *healthCheckState struct, and custom callers may pass arbitrary
 	// values, so both paths must be supported.
 	var stateJSON []byte
@@ -461,7 +461,7 @@ func (s *RedisSessionStore) Set(ctx context.Context, groupID string, state inter
 	if raw, ok := state.([]byte); ok {
 		stateJSON = raw
 	} else {
-		stateJSON, err = json.Marshal(state)
+		stateJSON, err = jsonutil.API.Marshal(state)
 		if err != nil {
 			slog.Error("Failed to marshal state",
 				slog.String("component", "redis_session_store"),
@@ -480,7 +480,7 @@ func (s *RedisSessionStore) Set(ctx context.Context, groupID string, state inter
 		Version:   schemaVersion2,
 		UpdatedAt: time.Now().Unix(),
 	}
-	metaJSON, err := json.Marshal(meta)
+	metaJSON, err := jsonutil.API.Marshal(meta)
 	if err != nil {
 		slog.Error("Failed to marshal metadata",
 			slog.String("component", "redis_session_store"),

@@ -1,7 +1,6 @@
 package livetemplate
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -12,6 +11,7 @@ import (
 	"unicode"
 
 	"github.com/go-playground/validator/v10"
+	"github.com/livetemplate/livetemplate/internal/jsonutil"
 	"github.com/livetemplate/livetemplate/internal/send"
 )
 
@@ -91,13 +91,13 @@ func (a *ActionData) Bind(v interface{}) error {
 	// Lazy marshal to JSON
 	if a.bytes == nil {
 		var err error
-		a.bytes, err = json.Marshal(a.raw)
+		a.bytes, err = jsonutil.API.Marshal(a.raw)
 		if err != nil {
 			return fmt.Errorf("failed to marshal data: %w", err)
 		}
 	}
 
-	return json.Unmarshal(a.bytes, v)
+	return jsonutil.API.Unmarshal(a.bytes, v)
 }
 
 // BindAndValidate binds data to struct and validates it in one step

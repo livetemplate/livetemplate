@@ -2,12 +2,13 @@ package livetemplate
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/livetemplate/livetemplate/internal/jsonutil"
 )
 
 // HealthChecker represents a component that can be health-checked.
@@ -100,7 +101,7 @@ func (h *HealthHandler) Live(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(response); err != nil {
+	if err := jsonutil.API.NewEncoder(w).Encode(response); err != nil {
 		// Log error but can't change status code (already written)
 		slog.Error("Failed to encode liveness response",
 			slog.Any("error", err))
@@ -139,7 +140,7 @@ func (h *HealthHandler) Ready(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		if err := json.NewEncoder(w).Encode(response); err != nil {
+		if err := jsonutil.API.NewEncoder(w).Encode(response); err != nil {
 			// Log error but can't change status code (already written)
 			slog.Error("Failed to encode readiness response (no checkers)",
 				slog.Any("error", err))
@@ -205,7 +206,7 @@ func (h *HealthHandler) Ready(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	if err := json.NewEncoder(w).Encode(response); err != nil {
+	if err := jsonutil.API.NewEncoder(w).Encode(response); err != nil {
 		// Log error but can't change status code (already written)
 		slog.Error("Failed to encode readiness response",
 			slog.Any("error", err),

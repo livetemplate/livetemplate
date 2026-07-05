@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -21,6 +20,7 @@ import (
 	"time"
 
 	lvtcontext "github.com/livetemplate/livetemplate/internal/context"
+	"github.com/livetemplate/livetemplate/internal/jsonutil"
 	"github.com/livetemplate/livetemplate/internal/observe"
 	"github.com/livetemplate/livetemplate/internal/send"
 	"github.com/livetemplate/livetemplate/internal/session"
@@ -747,7 +747,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var tree map[string]interface{}
-	if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
+	if err := jsonutil.API.Unmarshal(buf.Bytes(), &tree); err != nil {
 		slog.Error("Failed to parse initial tree",
 			slog.String("component", "live_handler"),
 			slog.Any("error", err))
@@ -763,7 +763,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	responseBytes, err := json.Marshal(response)
+	responseBytes, err := jsonutil.API.Marshal(response)
 	if err != nil {
 		slog.Error("Failed to marshal initial response",
 			slog.String("component", "live_handler"),
@@ -849,7 +849,7 @@ eventLoop:
 						Errors:  map[string]string{"_rate_limit": "Too many requests. Please slow down."},
 					},
 				}
-				if respBytes, err := json.Marshal(errorResp); err == nil {
+				if respBytes, err := jsonutil.API.Marshal(errorResp); err == nil {
 					_ = writeUpdateWebSocket(connection, respBytes)
 				}
 				continue
@@ -961,7 +961,7 @@ eventLoop:
 			}
 
 			var tree map[string]interface{}
-			if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
+			if err := jsonutil.API.Unmarshal(buf.Bytes(), &tree); err != nil {
 				slog.Error("Failed to parse tree",
 					slog.String("component", "live_handler"),
 					slog.Any("error", err))
@@ -977,7 +977,7 @@ eventLoop:
 				},
 			}
 
-			responseBytes, err := json.Marshal(response)
+			responseBytes, err := jsonutil.API.Marshal(response)
 			if err != nil {
 				slog.Error("Failed to marshal response",
 					slog.String("component", "live_handler"),
@@ -1261,7 +1261,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 
 			var tree map[string]any
-			if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
+			if err := jsonutil.API.Unmarshal(buf.Bytes(), &tree); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
@@ -1275,7 +1275,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 
 			w.Header().Set("Content-Type", "application/json")
-			if err := json.NewEncoder(w).Encode(response); err != nil {
+			if err := jsonutil.API.NewEncoder(w).Encode(response); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 			}
 			return
@@ -1326,7 +1326,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(response); err != nil {
+		if err := jsonutil.API.NewEncoder(w).Encode(response); err != nil {
 			slog.Warn("Failed to write upload_start HTTP response",
 				slog.String("component", "live_handler"),
 				slog.Any("error", err))
@@ -1690,7 +1690,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var tree map[string]interface{}
-	if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
+	if err := jsonutil.API.Unmarshal(buf.Bytes(), &tree); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1705,7 +1705,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
+	if err := jsonutil.API.NewEncoder(w).Encode(response); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1747,7 +1747,7 @@ func (h *liveHandler) cloneStateTyped() (interface{}, error) {
 	newStatePtr := reflect.New(innerType)
 
 	// Deserialize into it (JSON since that's what jsonState uses)
-	if err := json.Unmarshal(data, newStatePtr.Interface()); err != nil {
+	if err := jsonutil.API.Unmarshal(data, newStatePtr.Interface()); err != nil {
 		return nil, fmt.Errorf("failed to deserialize state: %w", err)
 	}
 
@@ -2087,7 +2087,7 @@ func (h *liveHandler) sendUpdate(conn *session.Connection, data interface{}, mes
 
 	// Parse tree from buffer
 	var tree map[string]interface{}
-	if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
+	if err := jsonutil.API.Unmarshal(buf.Bytes(), &tree); err != nil {
 		return fmt.Errorf("failed to parse tree: %w", err)
 	}
 
@@ -2101,7 +2101,7 @@ func (h *liveHandler) sendUpdate(conn *session.Connection, data interface{}, mes
 	}
 
 	// Encode response
-	responseBytes, err := json.Marshal(response)
+	responseBytes, err := jsonutil.API.Marshal(response)
 	if err != nil {
 		return fmt.Errorf("failed to marshal response: %w", err)
 	}
@@ -2125,7 +2125,7 @@ func (h *liveHandler) sendUpdate(conn *session.Connection, data interface{}, mes
 func (h *liveHandler) handlePubSubMessage(msg *pubsub.BroadcastMessage) error {
 	// Deserialize the payload
 	var data interface{}
-	if err := json.Unmarshal(msg.Payload, &data); err != nil {
+	if err := jsonutil.API.Unmarshal(msg.Payload, &data); err != nil {
 		return fmt.Errorf("failed to unmarshal payload: %w", err)
 	}
 
@@ -2753,7 +2753,7 @@ func (h *liveHandler) handleUploadStart(rawData []byte, state *connState, upload
 	}
 
 	// Send UploadStartResponse to client so it can create upload entries
-	responseData, err := json.Marshal(response)
+	responseData, err := jsonutil.API.Marshal(response)
 	if err != nil {
 		return fmt.Errorf("failed to marshal upload_start response: %w", err)
 	}

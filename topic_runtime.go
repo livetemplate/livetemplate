@@ -1,10 +1,10 @@
 package livetemplate
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
 
+	"github.com/livetemplate/livetemplate/internal/jsonutil"
 	"github.com/livetemplate/livetemplate/internal/session"
 	"github.com/livetemplate/livetemplate/pubsub"
 )
@@ -32,7 +32,7 @@ func (h *liveHandler) sendTopicForbiddenEnvelope(conn *session.Connection, topic
 	if conn == nil {
 		return
 	}
-	payload, err := json.Marshal(topicErrorEnvelope{Type: "error", Code: "topic_forbidden", Topic: topic})
+	payload, err := jsonutil.API.Marshal(topicErrorEnvelope{Type: "error", Code: "topic_forbidden", Topic: topic})
 	if err != nil {
 		return
 	}

@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+
+	"github.com/livetemplate/livetemplate/internal/jsonutil"
 )
 
 // =============================================================================
@@ -165,11 +167,11 @@ type persistFieldInfo struct {
 }
 
 func (s *jsonState[T]) MarshalBinary() ([]byte, error) {
-	return json.Marshal(s.value)
+	return jsonutil.API.Marshal(s.value)
 }
 
 func (s *jsonState[T]) UnmarshalBinary(data []byte) error {
-	return json.Unmarshal(data, s.value)
+	return jsonutil.API.Unmarshal(data, s.value)
 }
 
 func (s *jsonState[T]) Inner() any {
@@ -195,7 +197,7 @@ func (s *jsonState[T]) ExtractPersistFields(state interface{}) ([]byte, error) {
 	for _, f := range s.persistFields {
 		m[f.jsonName] = v.Field(f.index).Interface()
 	}
-	return json.Marshal(m)
+	return jsonutil.API.Marshal(m)
 }
 
 // InjectPersistFields creates a zero-value state and deserializes persist field data into it.
@@ -209,7 +211,7 @@ func (s *jsonState[T]) InjectPersistFields(data []byte) (interface{}, error) {
 	// Decode into map first so only persist-tagged fields are applied,
 	// regardless of what keys the stored data contains.
 	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
+	if err := jsonutil.API.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("failed to deserialize persist fields: %w", err)
 	}
 	var state T
@@ -223,7 +225,7 @@ func (s *jsonState[T]) InjectPersistFields(data []byte) (interface{}, error) {
 		if !fv.CanSet() {
 			continue
 		}
-		if err := json.Unmarshal(fieldData, fv.Addr().Interface()); err != nil {
+		if err := jsonutil.API.Unmarshal(fieldData, fv.Addr().Interface()); err != nil {
 			return nil, fmt.Errorf("failed to deserialize persist field %q: %w", f.jsonName, err)
 		}
 	}

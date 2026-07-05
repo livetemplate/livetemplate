@@ -2,7 +2,6 @@ package pubsub
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/livetemplate/livetemplate/internal/jsonutil"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -255,7 +255,7 @@ func (b *RedisBroadcaster) publishJSON(channel string, msg interface{}) error {
 		return fmt.Errorf("broadcaster is closed")
 	}
 
-	data, err := json.Marshal(msg)
+	data, err := jsonutil.API.Marshal(msg)
 	if err != nil {
 		return fmt.Errorf("failed to marshal message for channel %s: %w", channel, err)
 	}
@@ -931,7 +931,7 @@ func (b *RedisBroadcaster) handleMessage(redisMsg *redis.Message) error {
 		Type       string `json:"type"`
 		InstanceID string `json:"instanceID"`
 	}
-	if err := json.Unmarshal([]byte(redisMsg.Payload), &typeCheck); err != nil {
+	if err := jsonutil.API.Unmarshal([]byte(redisMsg.Payload), &typeCheck); err != nil {
 		return fmt.Errorf("failed to unmarshal message type: %w", err)
 	}
 
@@ -956,7 +956,7 @@ func (b *RedisBroadcaster) handleMessage(redisMsg *redis.Message) error {
 // handleBroadcastMessage processes a broadcast message.
 func (b *RedisBroadcaster) handleBroadcastMessage(redisMsg *redis.Message) error {
 	var msg BroadcastMessage
-	if err := json.Unmarshal([]byte(redisMsg.Payload), &msg); err != nil {
+	if err := jsonutil.API.Unmarshal([]byte(redisMsg.Payload), &msg); err != nil {
 		return fmt.Errorf("failed to unmarshal broadcast message: %w", err)
 	}
 
@@ -997,7 +997,7 @@ func (b *RedisBroadcaster) handleServerActionMessage(redisMsg *redis.Message) er
 // the already-decoded struct (no separate unmarshal for the guard itself).
 func (b *RedisBroadcaster) handleGroupActionMessage(redisMsg *redis.Message) error {
 	var msg GroupActionMessage
-	if err := json.Unmarshal([]byte(redisMsg.Payload), &msg); err != nil {
+	if err := jsonutil.API.Unmarshal([]byte(redisMsg.Payload), &msg); err != nil {
 		return fmt.Errorf("failed to unmarshal group action message: %w", err)
 	}
 	if msg.InstanceID == b.instanceID {
@@ -1037,7 +1037,7 @@ func (b *RedisBroadcaster) handleGroupActionMessage(redisMsg *redis.Message) err
 // INVARIANT on the GroupActionMessage Seq field.
 func (b *RedisBroadcaster) handleTopicActionMessage(redisMsg *redis.Message) error {
 	var msg GroupActionMessage
-	if err := json.Unmarshal([]byte(redisMsg.Payload), &msg); err != nil {
+	if err := jsonutil.API.Unmarshal([]byte(redisMsg.Payload), &msg); err != nil {
 		return fmt.Errorf("failed to unmarshal topic action message: %w", err)
 	}
 	if msg.InstanceID == b.instanceID {
@@ -1079,7 +1079,7 @@ func (b *RedisBroadcaster) handleTopicActionMessage(redisMsg *redis.Message) err
 // and handleGroupActionMessage to avoid repeating the unmarshal+dispatch pattern.
 func dispatchTypedMessage[T any](redisMsg *redis.Message, getHandler func() func(*T) error) error {
 	var msg T
-	if err := json.Unmarshal([]byte(redisMsg.Payload), &msg); err != nil {
+	if err := jsonutil.API.Unmarshal([]byte(redisMsg.Payload), &msg); err != nil {
 		return fmt.Errorf("failed to unmarshal message: %w", err)
 	}
 
