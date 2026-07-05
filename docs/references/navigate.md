@@ -117,6 +117,27 @@ Browser-level chromedp tests live in the lvt repo at `e2e/livetemplate_core_test
 
 ---
 
+## Related: the `__ping__` reserved action (liveness heartbeat)
+
+`__ping__` is the other reserved WebSocket-only action. A client sends
+`{action: "__ping__"}` and the server replies with exactly `{"pong":true}` —
+a bare liveness reply, **not** an `UpdateResponse` (no `tree`, no `meta`). The
+reply is short-circuited in the event loop *after* the message rate limiter but
+*before* the action/render pipeline, so a ping neither runs Mount/dispatch nor
+perturbs connection state, and a flood of pings is throttled like any other
+message.
+
+It exists because browsers cannot send WebSocket ping *control frames* from JS,
+so a client that wants to detect a dead — or **zombie** (still reports `OPEN`
+while its TCP is gone, firing no `close` event, a documented mobile behaviour) —
+socket needs an app-level round-trip: it pings on a timer and treats a missing
+pong as a dead socket, then reconnects. The server half is just the echo;
+non-heartbeat clients that never send `__ping__` see no behavior change. The
+client half lives in the separate [`client`](https://github.com/livetemplate/client)
+repo (`data-lvt-heartbeat-ms`).
+
+---
+
 ## See Also
 
 - [Controller+State Pattern](controller-pattern.md) — Mount-time conventions
