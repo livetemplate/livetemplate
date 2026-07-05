@@ -21,6 +21,27 @@ var bufferPool = sync.Pool{
 	New: func() interface{} { return new(bytes.Buffer) },
 }
 
+// maxPooledBufferBytes caps the capacity of a bytes.Buffer we are willing to
+// return to bufferPool. A single very large template render grows a buffer to
+// that size; without a cap, sync.Pool would retain it (for up to two GC cycles)
+// and bloat idle memory for apps that mix tiny and huge templates.
+const maxPooledBufferBytes = 256 << 10 // 256 KB
+
+// bufferReusable reports whether buf is small enough to be worth returning to
+// bufferPool. Buffers grown past maxPooledBufferBytes by a large render are
+// dropped so sync.Pool cannot pin their capacity.
+func bufferReusable(buf *bytes.Buffer) bool {
+	return buf.Cap() <= maxPooledBufferBytes
+}
+
+// putBuffer returns buf to bufferPool unless it has grown too large to be worth
+// retaining, in which case it is dropped for the GC to reclaim.
+func putBuffer(buf *bytes.Buffer) {
+	if bufferReusable(buf) {
+		bufferPool.Put(buf)
+	}
+}
+
 // TemplateContext provides utility functions for templates via the lvt namespace.
 //
 // It provides two separate message systems via a unified messages map:
@@ -412,11 +433,11 @@ func executeWithBuffer(tmpl *template.Template, data interface{}) ([]byte, error
 	buf.Reset()
 	err := tmpl.Execute(buf, data)
 	if err != nil {
-		bufferPool.Put(buf)
+		putBuffer(buf)
 		return nil, err
 	}
 	result := make([]byte, buf.Len())
 	copy(result, buf.Bytes())
-	bufferPool.Put(buf)
+	putBuffer(buf)
 	return result, nil
 }
