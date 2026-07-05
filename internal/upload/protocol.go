@@ -1,8 +1,9 @@
 package upload
 
 import (
-	"encoding/json"
 	"fmt"
+
+	"github.com/livetemplate/livetemplate/internal/jsonutil"
 )
 
 // FileMetadata represents metadata for a file to be uploaded.
@@ -122,7 +123,7 @@ type CancelUploadResponse struct {
 // ParseUploadStartMessage parses an upload_start action from JSON.
 func ParseUploadStartMessage(data []byte) (*UploadStartMessage, error) {
 	var msg UploadStartMessage
-	if err := json.Unmarshal(data, &msg); err != nil {
+	if err := jsonutil.API.Unmarshal(data, &msg); err != nil {
 		return nil, fmt.Errorf("failed to parse upload_start message: %w", err)
 	}
 
@@ -154,7 +155,7 @@ func ParseUploadStartMessage(data []byte) (*UploadStartMessage, error) {
 // ParseUploadChunkMessage parses an upload_chunk action from JSON.
 func ParseUploadChunkMessage(data []byte) (*UploadChunkMessage, error) {
 	var msg UploadChunkMessage
-	if err := json.Unmarshal(data, &msg); err != nil {
+	if err := jsonutil.API.Unmarshal(data, &msg); err != nil {
 		return nil, fmt.Errorf("failed to parse upload_chunk message: %w", err)
 	}
 
@@ -184,7 +185,7 @@ func ParseUploadChunkMessage(data []byte) (*UploadChunkMessage, error) {
 // ParseUploadCompleteMessage parses an upload_complete action from JSON.
 func ParseUploadCompleteMessage(data []byte) (*UploadCompleteMessage, error) {
 	var msg UploadCompleteMessage
-	if err := json.Unmarshal(data, &msg); err != nil {
+	if err := jsonutil.API.Unmarshal(data, &msg); err != nil {
 		return nil, fmt.Errorf("failed to parse upload_complete message: %w", err)
 	}
 
@@ -207,7 +208,7 @@ func ParseUploadCompleteMessage(data []byte) (*UploadCompleteMessage, error) {
 // (issue #448) carrying per-entry client-asserted metadata.
 func ParseUploadCompleteHTTPMessage(data []byte) (*UploadCompleteHTTPMessage, error) {
 	var msg UploadCompleteHTTPMessage
-	if err := json.Unmarshal(data, &msg); err != nil {
+	if err := jsonutil.API.Unmarshal(data, &msg); err != nil {
 		return nil, fmt.Errorf("failed to parse upload_complete message: %w", err)
 	}
 	if msg.UploadName == "" {
@@ -230,7 +231,7 @@ func ParseUploadCompleteHTTPMessage(data []byte) (*UploadCompleteHTTPMessage, er
 // ParseCancelUploadMessage parses a cancel_upload action from JSON.
 func ParseCancelUploadMessage(data []byte) (*CancelUploadMessage, error) {
 	var msg CancelUploadMessage
-	if err := json.Unmarshal(data, &msg); err != nil {
+	if err := jsonutil.API.Unmarshal(data, &msg); err != nil {
 		return nil, fmt.Errorf("failed to parse cancel_upload message: %w", err)
 	}
 
@@ -247,20 +248,20 @@ func ParseCancelUploadMessage(data []byte) (*CancelUploadMessage, error) {
 
 // SerializeUploadStartResponse serializes UploadStartResponse to JSON.
 func SerializeUploadStartResponse(resp *UploadStartResponse) ([]byte, error) {
-	return json.Marshal(resp)
+	return jsonutil.API.Marshal(resp)
 }
 
 // SerializeUploadProgressMessage serializes UploadProgressMessage to JSON.
 func SerializeUploadProgressMessage(msg *UploadProgressMessage) ([]byte, error) {
-	return json.Marshal(msg)
+	return jsonutil.API.Marshal(msg)
 }
 
 // SerializeUploadCompleteResponse serializes UploadCompleteResponse to JSON.
 func SerializeUploadCompleteResponse(resp *UploadCompleteResponse) ([]byte, error) {
-	return json.Marshal(resp)
+	return jsonutil.API.Marshal(resp)
 }
 
 // SerializeCancelUploadResponse serializes CancelUploadResponse to JSON.
 func SerializeCancelUploadResponse(resp *CancelUploadResponse) ([]byte, error) {
-	return json.Marshal(resp)
+	return jsonutil.API.Marshal(resp)
 }
