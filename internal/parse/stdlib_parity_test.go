@@ -765,6 +765,12 @@ func (methodArgHelper) Name() string             { return "zero-arg" }
 func (methodArgHelper) Get(k string) string      { return "got:" + k }
 func (methodArgHelper) Tags(xs ...string) string { return "tags:" + strings.Join(xs, ",") }
 
+// Log mixes a fixed leading arg with a variadic tail, so a bare reference must
+// report "want at least 1" (not "want 2"), matching text/template.
+func (methodArgHelper) Log(level string, args ...interface{}) string {
+	return level + ":" + fmt.Sprint(args...)
+}
+
 // lvtRenderErr renders through LiveTemplate returning any parse/build error
 // instead of failing the test, so error-path parity can be asserted.
 func lvtRenderErr(tmplStr string, data interface{}) (string, error) {
@@ -833,6 +839,7 @@ func TestStdlibParity_BareMethodArgs(t *testing.T) {
 			{"bare arg-requiring method as function arg", `{{printf "%s" .Get}}`, h},
 			{"bare arg-requiring method in conditional", `{{if .Get}}x{{end}}`, h},
 			{"nested bare arg-requiring method", `{{.ctx.Get}}`, nested},
+			{"bare mixed fixed+variadic method", `{{.Log}}`, h},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
@@ -844,8 +851,14 @@ func TestStdlibParity_BareMethodArgs(t *testing.T) {
 				if lvtErr == nil {
 					t.Fatalf("livetemplate did not error on %q (stdlib error: %v)", tc.tmpl, stdErr)
 				}
-				if !strings.Contains(lvtErr.Error(), "Get") {
-					t.Errorf("error should name the method Get, got: %v", lvtErr)
+				// Assert message parity on the "wrong number of args..." core,
+				// which stdlib wraps in positional prefixes lvt does not emit.
+				core := stdErr.Error()
+				if i := strings.Index(core, "wrong number of args"); i >= 0 {
+					core = core[i:]
+				}
+				if !strings.Contains(lvtErr.Error(), core) {
+					t.Errorf("error message parity mismatch:\n  stdlib core: %q\n  lvt:         %q", core, lvtErr.Error())
 				}
 			})
 		}

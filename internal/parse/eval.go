@@ -407,19 +407,30 @@ type uncalledMethod struct {
 }
 
 // callBare evaluates the method as a bare reference (no trailing args). A
-// variadic method is called with an empty variadic ({{.Tags}} calls Tags());
-// a method that genuinely requires arguments returns a ParseError matching
-// text/template's "wrong number of args for X: want N got 0".
+// variadic method with only its variadic parameter is called with an empty
+// variadic ({{.Tags}} calls Tags()); a method that genuinely requires arguments
+// returns a ParseError matching text/template's "wrong number of args" text —
+// "want N" for a fixed arity, "want at least N" for a variadic one.
 func (m uncalledMethod) callBare() (interface{}, error) {
 	mt := m.fn.Type()
-	if mt.IsVariadic() && mt.NumIn() == 1 {
-		return invokeNoArgs(m.fn)
+	if mt.IsVariadic() {
+		fixed := mt.NumIn() - 1 // drop the trailing variadic slot
+		if fixed == 0 {
+			return invokeNoArgs(m.fn)
+		}
+		return nil, m.argCountError(fmt.Sprintf("want at least %d", fixed))
 	}
-	return nil, &ParseError{
+	return nil, m.argCountError(fmt.Sprintf("want %d", mt.NumIn()))
+}
+
+// argCountError builds the bare-reference "wrong number of args" ParseError,
+// mirroring text/template's message ("...: <want> got 0") for method X.
+func (m uncalledMethod) argCountError(want string) error {
+	return &ParseError{
 		Phase:    "eval",
 		NodeType: "method",
 		Expr:     m.name,
-		Msg:      fmt.Sprintf("wrong number of args for %s: want %d got 0", m.name, mt.NumIn()),
+		Msg:      fmt.Sprintf("wrong number of args for %s: %s got 0", m.name, want),
 	}
 }
 
