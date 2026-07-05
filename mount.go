@@ -870,6 +870,11 @@ eventLoop:
 			// stateless, so it stays ahead of the upload/dispatch machinery.
 			if msg.Action == actionPing {
 				if err := writeUpdateWebSocket(connection, pongMessage); err != nil {
+					// Debug + continue (not Error + break, unlike the action-response
+					// write below): a failed send means Connection.Send already
+					// Close()d the conn internally (ErrClientTooSlow/ErrConnectionClosed),
+					// so the read side unwinds the loop on its own. A dropped pong is
+					// also self-correcting — the client's next tick reconnects.
 					slog.Debug("pong write failed",
 						slog.String("component", "live_handler"),
 						slog.Any("error", err))
@@ -1531,11 +1536,15 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		connSt.setError(fe.Field, fe.Message)
 	}
 
-	// __navigate__ is a WebSocket-only reserved action. Reject early so HTTP
-	// clients get a clear "wrong transport" error instead of a confusing
-	// ErrMethodNotFound response.
+	// __navigate__ and __ping__ are WebSocket-only reserved actions. Reject early
+	// so HTTP clients get a clear "wrong transport" error instead of a confusing
+	// ErrMethodNotFound fall-through (no controller method by these names exists).
 	if msg.Action == actionNavigate {
 		http.Error(w, "action __navigate__ is only supported over WebSocket", http.StatusBadRequest)
+		return
+	}
+	if msg.Action == actionPing {
+		http.Error(w, "action __ping__ is only supported over WebSocket", http.StatusBadRequest)
 		return
 	}
 

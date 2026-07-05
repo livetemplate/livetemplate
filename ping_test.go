@@ -1,6 +1,10 @@
 package livetemplate
 
 import (
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 )
@@ -83,5 +87,37 @@ func TestPingIsSubjectToRateLimit(t *testing.T) {
 	errs, _ := meta["errors"].(map[string]interface{})
 	if _, limited := errs["_rate_limit"]; !limited {
 		t.Errorf("second ping should be rate-limited (meta.errors._rate_limit), got %#v", meta)
+	}
+}
+
+// TestPingRejectedOverHTTP: __ping__ is WebSocket-only. Posting it over the
+// HTTP-fetch/no-JS tier must return a clear 400 "wrong transport" error — the
+// same treatment __navigate__ gets — not a confusing ErrMethodNotFound
+// fall-through (no controller method named __ping__ exists).
+func TestPingRejectedOverHTTP(t *testing.T) {
+	server, _ := setupNavigateTestServer(t)
+	defer server.Close()
+
+	form := url.Values{}
+	form.Set("lvt-action", actionPing)
+	req, err := http.NewRequest(http.MethodPost, server.URL+"/", strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("__ping__ over HTTP status = %d, want 400; body = %s", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), "only supported over WebSocket") {
+		t.Errorf("__ping__ over HTTP body = %q, want a wrong-transport message", body)
 	}
 }
