@@ -15,6 +15,7 @@ func TestCreateSecureOriginChecker(t *testing.T) {
 		host           string
 		tls            bool
 		forwardedProto string
+		forwarded      string
 		want           bool
 	}{
 		// DevMode tests
@@ -173,6 +174,82 @@ func TestCreateSecureOriginChecker(t *testing.T) {
 			want:           true, // falls back to https (r.TLS != nil)
 		},
 
+		// RFC 7239 Forwarded header (fallback when X-Forwarded-Proto absent)
+		{
+			name:      "Forwarded header proto https",
+			origin:    "https://example.com",
+			host:      "example.com",
+			tls:       false,
+			forwarded: "for=192.0.2.60;proto=https;by=203.0.113.43",
+			want:      true,
+		},
+		{
+			name:      "Forwarded header proto http",
+			origin:    "http://example.com",
+			host:      "example.com",
+			tls:       false,
+			forwarded: "for=192.0.2.60;proto=http",
+			want:      true,
+		},
+		{
+			name:      "Forwarded header proto mismatch rejected",
+			origin:    "http://example.com",
+			host:      "example.com",
+			tls:       false,
+			forwarded: "proto=https",
+			want:      false,
+		},
+		{
+			name:      "Forwarded header quoted proto value",
+			origin:    "https://example.com",
+			host:      "example.com",
+			tls:       false,
+			forwarded: `for=192.0.2.60;proto="https"`,
+			want:      true,
+		},
+		{
+			name:      "Forwarded header case-insensitive param name",
+			origin:    "https://example.com",
+			host:      "example.com",
+			tls:       false,
+			forwarded: "Proto=https",
+			want:      true,
+		},
+		{
+			name:      "Forwarded header multi-element uses first hop",
+			origin:    "https://example.com",
+			host:      "example.com",
+			tls:       false,
+			forwarded: "proto=https, proto=http",
+			want:      true,
+		},
+		{
+			name:      "Forwarded header without proto param falls back to r.TLS",
+			origin:    "http://example.com",
+			host:      "example.com",
+			tls:       false,
+			forwarded: "for=192.0.2.60;by=203.0.113.43",
+			want:      true, // no proto → r.TLS nil → http
+		},
+		{
+			name:           "X-Forwarded-Proto wins over Forwarded when both present",
+			origin:         "https://example.com",
+			host:           "example.com",
+			tls:            false,
+			forwardedProto: "https",
+			forwarded:      "proto=http", // conflicting; X-Forwarded-Proto takes precedence
+			want:           true,
+		},
+		{
+			name:           "invalid X-Forwarded-Proto falls through to Forwarded",
+			origin:         "https://example.com",
+			host:           "example.com",
+			tls:            false,
+			forwardedProto: "ftp",
+			forwarded:      "proto=https",
+			want:           true,
+		},
+
 		// Empty host
 		{
 			name:   "empty host is rejected",
@@ -213,14 +290,17 @@ func TestCreateSecureOriginChecker(t *testing.T) {
 			if tt.forwardedProto != "" {
 				req.Header.Set("X-Forwarded-Proto", tt.forwardedProto)
 			}
+			if tt.forwarded != "" {
+				req.Header.Set("Forwarded", tt.forwarded)
+			}
 			if tt.tls {
 				req.TLS = &tls.ConnectionState{}
 			}
 
 			got := checker(req)
 			if got != tt.want {
-				t.Errorf("createSecureOriginChecker(%v, %v)(origin=%q, host=%q, tls=%v, proto=%q) = %v, want %v",
-					tt.allowedOrigins, tt.devMode, tt.origin, tt.host, tt.tls, tt.forwardedProto, got, tt.want)
+				t.Errorf("createSecureOriginChecker(%v, %v)(origin=%q, host=%q, tls=%v, proto=%q, forwarded=%q) = %v, want %v",
+					tt.allowedOrigins, tt.devMode, tt.origin, tt.host, tt.tls, tt.forwardedProto, tt.forwarded, got, tt.want)
 			}
 		})
 	}
@@ -233,6 +313,7 @@ func TestCreateSecureOriginChecker_UntrustedForwardedHeaders(t *testing.T) {
 		host           string
 		tls            bool
 		forwardedProto string
+		forwarded      string
 		want           bool
 	}{
 		{
@@ -242,6 +323,14 @@ func TestCreateSecureOriginChecker_UntrustedForwardedHeaders(t *testing.T) {
 			tls:            false,
 			forwardedProto: "https",
 			want:           false, // Without proxy trust, TLS=nil means HTTP, but origin says HTTPS
+		},
+		{
+			name:      "Forwarded header ignored when untrusted",
+			origin:    "https://example.com",
+			host:      "example.com",
+			tls:       false,
+			forwarded: "proto=https",
+			want:      false, // Untrusted: forged Forwarded must not upgrade scheme to https
 		},
 		{
 			name:           "falls back to r.TLS when untrusted",
@@ -275,14 +364,17 @@ func TestCreateSecureOriginChecker_UntrustedForwardedHeaders(t *testing.T) {
 			if tt.forwardedProto != "" {
 				req.Header.Set("X-Forwarded-Proto", tt.forwardedProto)
 			}
+			if tt.forwarded != "" {
+				req.Header.Set("Forwarded", tt.forwarded)
+			}
 			if tt.tls {
 				req.TLS = &tls.ConnectionState{}
 			}
 
 			got := checker(req)
 			if got != tt.want {
-				t.Errorf("trust=false (origin=%q, host=%q, tls=%v, proto=%q) = %v, want %v",
-					tt.origin, tt.host, tt.tls, tt.forwardedProto, got, tt.want)
+				t.Errorf("trust=false (origin=%q, host=%q, tls=%v, proto=%q, forwarded=%q) = %v, want %v",
+					tt.origin, tt.host, tt.tls, tt.forwardedProto, tt.forwarded, got, tt.want)
 			}
 		})
 	}

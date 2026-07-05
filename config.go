@@ -81,8 +81,9 @@ type EnvConfig struct {
 	// Environment: LVT_WS_BUFFER_SIZE (positive integer, default: 50)
 	WebSocketBufferSize int
 
-	// TrustForwardedHeaders controls whether X-Forwarded-Proto is trusted for
-	// scheme detection in same-origin WebSocket checks.
+	// TrustForwardedHeaders controls whether proxy forwarding headers
+	// (X-Forwarded-Proto, falling back to the RFC 7239 Forwarded header) are
+	// trusted for scheme detection in same-origin WebSocket checks.
 	// Default: true (safe when behind a reverse proxy).
 	// Set to false if the server is directly reachable by clients without a proxy.
 	// Environment: LVT_TRUST_FORWARDED_HEADERS (true/false, 1/0)
@@ -115,7 +116,7 @@ func LoadEnvConfig() (*EnvConfig, error) {
 		MetricsEnabled:         true,
 		ProgressiveEnhancement: true, // Default: enabled for non-JS form support
 		WebSocketBufferSize:    defaultWebSocketBufferSize,
-		TrustForwardedHeaders:  true, // Default: trust X-Forwarded-Proto (safe behind proxy)
+		TrustForwardedHeaders:  true, // Default: trust forwarded scheme headers (safe behind proxy)
 	}
 
 	// Load MaxConnections
