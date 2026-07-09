@@ -1166,6 +1166,56 @@ func BenchmarkExecuteTemplateWithContext_Map(b *testing.B) {
 	}
 }
 
+// precomputeBenchState carries three zero-arg methods, two of which do real work, so
+// the benchmark can show the cost of eagerly precomputing methods a template does not
+// reference.
+type precomputeBenchState struct {
+	Name string
+	Age  int
+}
+
+func (s precomputeBenchState) Cheap() string { return s.Name }
+
+func (s precomputeBenchState) Expensive() int {
+	sum := 0
+	for i := 0; i < 10000; i++ {
+		sum += i
+	}
+	return sum
+}
+
+func (s precomputeBenchState) Report() []int {
+	out := make([]int, 128)
+	for i := range out {
+		out[i] = i * i
+	}
+	return out
+}
+
+// BenchmarkPrecompute compares the eager-all path (nil allow-set, the pre-scoping
+// behavior) against a referenced-only set. nil == the "before"; a set that omits the
+// unreferenced methods == the "after". The all_referenced case guards against the
+// allow-set map lookup itself being a regression.
+func BenchmarkPrecompute(b *testing.B) {
+	state := precomputeBenchState{Name: "John", Age: 30}
+	cases := []struct {
+		name  string
+		allow map[string]struct{}
+	}{
+		{"eager_all_methods", nil},
+		{"referenced_only", map[string]struct{}{"Name": {}}},
+		{"all_referenced", map[string]struct{}{"Cheap": {}, "Expensive": {}, "Report": {}}},
+	}
+	for _, tc := range cases {
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				_ = BuildDataMap(state, nil, false, nil, tc.allow)
+			}
+		})
+	}
+}
+
 func TestTemplateContext_ConcurrentReads(t *testing.T) {
 	errors := map[string]string{
 		"field1": "error1",

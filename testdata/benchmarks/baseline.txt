@@ -67,6 +67,9 @@ BenchmarkFingerprintAlgorithms/deep-20/MD5-previous-8           	  270121	      
 BenchmarkFingerprintAlgorithms/deep-20/FNV1a128-current-8       	  337766	      3549 ns/op	    1848 B/op	      72 allocs/op
 BenchmarkExecuteTemplateWithContext_Struct-8   	  638680	      1882 ns/op	    1003 B/op	      29 allocs/op
 BenchmarkExecuteTemplateWithContext_Map-8      	  596139	      2030 ns/op	    1179 B/op	      36 allocs/op
+BenchmarkPrecompute/eager_all_methods-8         	  154539	      7748 ns/op	    1608 B/op	      15 allocs/op
+BenchmarkPrecompute/referenced_only-8           	 1218118	       955.5 ns/op	     440 B/op	       5 allocs/op
+BenchmarkPrecompute/all_referenced-8            	  154534	      8011 ns/op	    1608 B/op	      15 allocs/op
 BenchmarkCompareTreesNoChanges-8                   	 9069051	       132.4 ns/op	     288 B/op	       2 allocs/op
 BenchmarkCompareTreesSmallChange-8                 	20187830	        59.75 ns/op	     144 B/op	       2 allocs/op
 BenchmarkCompareTreesLargeChange/10-8              	 6104209	       190.8 ns/op	     288 B/op	       2 allocs/op
