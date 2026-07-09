@@ -242,6 +242,7 @@ type Template struct {
 	formSchema             *FormSchema         // Cached schema extracted from templateStr; nil if no rules
 	wiredActions           map[string]struct{} // Cached set of client-wired action names (form/button name=, lvt-on:) extracted from templateStr; immutable after parse; drives the Publish symmetry-collision warning
 	wiredCollisionWarned   *sync.Map           // action -> struct{}: dedups the Publish symmetry-collision slog.Warn to once per action name; shared by pointer across per-session clones so the warning is app-global, not per-connection
+	precomputeAllow        map[string]struct{} // Superset of identifiers referenced by the parsed templates; immutable after parse; scopes eager method precompute in BuildDataMap so unreferenced State methods are never called
 }
 
 // Funcs registers a template.FuncMap that will be applied to all template parsing and execution.
@@ -1066,6 +1067,7 @@ func (t *Template) Clone() (*Template, error) {
 	formSchema := t.formSchema
 	wiredActions := t.wiredActions
 	wiredCollisionWarned := t.wiredCollisionWarned
+	precomputeAllow := t.precomputeAllow
 	t.mu.RUnlock()
 
 	// Share immutable data from master instead of re-creating per clone.
@@ -1085,6 +1087,7 @@ func (t *Template) Clone() (*Template, error) {
 		formSchema:             formSchema,           // Share extracted form schema (immutable)
 		wiredActions:           wiredActions,         // Share extracted wired-action set (immutable)
 		wiredCollisionWarned:   wiredCollisionWarned, // Share dedup store by pointer (app-global once-per-action warn)
+		precomputeAllow:        precomputeAllow,      // Share referenced-identifier set (immutable after parse)
 		// Don't copy lastData, lastHTML, lastTree, etc. - start fresh per session
 	}
 
@@ -1203,6 +1206,7 @@ func (t *Template) parseInternal(text string, baseTemplate *template.Template) (
 	t.cachedBodyContent = ""    // Invalidate cached body content
 	t.cachedBodyContentValid = false
 	t.formSchema = extractFormSchemaFromTemplateStr(text)
+	t.precomputeAllow = parse.CollectReferencedIdentsFromTemplate(tmpl)
 	t.wiredActions = extractWiredActionNames(text)
 	if t.wiredActions != nil {
 		t.wiredCollisionWarned = &sync.Map{}
@@ -1838,7 +1842,7 @@ func (t *Template) buildTree(data interface{}, messages map[string]string) (*tre
 	// The result is reused for both HTML rendering and tree building,
 	// eliminating the duplicate reflection that previously occurred in
 	// renderHTML (via ExecuteTemplateWithContext) and AddLvtToData.
-	dataWithLvt := context.BuildDataMap(data, messages, t.config.DevMode, t.uploadRegistry)
+	dataWithLvt := context.BuildDataMap(data, messages, t.config.DevMode, t.uploadRegistry, t.precomputeAllow)
 
 	// Phase 4: Render HTML using pre-built data map (no reflection)
 	currentHTML, err := t.renderHTMLWithData(dataWithLvt)
@@ -1907,7 +1911,7 @@ func (t *Template) renderHTML(data interface{}, messages map[string]string) (str
 	}
 
 	// Execute template with lvt context
-	htmlBytes, err := context.ExecuteTemplateWithContext(t.tmpl, data, messages, t.config.DevMode, t.uploadRegistry)
+	htmlBytes, err := context.ExecuteTemplateWithContext(t.tmpl, data, messages, t.config.DevMode, t.uploadRegistry, t.precomputeAllow)
 	if err != nil {
 		return "", err
 	}

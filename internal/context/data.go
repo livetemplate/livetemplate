@@ -81,11 +81,15 @@ func safeMethodCall(method reflect.Value) (results []reflect.Value, panicked boo
 // template execution and tree building to avoid duplicate reflection.
 //
 // For struct data, exported zero-arg methods are eagerly evaluated and their
-// return values stored in the map. This differs from html/template's lazy
-// dispatch — all qualifying methods run on every call, even if the template
-// doesn't reference them. Avoid methods with side effects or expensive
-// computations in State types.
-func BuildDataMap(data interface{}, messages map[string]string, devMode bool, uploadRegistry interface{}) interface{} {
+// return values stored in the map, because html/template cannot auto-call methods
+// once the struct has been converted to a map.
+//
+// precomputeAllow scopes which methods are evaluated: when non-nil, only methods
+// whose name is present in the set are called (the set is a superset of the
+// identifiers referenced by the templates — see parse.CollectReferencedIdents), so a
+// method the templates never reference is skipped entirely. A nil set means evaluate
+// all qualifying methods, preserving the original eager behavior for direct callers.
+func BuildDataMap(data interface{}, messages map[string]string, devMode bool, uploadRegistry interface{}, precomputeAllow map[string]struct{}) interface{} {
 	if messages == nil {
 		messages = make(map[string]string)
 	}
@@ -95,11 +99,21 @@ func BuildDataMap(data interface{}, messages map[string]string, devMode bool, up
 		lvtContext.SetUploadRegistry(uploadRegistry)
 	}
 
-	return buildDataMapWithContext(data, lvtContext)
+	return buildDataMapWithContext(data, lvtContext, precomputeAllow)
+}
+
+// methodAllowed reports whether a method should be precomputed. A nil allow-set
+// means "precompute everything" (the pre-scoping default).
+func methodAllowed(allow map[string]struct{}, name string) bool {
+	if allow == nil {
+		return true
+	}
+	_, ok := allow[name]
+	return ok
 }
 
 // buildDataMapWithContext does the actual reflection and map construction.
-func buildDataMapWithContext(data interface{}, lvtContext *TemplateContext) interface{} {
+func buildDataMapWithContext(data interface{}, lvtContext *TemplateContext, precomputeAllow map[string]struct{}) interface{} {
 	val := reflect.ValueOf(data)
 
 	// Track whether input was a pointer so we can reuse it for method calls
@@ -160,17 +174,22 @@ func buildDataMapWithContext(data interface{}, lvtContext *TemplateContext) inte
 		// we need to call zero-arg methods and store their return values.
 		// Fields take precedence over methods (matching Go's resolution order).
 		//
-		// Semantic note: this is eager evaluation — ALL qualifying methods are called
-		// on every render, even if the template doesn't reference them. Methods that
-		// return (T, error) are omitted with a warning when error is non-nil (unlike
+		// Semantic note: methods in precomputeAllow are eagerly evaluated on every
+		// render (a nil set means all qualifying methods). Methods that return
+		// (T, error) are omitted with a warning when error is non-nil (unlike
 		// html/template which would stop execution with the error).
 		methods := getMethodMeta(reflect.PointerTo(typ))
 
 		// For value-type input, only allocate a pointer (reflect.New) if some
 		// qualifying method has a pointer receiver. When every method is a value
 		// receiver, call them directly on val and skip the per-render allocation.
+		// Methods excluded by the allow-set are ignored here too, so an unreferenced
+		// pointer-receiver method never forces the allocation.
 		if !ptrVal.IsValid() {
 			for _, m := range methods {
+				if !methodAllowed(precomputeAllow, m.Name) {
+					continue
+				}
 				if m.ValueIndex < 0 {
 					ptrVal = reflect.New(typ)
 					ptrVal.Elem().Set(val)
@@ -180,6 +199,9 @@ func buildDataMapWithContext(data interface{}, lvtContext *TemplateContext) inte
 		}
 
 		for _, m := range methods {
+			if !methodAllowed(precomputeAllow, m.Name) {
+				continue
+			}
 			if _, exists := dataMap[m.Name]; exists {
 				continue
 			}
@@ -233,5 +255,5 @@ func AddLvtToData(data interface{}, messages map[string]string, devMode bool, up
 	if len(uploadRegistry) > 0 {
 		registry = uploadRegistry[0]
 	}
-	return BuildDataMap(data, messages, devMode, registry)
+	return BuildDataMap(data, messages, devMode, registry, nil)
 }

@@ -1,9 +1,25 @@
 package parse
 
 import (
+	"html/template"
 	"strings"
 	"text/template/parse"
 )
+
+// CollectReferencedIdentsFromTemplate collects referenced identifiers across every
+// associated template in a parsed html/template set (the main template plus any
+// {{define}}d component templates), returning their union. Used by the render path to
+// scope method precomputation to names the templates could actually reference.
+func CollectReferencedIdentsFromTemplate(tmpl *template.Template) map[string]struct{} {
+	if tmpl == nil {
+		return nil
+	}
+	var trees []*parse.Tree
+	for _, assoc := range tmpl.Templates() {
+		trees = append(trees, assoc.Tree)
+	}
+	return CollectReferencedIdents(trees...)
+}
 
 // CollectReferencedIdents walks parsed template ASTs and returns the set of every
 // identifier that could reference a data field or method: each element of every
