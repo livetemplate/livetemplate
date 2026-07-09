@@ -205,6 +205,27 @@ func (c *TodoController) OnDisconnect() {
 - Cancel background jobs
 - Unsubscribe from data feeds
 
+## State methods in templates
+
+Exported zero-arg methods on your State type are callable from templates just like
+fields — `{{.ActiveCount}}` resolves to `ActiveCount()`'s return value. Methods
+returning `(T, error)` are omitted (with a warning) when the error is non-nil.
+
+Because LiveTemplate converts State to a map before rendering, these methods are
+*precomputed* — but only for methods your templates actually reference. A method that
+appears nowhere in any template is never called, so an expensive or side-effecting
+helper you keep on State but don't render costs nothing.
+
+Two caveats:
+
+- **Conditional references still run.** The scoping is by name, not by reachability:
+  `{{if .Show}}{{.Expensive}}{{end}}` still calls `Expensive()` on every render even
+  when `.Show` is false, because the name appears in the template text. Keep genuinely
+  expensive work in an action method, not a render-time State method.
+- **Prefer methods without side effects.** Precompute timing is an implementation
+  detail; a State method should compute a view of the state, not mutate anything or
+  perform I/O.
+
 ## Context API
 
 For the complete Context API (data extraction, HTTP operations, struct binding), see [API Reference — Context](api-reference.md#context).
