@@ -416,8 +416,8 @@ const (
 //
 // Note: If struct fields or map keys conflict with the reserved "lvt" key, they will be
 // skipped to ensure the lvt context remains accessible in templates.
-func ExecuteTemplateWithContext(tmpl *template.Template, data interface{}, messages map[string]string, devMode bool, uploadRegistry interface{}) ([]byte, error) {
-	dataMap := BuildDataMap(data, messages, devMode, uploadRegistry)
+func ExecuteTemplateWithContext(tmpl *template.Template, data interface{}, messages map[string]string, devMode bool, uploadRegistry interface{}, precomputeAllow map[string]struct{}) ([]byte, error) {
+	dataMap := BuildDataMap(data, messages, devMode, uploadRegistry, precomputeAllow)
 	return executeWithBuffer(tmpl, dataMap)
 }
 
