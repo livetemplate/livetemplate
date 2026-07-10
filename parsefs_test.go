@@ -12,6 +12,9 @@ import (
 //go:embed testdata/simple.html testdata/layout.html testdata/content.html
 var parseFSTestData embed.FS
 
+//go:embed testdata/project/main.gotemplate
+var parseFSProjectData embed.FS
+
 // wrapperIDPattern matches the random per-parse wrapper token so two renders of
 // the same template (which differ only in that token) can be compared for parity.
 var wrapperIDPattern = regexp.MustCompile(`data-lvt-id="[^"]*"`)
@@ -90,6 +93,35 @@ func TestParseFS_Composition(t *testing.T) {
 	data := map[string]interface{}{"Title": "T", "Heading": "H", "Body": "B"}
 	if got, want := renderNormalized(t, fromFS, data), renderNormalized(t, fromFiles, data); got != want {
 		t.Errorf("ParseFS composition render != ParseFiles\n ParseFS:    %s\n ParseFiles: %s", got, want)
+	}
+}
+
+// TestWithParseFS_WithComponentTemplates exercises the clone-and-extend branch in
+// parseSources via the WithParseFS path: when component templates are already
+// parsed, the main template (loaded from an fs.FS) must compose with them, same as
+// the WithParseFiles path. main.gotemplate invokes {{template "test:greeting:v1"}}.
+func TestWithParseFS_WithComponentTemplates(t *testing.T) {
+	set := &TemplateSet{
+		FS:        testComponentFS,
+		Pattern:   "testdata/components/*.gotemplate",
+		Namespace: "test",
+	}
+	tmpl, err := New("test",
+		WithComponentTemplates(set),
+		WithParseFS(parseFSProjectData, "testdata/project/main.gotemplate"),
+	)
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+	if tmpl.tmpl.Lookup("test:greeting:v1") == nil {
+		t.Error("component 'test:greeting:v1' not found via WithParseFS path — clone-and-extend branch not hit")
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, nil); err != nil {
+		t.Fatalf("Execute() failed: %v", err)
+	}
+	if !bytes.Contains(buf.Bytes(), []byte("Main Template")) {
+		t.Errorf("expected main template composed with component, got: %s", buf.String())
 	}
 }
 

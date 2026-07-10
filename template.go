@@ -1282,7 +1282,12 @@ func (t *Template) ParseFiles(filenames ...string) (*Template, error) {
 // ParseFS parses templates from an fs.FS (e.g. an embed.FS), resolving the given
 // glob patterns and associating the results with t. It mirrors ParseFiles but
 // reads via fs.ReadFile, so embedded templates need not be staged to disk first.
-// Matches the semantics of html/template.Template.ParseFS().
+//
+// Like ParseFiles, the first resolved file is the main template and the rest are
+// parsed into the same set for composition — unlike html/template.ParseFS, which
+// has no first-match-is-main concept. fs.Glob returns matches in lexical order, so
+// a single wildcard pattern (e.g. "templates/*.tmpl") makes the lexically-first
+// match the main template; pass an explicit ordered pattern list when that matters.
 func (t *Template) ParseFS(fsys fs.FS, patterns ...string) (*Template, error) {
 	if len(patterns) == 0 {
 		return nil, fmt.Errorf("no patterns specified")
