@@ -209,6 +209,34 @@ func (c *TodoController) OnDisconnect() {
 
 For the complete Context API (data extraction, HTTP operations, struct binding), see [API Reference — Context](api-reference.md#context).
 
+### Request context
+
+`*livetemplate.Context` **embeds `context.Context`** — it carries the request/connection
+context (cancellation, deadline, request-scoped values). So `ctx` *is* a `context.Context`:
+pass it directly to any context-aware call (database queries, outbound HTTP, tracing) instead
+of `context.Background()`.
+
+```go
+func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
+    // ✅ ctx is a context.Context — propagates cancellation when the request/connection ends
+    if err := c.DB.InsertTodo(ctx, todo); err != nil {
+        return state, err
+    }
+    return state, nil
+}
+```
+
+Reaching for `context.Background()` inside an action instead silently discards that
+cancellation and any deadline or trace attached to the request:
+
+```go
+// ❌ throws away request-scoped cancellation, deadline, and tracing
+if err := c.DB.InsertTodo(context.Background(), todo); err != nil { ... }
+```
+
+Use `context.Background()` only for work that must deliberately **outlive** the request (e.g.
+a fire-and-forget goroutine you start from the action) — not for the action's own calls.
+
 ## Error Handling
 
 For validation errors, field errors, and template error display, see [Error Handling Reference](error-handling.md).
@@ -258,7 +286,8 @@ type TodoController struct {
 }
 
 func (c *TodoController) Mount(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
-    items, err := c.DB.GetTodos()
+    // Pass ctx (a context.Context) so the query is cancelled if the request ends.
+    items, err := c.DB.GetTodos(ctx)
     if err != nil {
         return state, fmt.Errorf("failed to load todos: %w", err)
     }
@@ -277,7 +306,7 @@ func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoSt
         Title: title,
     }
 
-    if err := c.DB.InsertTodo(todo); err != nil {
+    if err := c.DB.InsertTodo(ctx, todo); err != nil {
         return state, fmt.Errorf("database error")
     }
 
