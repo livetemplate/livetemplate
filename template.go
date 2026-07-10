@@ -94,6 +94,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -149,6 +150,8 @@ type Config struct {
 	WebSocketDisabled      bool
 	LoadingDisabled        bool                                // Disables automatic loading indicator on page load
 	TemplateFiles          []string                            // If set, overrides auto-discovery
+	TemplateFS             fs.FS                               // If set (WithParseFS), templates are parsed from this fs.FS; takes precedence over TemplateFiles and auto-discovery
+	TemplateFSPatterns     []string                            // Glob patterns matched against TemplateFS
 	TemplateBaseDir        string                              // Base directory for template auto-discovery (default: directory of calling code via runtime.Caller)
 	IgnoreTemplateDirs     []string                            // Additional directories to ignore during auto-discovery
 	DevMode                bool                                // Development mode - use local client library instead of CDN
@@ -335,6 +338,31 @@ func WithOpenTopics() Option {
 func WithParseFiles(files ...string) Option {
 	return func(c *Config) {
 		c.TemplateFiles = files
+	}
+}
+
+// WithParseFS parses templates from an fs.FS (e.g. an embed.FS) matching the
+// given glob patterns, instead of reading files from disk. This lets an app ship
+// its templates embedded in the binary without staging them to a temp directory
+// first.
+//
+// It takes precedence over WithParseFiles and auto-discovery. The first matched
+// file is the main template; the rest are parsed into the same set for
+// composition (same semantics as WithParseFiles). Because it bypasses
+// auto-discovery, WithTemplateBaseDir and WithIgnoreTemplateDirs have no effect
+// when WithParseFS wins.
+//
+// Example:
+//
+//	//go:embed templates
+//	var tmplFS embed.FS
+//
+//	tmpl := livetemplate.Must(livetemplate.New("app",
+//	    livetemplate.WithParseFS(tmplFS, "templates/*.tmpl")))
+func WithParseFS(fsys fs.FS, patterns ...string) Option {
+	return func(c *Config) {
+		c.TemplateFS = fsys
+		c.TemplateFSPatterns = patterns
 	}
 }
 
@@ -1024,8 +1052,14 @@ func New(name string, opts ...Option) (*Template, error) {
 		}
 	}
 
-	// Auto-discover and parse templates if not explicitly provided
-	if len(config.TemplateFiles) == 0 {
+	// Parse from an explicit fs.FS (WithParseFS) first — it takes precedence over
+	// file paths and auto-discovery.
+	if config.TemplateFS != nil {
+		if _, err := tmpl.ParseFS(config.TemplateFS, config.TemplateFSPatterns...); err != nil {
+			return nil, fmt.Errorf("livetemplate.New(%q): failed to parse templates from fs.FS with patterns %v: %w", name, config.TemplateFSPatterns, err)
+		}
+	} else if len(config.TemplateFiles) == 0 {
+		// Auto-discover and parse templates if not explicitly provided
 		// Use TemplateBaseDir from config if provided, otherwise fall back to runtime.Caller
 		files, err := discovery.DiscoverTemplateFiles(config.TemplateBaseDir, config.IgnoreTemplateDirs)
 		if err != nil {
@@ -1223,6 +1257,15 @@ func (t *Template) parseInternal(text string, baseTemplate *template.Template) (
 	return t, nil
 }
 
+// namedTemplateSource is one template file resolved to its bytes plus a base
+// name, decoupling how sources are read (OS files vs. an fs.FS) from how they are
+// parsed. Both ParseFiles and ParseFS resolve their inputs to these and share
+// parseSources.
+type namedTemplateSource struct {
+	name    string
+	content []byte
+}
+
 // ParseFiles parses the named files and associates the resulting templates with t.
 // This matches the signature of html/template.Template.ParseFiles().
 func (t *Template) ParseFiles(filenames ...string) (*Template, error) {
@@ -1230,19 +1273,69 @@ func (t *Template) ParseFiles(filenames ...string) (*Template, error) {
 		return nil, fmt.Errorf("no files specified")
 	}
 
-	// Read the first file as the main template
-	content, err := os.ReadFile(filenames[0])
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file %s: %w", filenames[0], err)
+	sources := make([]namedTemplateSource, len(filenames))
+	for i, filename := range filenames {
+		content, err := os.ReadFile(filename)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read file %s: %w", filename, err)
+		}
+		sources[i] = namedTemplateSource{name: filepath.Base(filename), content: content}
 	}
 
-	// Use the first file's base name as template name if not already set
+	return t.parseSources(sources)
+}
+
+// ParseFS parses templates from an fs.FS (e.g. an embed.FS), resolving the given
+// glob patterns and associating the results with t. It mirrors ParseFiles but
+// reads via fs.ReadFile, so embedded templates need not be staged to disk first.
+//
+// Like ParseFiles, the first resolved file is the main template and the rest are
+// parsed into the same set for composition — unlike html/template.ParseFS, which
+// has no first-match-is-main concept. fs.Glob returns matches in lexical order, so
+// a single wildcard pattern (e.g. "templates/*.tmpl") makes the lexically-first
+// match the main template; pass an explicit ordered pattern list when that matters.
+//
+// Patterns are resolved in order with no dedup, so a file matched by two overlapping
+// patterns is parsed twice; pass non-overlapping patterns to avoid that.
+func (t *Template) ParseFS(fsys fs.FS, patterns ...string) (*Template, error) {
+	if len(patterns) == 0 {
+		return nil, fmt.Errorf("no patterns specified")
+	}
+
+	var sources []namedTemplateSource
+	for _, pattern := range patterns {
+		matches, err := fs.Glob(fsys, pattern)
+		if err != nil {
+			return nil, fmt.Errorf("glob pattern %q: %w", pattern, err)
+		}
+		for _, match := range matches {
+			content, err := fs.ReadFile(fsys, match)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read %s: %w", match, err)
+			}
+			sources = append(sources, namedTemplateSource{name: path.Base(match), content: content})
+		}
+	}
+	if len(sources) == 0 {
+		return nil, fmt.Errorf("no files match patterns: %v", patterns)
+	}
+
+	return t.parseSources(sources)
+}
+
+// parseSources parses one or more resolved template sources into t. The first
+// source is the main template; the rest are parsed into the same set for
+// composition. Shared by ParseFiles and ParseFS.
+func (t *Template) parseSources(sources []namedTemplateSource) (*Template, error) {
+	main := sources[0]
+
+	// Use the first source's base name as template name if not already set
 	if t.name == "" {
-		t.name = filepath.Base(filenames[0])
+		t.name = main.name
 	}
 
 	// Normalize template spacing
-	text := compat.NormalizeTemplateSpacing(string(content))
+	text := compat.NormalizeTemplateSpacing(string(main.content))
 
 	// Strip HTML comments before parsing (see #468).
 	text = compat.StripHTMLComments(text)
@@ -1256,12 +1349,12 @@ func (t *Template) ParseFiles(filenames ...string) (*Template, error) {
 	var baseTemplate *template.Template
 	if t.tmpl != nil {
 		// Clone the existing template to preserve component definitions
-		baseTemplate, err = t.tmpl.Clone()
+		cloned, err := t.tmpl.Clone()
 		if err != nil {
 			return nil, fmt.Errorf("failed to clone template with components: %w", err)
 		}
 		// Create a new named template within the cloned set
-		baseTemplate = baseTemplate.New(t.name)
+		baseTemplate = cloned.New(t.name)
 	} else {
 		baseTemplate = template.New(t.name)
 	}
@@ -1273,20 +1366,12 @@ func (t *Template) ParseFiles(filenames ...string) (*Template, error) {
 		return nil, fmt.Errorf("template '%s' parse error: %w", t.name, err)
 	}
 
-	// Parse additional files if provided (for template composition)
-	if len(filenames) > 1 {
-		for _, filename := range filenames[1:] {
-			content, err := os.ReadFile(filename)
-			if err != nil {
-				return nil, fmt.Errorf("failed to read file %s: %w", filename, err)
-			}
-
-			// Parse additional templates into the same template set
-			// (comments stripped first — see #468).
-			_, err = tmpl.Parse(compat.StripHTMLComments(string(content)))
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse file %s: %w", filename, err)
-			}
+	// Parse additional sources if provided (for template composition)
+	for _, src := range sources[1:] {
+		// Parse additional templates into the same template set
+		// (comments stripped first — see #468).
+		if _, err := tmpl.Parse(compat.StripHTMLComments(string(src.content))); err != nil {
+			return nil, fmt.Errorf("failed to parse file %s: %w", src.name, err)
 		}
 	}
 

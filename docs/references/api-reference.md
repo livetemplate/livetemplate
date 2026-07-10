@@ -429,6 +429,7 @@ Options passed to `New()`:
 | `WithCookieMaxAge` | `(maxAge time.Duration)` | Session cookie max age |
 | `WithUpgrader` | `(upgrader *websocket.Upgrader)` | Custom WebSocket upgrader |
 | `WithParseFiles` | `(files ...string)` | Explicit template files |
+| `WithParseFS` | `(fsys fs.FS, patterns ...string)` | Templates from an `fs.FS` (e.g. `embed.FS`); precedence over `WithParseFiles` |
 | `WithTemplateBaseDir` | `(dir string)` | Template discovery base dir |
 | `WithIgnoreTemplateDirs` | `(dirs ...string)` | Skip directories during discovery |
 | `WithUpload` | `(name string, config UploadConfig)` | Configure upload field |
