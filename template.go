@@ -347,7 +347,9 @@ func WithParseFiles(files ...string) Option {
 //
 // It takes precedence over WithParseFiles and auto-discovery. The first matched
 // file is the main template; the rest are parsed into the same set for
-// composition (same semantics as WithParseFiles).
+// composition (same semantics as WithParseFiles). Because it bypasses
+// auto-discovery, WithTemplateBaseDir and WithIgnoreTemplateDirs have no effect
+// when WithParseFS wins.
 //
 // Example:
 //
