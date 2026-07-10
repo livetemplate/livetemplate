@@ -1288,6 +1288,9 @@ func (t *Template) ParseFiles(filenames ...string) (*Template, error) {
 // has no first-match-is-main concept. fs.Glob returns matches in lexical order, so
 // a single wildcard pattern (e.g. "templates/*.tmpl") makes the lexically-first
 // match the main template; pass an explicit ordered pattern list when that matters.
+//
+// Patterns are resolved in order with no dedup, so a file matched by two overlapping
+// patterns is parsed twice; pass non-overlapping patterns to avoid that.
 func (t *Template) ParseFS(fsys fs.FS, patterns ...string) (*Template, error) {
 	if len(patterns) == 0 {
 		return nil, fmt.Errorf("no patterns specified")

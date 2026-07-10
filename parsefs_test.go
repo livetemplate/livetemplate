@@ -100,6 +100,26 @@ func TestParseFS_Composition(t *testing.T) {
 // parseSources via the WithParseFS path: when component templates are already
 // parsed, the main template (loaded from an fs.FS) must compose with them, same as
 // the WithParseFiles path. main.gotemplate invokes {{template "test:greeting:v1"}}.
+// TestParseFS_SingleGlobLexicalMain confirms the order-sensitive rule: with one
+// wildcard pattern matching several files, fs.Glob's lexical order makes the
+// lexically-first match the main template (rendered by Execute), and the rest
+// compose in as {{define}} partials.
+func TestParseFS_SingleGlobLexicalMain(t *testing.T) {
+	fsys := fstest.MapFS{
+		// "a-home" sorts before "b-widget", so it must be the main template.
+		"tpl/a-home.html":   &fstest.MapFile{Data: []byte(`<div>home {{.V}} {{template "widget" .}}</div>`)},
+		"tpl/b-widget.html": &fstest.MapFile{Data: []byte(`{{define "widget"}}<span>widget</span>{{end}}`)},
+	}
+	tmpl := Must(New("app", WithParseFS(fsys, "tpl/*.html")))
+	out := renderNormalized(t, tmpl, map[string]interface{}{"V": "value"})
+	if !strings.Contains(out, "home value") {
+		t.Errorf("lexically-first match should be the main template; got: %s", out)
+	}
+	if !strings.Contains(out, "<span>widget</span>") {
+		t.Errorf("later matches should compose in as partials; got: %s", out)
+	}
+}
+
 func TestWithParseFS_WithComponentTemplates(t *testing.T) {
 	set := &TemplateSet{
 		FS:        testComponentFS,
