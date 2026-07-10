@@ -5,6 +5,17 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.17.0] - 2026-07-10
+
+### Changes
+
+- feat(template): add WithParseFS for embed.FS templates + boilerplate-reduction proposal (#483) (#484) (974fd4a1)
+- perf(context): scope eager method precompute to referenced idents (#462, #255) (#482) (48c2b9a1)
+- refactor(json): migrate remaining encoding/json callsites to jsonutil.API (#231) (#480) (d1a8ba8d)
+- fix(parse): error on bare arg-requiring method reference like text/template (#203) (#479) (271a141a)
+
+
+
 ## [v0.16.0] - 2026-07-05
 
 ### Changes
