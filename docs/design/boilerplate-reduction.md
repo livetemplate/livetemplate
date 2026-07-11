@@ -112,11 +112,12 @@ embed.
 
 #### B1. Live-session fanout is reinvented four ways
 
-"A background event must refresh every live session currently viewing this data" has no
-turnkey framework primitive. livetemplate provides `Session.TriggerAction` (push to *one*
-connection) and topics/`Publish` (fan-out within a group), but no "refresh all connections
-watching X" helper. So every app that needs server-pushed refresh builds its own registry —
-devbox-dash built it **twice**:
+"A background event must refresh every live session currently viewing this data" has a
+turnkey framework primitive — `ctx.Subscribe(topic)` in `Mount` + out-of-band
+`handler.Publish(topic, action, data)` — but it was **undocumented as a pattern**, so every
+app that needs server-pushed refresh reached for `Session.TriggerAction` (push to *one*
+session group) and hand-rolled a registry of `Session` handles to reach many. devbox-dash
+built that registry **twice**:
 
 | App | Where | Shape |
 | --- | --- | --- |
@@ -130,31 +131,35 @@ prereview's admits it *"bends the never-store-per-user-data rule"* and **knowing
 multi-browser fanout** (`controller.go:103-108`) — precisely the sharp edge a framework
 primitive removes.
 
-**Design sketch.** A first-class live-session group that tracks connections and fans out a
-refresh, without the app stashing `Session` handles or reasoning about group scope:
+**Resolution: no new API — the turnkey primitive already exists; the gap was discoverability.**
+A design sketch proposed a `LiveGroup`/`handler.Group(name)` abstraction, and its open
+question was whether that is anything more than a thin layer over the existing topic model. An
+integration proof (`fanout_pattern_test.go`) answered it: the composition **already delivers
+the whole capability**, so a wrapper would be pure sugar.
 
 ```go
-// A LiveGroup tracks the live connections currently subscribed to a logical view
-// and pushes a refresh to all of them. Obtained from the handler; safe for
-// concurrent Refresh() from background goroutines.
-type LiveGroup interface {
-    Refresh() error                 // re-run each connection's Mount and push the diff
-    Broadcast(action string, data map[string]interface{}) error
-    Len() int
-}
+// Join in Mount (reconnect-durable). Then fan out from ANY goroutine, no Context,
+// no stashed Session handles, no dead-handle pruning:
+ctx.Subscribe(ctx.SelfTopic())                        // per-user (all my tabs), ACL-exempt
+handler.Publish(livetemplate.UserTopic("alice"), "Refresh", nil)
 
-// On the handler (or via Context in Mount):
-func (h LiveHandler) Group(name string) LiveGroup
+ctx.Subscribe("dashboard")                            // shared group (needs WithTopicACL)
+handler.Publish("dashboard", "Refresh", nil)
 ```
 
-Connections join a group in `Mount`/`OnConnect` (e.g. `ctx.JoinGroup("checklist:"+id)`), and a
-webhook/cron/file-watch calls `handler.Group("checklist:"+id).Refresh()`. This subsumes
-`sessionHub`, `liveNotifier`, and prereview's single-handle hack, and — done right — the
-multi-browser fanout prereview dropped comes for free.
+Each subscriber re-runs `Refresh` against its own state and re-renders — exactly what
+`sessionHub`, `liveNotifier`, and prereview's single-handle hack hand-rolled. The proof also
+pinned two facts a `LiveGroup` wrapper would have obscured: (1) developer topics are
+**deny-all by default** (a shared group is a real ACL decision, not a name you pick), and (2)
+a proposed `Len()` would count only one instance's local subscribers — silently wrong under
+multi-instance Redis. checklistkit already used `h.Publish(...)`; the other three simply never
+found it.
 
-**Open question:** relationship to the existing topic/`Publish` model — is `LiveGroup` a
-thin ergonomic layer over topics + `TriggerAction`, or a distinct concept? Prefer the former
-(compose, don't add a parallel subsystem).
+**Shipped instead (this issue):** task-oriented docs teaching the pattern
+([`server-actions.md` § "Fanning out to many sessions"](../references/server-actions.md)),
+which also retires the `sync.Map`-of-handles registry the same doc previously recommended; a
+regression test locking the two shapes (`fanout_pattern_test.go`); and a runnable example.
+The registry-free pattern fixes prereview's dropped multi-browser fanout for free.
 
 #### B2. The client bundle is served from a *test* package in production
 
@@ -308,8 +313,9 @@ real, used capability.
    the vendoring mechanism remains; it removes a test-package-in-production smell from *every*
    app and example.
 3. **B3 (Page / ListenAndServe)** — collapses the most raw lines; low conceptual risk.
-4. **B1 (LiveGroup)** — highest impact but most design; do it once the topic-model
-   relationship is settled.
+4. **B1 (fanout)** — **done** (docs + example + regression test, no new API): the proof
+   showed the primitive already exists, so this became a discoverability fix. See the B1
+   resolution above.
 5. **Tier C** individually as they come up; **C4** rides along as a cheap removal.
 
 ## Shipped with this document (core `livetemplate` repo)
