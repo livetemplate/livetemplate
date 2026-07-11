@@ -241,11 +241,11 @@ func TestWSAction_Publish_DispatchesToOtherWS(t *testing.T) {
 	}
 }
 
-func connectWSWithAuth(t *testing.T, wsURL, username, password string) *websocket.Conn {
+func connectWSWithAuth(t *testing.T, wsURL, username string) *websocket.Conn {
 	t.Helper()
 	header := http.Header{}
 	header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString(
-		[]byte(username+":"+password)))
+		[]byte(username+":pass")))
 	ws, _, err := websocket.DefaultDialer.Dial(wsURL, header)
 	if err != nil {
 		t.Fatalf("WebSocket dial with auth failed: %v", err)
@@ -350,13 +350,13 @@ func TestPublish_ExplicitRefreshDispatchesToPeers(t *testing.T) {
 	defer server.Close()
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
 
-	ws1 := connectWSWithAuth(t, wsURL, "alice", "pass")
+	ws1 := connectWSWithAuth(t, wsURL, "alice")
 	defer func() {
 		if err := ws1.Close(); err != nil {
 			t.Logf("ws1 close: %v", err)
 		}
 	}()
-	ws2 := connectWSWithAuth(t, wsURL, "alice", "pass")
+	ws2 := connectWSWithAuth(t, wsURL, "alice")
 	defer func() {
 		if err := ws2.Close(); err != nil {
 			t.Logf("ws2 close: %v", err)
