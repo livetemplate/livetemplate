@@ -4,7 +4,7 @@ Server actions let you push updates from server-side code to connected clients. 
 
 ## Overview
 
-LiveTemplate supports two types of updates:
+LiveTemplate supports three types of updates:
 
 | Type | Trigger | Scope | Use Case |
 |------|---------|-------|----------|
@@ -324,7 +324,7 @@ func (c *ExportController) ExportFailed(state ExportState, ctx *livetemplate.Con
 }
 ```
 
-### Real-time Notifications
+### Real-time Notifications (legacy `sync.Map` pattern)
 
 Push notifications from any part of your application.
 
