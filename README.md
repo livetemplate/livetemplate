@@ -102,9 +102,11 @@ func main() {
     <button name="decrement">-</button>
 </form>
 
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@livetemplate/client@latest/livetemplate.css">
-<script defer src="https://cdn.jsdelivr.net/npm/@livetemplate/client@latest/dist/livetemplate-client.browser.js"></script>
+<link rel="stylesheet" href="{{lvtClientStyleURL}}">
+<script defer src="{{lvtClientScriptURL}}"></script>
 ```
+
+`lvtClientStyleURL` / `lvtClientScriptURL` are framework-provided template functions that render the CDN URL for the `@livetemplate/client` release this LiveTemplate version is wire-compatible with — so the browser client stays pinned in lockstep with the server instead of drifting on `@latest`. To self-host, replace them with your own tag pointing at a vendored `@livetemplate/client@<version>`.
 
 **3. Run it**
 

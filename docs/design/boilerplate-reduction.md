@@ -175,31 +175,60 @@ serve the bundle:
   come from a runtime **CDN fetch** (`unpkg.com`, `chrome.go:24`) — a network dependency baked
   into request serving.
 
-**prereview resolves the design fork for us.** It refuses the test helper and instead
-**vendors + embeds** the bundle: `internal/assets/assets.go:24-28`
-(`//go:embed client/livetemplate-client.browser.js` + `livetemplate.css`, synced by
-`make sync-client`), served as plain bytes at `server.go:247,251`. It does this because it
-must run offline over Tailscale — but that is exactly the production-grade shape every app
-wants, and no app should have to hand-vendor it.
+The finding is really **two smells**: (1) a *test* package imported into production, and
+(2) a runtime CDN fetch pinned to the unversioned `@latest` tag — and there is **no runtime
+version handshake** between server and client (grepped both; none), so `@latest` can serve a
+browser a client newer than the server it talks to. The `@livetemplate/client` CHANGELOG
+documents exactly this footgun: the `__navigate__` in-band action is *"a no-op on server
+versions before livetemplate#344 — deploy the server update before or simultaneously with this
+client version."* These are 0.x releases, where minors are allowed to break the wire.
 
-**Design sketch.**
+**Resolution: framework-owned version pin, no bundling.** The embed-the-bytes route was
+considered and rejected. prereview's `//go:embed` (`internal/assets/assets.go:24-28`, synced by
+`make sync-client`) is right *for an app* that must run offline over Tailscale, but wrong *for a
+library*: `go:embed` resolves against the module zip the proxy serves at a tag, so a gitignored
+bundle breaks every downstream `go get` build, and *committing* a ~140KB minified blob makes
+core stop being the zero-asset leaf it deliberately is (its `go.mod` depends on neither `lvt`
+nor `client`). Embedding solves a minority (offline) need at a cost every consumer pays.
+
+Instead, core owns the one thing it uniquely knows — **which client version is wire-compatible
+with it** — and nothing more (`client_assets.go`):
 
 ```go
-// ClientAssetsHandler serves the LiveTemplate client bundle (JS + CSS) from an
-// embedded copy — no runtime network fetch. Mount it once:
-//   mux.Handle("/livetemplate-client.js", livetemplate.ClientAssetsHandler())
-// or a small mux the app mounts under a prefix.
-func ClientAssetsHandler() http.Handler
+// Moves in lockstep with each livetemplate release, so apps never hand-maintain a
+// client version: `go get -u` bumps the server and its matching client together.
+const ClientVersion   = "0.16.5"
+const ClientScriptURL = "https://cdn.jsdelivr.net/npm/@livetemplate/client@" + ClientVersion + "/dist/livetemplate-client.browser.js"
+const ClientStyleURL  = "https://cdn.jsdelivr.net/npm/@livetemplate/client@" + ClientVersion + "/livetemplate.css"
 ```
 
-The bundle is embedded into the `livetemplate` module via a `go generate` / `make` step that
-syncs the built artifact from the separate `client` repo (the module boundary that made it a
-test helper in the first place) — the same `make sync-client` mechanism prereview already
-proved out.
+So templates can reference the pinned URL with **zero per-app wiring**, the framework seeds two
+template functions into every `Template`'s `FuncMap` at `New` (before parse), returning those
+constants:
 
-**Open question (residual):** the vendoring/build mechanism and how the embedded bundle
-version is pinned/updated relative to `client` releases. The *approach* (embed, no CDN fetch)
-is settled by prereview's precedent.
+```html
+<link rel="stylesheet" href="{{ lvtClientStyleURL }}">
+<script src="{{ lvtClientScriptURL }}" defer></script>
+```
+
+This kills both smells: examples use those funcs and drop the `e2etest` import + the two
+serving routes entirely — pinned, no test-package-in-prod, no bytes anywhere, no per-app State
+field, zero per-app version maintenance. It also *removes* the toil `@latest` appeared to save:
+the version moves only when you deliberately upgrade the Go dependency, in lockstep with the
+compatible server. Offline / air-gapped / CSP-strict deployments self-host (vendor
+`@livetemplate/client@<ClientVersion>`, serve same-origin, write their own tag instead of
+calling the funcs) — exactly what prereview keeps doing. Pinned to `0.16.5` because that is what
+`@latest` resolves to today, so the switch is behavior-preserving.
+
+The `lvt/testing` helpers (`ServeClientLibrary`/`ServeCSS`) **stay** — real E2E tests keep
+using them; we only stop shipping them in production examples.
+
+**Follow-ups (separate, greenlightable on their own):** the framework already owns full-HTML
+wrapper injection (`compat.InjectWrapperDiv` in `template.go`), so it *could* later auto-inject
+the pinned
+`<script>`/`<link>` (opt-out) so apps drop even the tag — a bigger win with real design surface
+(CSP, opt-out, dev/prod placement), left out of this minimal change. SRI-hash pinning is another
+optional hardening.
 
 #### B3. Boot + route ceremony copy-pasted per app and per route
 
@@ -308,14 +337,15 @@ real, used capability.
 
 ## Recommended sequencing
 
-1. **Ship A1 + A2** (this change) — highest ratio of pain removed to risk taken.
-2. **B2 (client-asset handler)** next — the design is settled by prereview's precedent, only
-   the vendoring mechanism remains; it removes a test-package-in-production smell from *every*
-   app and example.
-3. **B3 (Page / ListenAndServe)** — collapses the most raw lines; low conceptual risk.
-4. **B1 (fanout)** — **done** (docs + example + regression test, no new API): the proof
-   showed the primitive already exists, so this became a discoverability fix. See the B1
-   resolution above.
+1. **A1 + A2** — **done** (`WithParseFS`; `ctx` request-context guidance). Highest ratio of
+   pain removed to risk taken.
+2. **B1 (fanout)** — **done** (docs + example + regression test, **no new API**): the fanout
+   capability already existed (`ctx.Subscribe` in Mount + out-of-band `handler.Publish`); the
+   gap was discoverability. Shipped as livetemplate#485 + docs#103.
+3. **B2 (client version pin)** — **in progress** (`client_assets.go`: `ClientVersion` +
+   pinned `ClientScriptURL`/`ClientStyleURL`, **no bundling**). Removes a test-package-in-
+   production smell + the unpinned-`@latest` wire-incompat risk from *every* app and example.
+4. **B3 (Page / ListenAndServe)** — collapses the most raw lines; low conceptual risk.
 5. **Tier C** individually as they come up; **C4** rides along as a cheap removal.
 
 ## Shipped with this document (core `livetemplate` repo)
