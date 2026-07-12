@@ -306,6 +306,78 @@ func TestCreateSecureOriginChecker(t *testing.T) {
 	}
 }
 
+// installedCheckOrigin returns the CheckOrigin function New() wired onto the
+// default gorilla upgrader, so these tests exercise the real construction path
+// (option -> New() finalization -> upgrader) rather than calling
+// createSecureOriginChecker directly like TestCreateSecureOriginChecker does.
+func installedCheckOrigin(t *testing.T, opts ...Option) func(*http.Request) bool {
+	t.Helper()
+	tmpl, err := New("app", opts...)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	gu, ok := tmpl.config.Upgrader.(*GorillaUpgrader)
+	if !ok {
+		t.Fatalf("default upgrader is %T, want *GorillaUpgrader", tmpl.config.Upgrader)
+	}
+	if gu.inner.CheckOrigin == nil {
+		t.Fatal("New() left CheckOrigin nil; expected an origin checker to be installed")
+	}
+	return gu.inner.CheckOrigin
+}
+
+// crossOriginRequest is an Origin that never matches the localhost host — it is
+// allowed only when the origin check is fully relaxed.
+func crossOriginRequest(t *testing.T) *http.Request {
+	t.Helper()
+	req, err := http.NewRequest("GET", "/ws", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Host = "localhost:8080"
+	req.Header.Set("Origin", "https://evil.com")
+	return req
+}
+
+// TestWithDevModeWiresPermissiveOrigin locks the fact that WithDevMode(true)
+// ALONE relaxes WebSocket origin checking to allow all origins — so apps do not
+// need to also pass WithPermissiveOriginCheck() in dev. The negative case is the
+// gate: without dev mode, the same cross-origin request is rejected, proving the
+// installed checker is a real same-origin check and not a no-op that always
+// passes (which would make the positive assertion meaningless).
+func TestWithDevModeWiresPermissiveOrigin(t *testing.T) {
+	tests := []struct {
+		name string
+		opts []Option
+		want bool
+	}{
+		{
+			name: "dev mode alone allows cross-origin",
+			opts: []Option{WithDevMode(true)},
+			want: true,
+		},
+		{
+			name: "no options rejects cross-origin",
+			opts: nil,
+			want: false,
+		},
+		{
+			name: "permissive origin check alone allows cross-origin",
+			opts: []Option{WithPermissiveOriginCheck()},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			checker := installedCheckOrigin(t, tt.opts...)
+			if got := checker(crossOriginRequest(t)); got != tt.want {
+				t.Errorf("cross-origin allowed = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCreateSecureOriginChecker_UntrustedForwardedHeaders(t *testing.T) {
 	tests := []struct {
 		name           string
