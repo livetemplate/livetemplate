@@ -7,19 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.18.0] - 2026-07-12
 
-### Changes
-
-- feat(client): pin the wire-compatible client version + template helpers (#486) (01df262b)
-- docs(server-actions): teach registry-free live-session fan-out (#483) (#485) (f670de39)
-- docs(changelog): curate v0.17.0 notes + promote stranded [Unreleased] entries (ab8668f0)
-
-
-
-## [Unreleased]
-
 ### Added
 
 - `ClientVersion`, `ClientScriptURL`, and `ClientStyleURL` exported constants pin the `@livetemplate/client` browser bundle this LiveTemplate release is wire-compatible with, plus two framework-seeded template functions — `lvtClientScriptURL` and `lvtClientStyleURL` — that render those URLs. Templates can now reference `{{lvtClientScriptURL}}` / `{{lvtClientStyleURL}}` with no per-app wiring (the funcs are seeded into every template's FuncMap in `New`, before any parse path runs, so they resolve in full-HTML documents, fragments, and component templates alike; a user `Funcs` call still overrides them by key). This replaces the previous pattern of hardcoding an unpinned `@latest` CDN URL — which was unsafe because there is no runtime server↔client version handshake, so a client-only release could ship a wire-protocol change to browsers still talking to an older server. Pinning moves the client version only on a deliberate `go get -u`, in lockstep with the compatible server. `ClientVersion` is pinned to the release `@latest` resolves to today, so behavior is preserved. Self-hosters (offline / air-gapped / CSP-strict) vendor `@livetemplate/client@<ClientVersion>` and serve it from their own origin instead. (#483)
+
+## [Unreleased]
+
+Nothing yet.
 
 ## [v0.17.0] - 2026-07-10
 
