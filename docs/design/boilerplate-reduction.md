@@ -321,11 +321,13 @@ example would return to its documented ~10 lines; checklistkit's 5 builders coll
 The issue explicitly invites *removing* features, and v0.2.0 was itself an "API Reduction
 Release", so subtraction is in-culture. Candidates:
 
-- **C4 — collapse the two session-store options into one.** `WithSessionStore` (New) and
-  `WithStore` (Handle) both set the same field at different phases. No scanned code uses
-  either (all rely on the in-memory default or `EnvConfig`). Recommend keeping **one**
-  (whichever level the store genuinely needs to bind at) and removing the other. Alpha + no
-  external users → collapse directly, no deprecation shim.
+- **C4 — collapse the two session-store options into one. ✅ RESOLVED.** `WithSessionStore`
+  (a `New` `Option`) and `WithStore` (a `Handle` `HandleOption`) both set the same
+  `SessionStore` field at different phases; `SessionStore` was the *only* dependency
+  configurable at both levels (`Authenticator`, `PubSubBroadcaster`, etc. are `New`-only).
+  No app or example used `WithStore` (only three sweep tests did). Removed `WithStore` and
+  kept `WithSessionStore` — the store now binds at construction, consistent with every other
+  dependency. Alpha + no external users → collapsed directly, no deprecation shim.
 - **General audit:** the `Context` `With*()` builder family is large and mostly
   internal/test-facing (`WithHTTP`, `WithAction`, `WithConnectKind`, `WithData`,
   `WithFormSchema`, `WithFlashSetter`, `WithUploads`, `WithTopicSubscriber`). Worth a

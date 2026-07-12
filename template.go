@@ -1761,11 +1761,8 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 		}
 	}
 
-	// Determine session store - use option, then template config, then default
-	sessionStore := config.sessionStore
-	if sessionStore == nil {
-		sessionStore = t.config.SessionStore
-	}
+	// Determine session store - use the template's configured store (WithSessionStore), else default
+	sessionStore := t.config.SessionStore
 	if sessionStore == nil {
 		sessionStore = NewMemorySessionStore()
 	}
@@ -1896,16 +1893,7 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 type HandleOption func(*handleConfig)
 
 type handleConfig struct {
-	sessionStore      SessionStore
 	ephemeralSweepTTL time.Duration
-}
-
-// WithStore sets the session store for state persistence.
-// Use this to configure Redis or other distributed stores.
-func WithStore(store SessionStore) HandleOption {
-	return func(c *handleConfig) {
-		c.sessionStore = store
-	}
 }
 
 // WithEphemeralSweepTTL sets how long an idle HTTP template cache entry survives

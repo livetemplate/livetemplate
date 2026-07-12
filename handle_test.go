@@ -1187,7 +1187,8 @@ func TestWebSocketDisabled_MultiTabDiffCorrectness(t *testing.T) {
 // ============================================================================
 
 func TestHTTPTemplateSweep_CleansStaleEntries(t *testing.T) {
-	tmpl, err := New("test", WithWebSocketDisabled())
+	store := NewMemorySessionStore()
+	tmpl, err := New("test", WithWebSocketDisabled(), WithSessionStore(store))
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
@@ -1196,8 +1197,7 @@ func TestHTTPTemplateSweep_CleansStaleEntries(t *testing.T) {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	store := NewMemorySessionStore()
-	handler := tmpl.Handle(&wsDisabledController{}, AsState(&wsDisabledState{}), WithStore(store))
+	handler := tmpl.Handle(&wsDisabledController{}, AsState(&wsDisabledState{}))
 
 	lh := handler.(*liveHandler)
 
@@ -1239,7 +1239,8 @@ func TestHTTPTemplateSweep_CleansStaleEntries(t *testing.T) {
 }
 
 func TestHTTPTemplateSweep_PreservesActiveSessions(t *testing.T) {
-	tmpl, err := New("test", WithWebSocketDisabled())
+	store := NewMemorySessionStore()
+	tmpl, err := New("test", WithWebSocketDisabled(), WithSessionStore(store))
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
@@ -1248,8 +1249,7 @@ func TestHTTPTemplateSweep_PreservesActiveSessions(t *testing.T) {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	store := NewMemorySessionStore()
-	handler := tmpl.Handle(&wsDisabledController{}, AsState(&wsDisabledState{}), WithStore(store))
+	handler := tmpl.Handle(&wsDisabledController{}, AsState(&wsDisabledState{}))
 
 	lh := handler.(*liveHandler)
 
@@ -1294,7 +1294,8 @@ func TestHTTPTemplateSweep_PreservesActiveSessions(t *testing.T) {
 }
 
 func TestHTTPTemplateSweep_CleansOrphanedLastPaths(t *testing.T) {
-	tmpl, err := New("test", WithWebSocketDisabled())
+	store := NewMemorySessionStore()
+	tmpl, err := New("test", WithWebSocketDisabled(), WithSessionStore(store))
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
@@ -1303,8 +1304,7 @@ func TestHTTPTemplateSweep_CleansOrphanedLastPaths(t *testing.T) {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	store := NewMemorySessionStore()
-	handler := tmpl.Handle(&wsDisabledController{}, AsState(&wsDisabledState{}), WithStore(store))
+	handler := tmpl.Handle(&wsDisabledController{}, AsState(&wsDisabledState{}))
 
 	lh := handler.(*liveHandler)
 
