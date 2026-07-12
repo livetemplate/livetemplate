@@ -415,11 +415,11 @@ Options passed to `New()`:
 
 | Option | Signature | Description |
 |--------|-----------|-------------|
-| `WithDevMode` | `(enabled bool)` | Enable development mode |
+| `WithDevMode` | `(enabled bool)` | Enable dev mode: allows all WS origins, verbose logging, `{{.lvt.DevMode}}` |
 | `WithSessionStore` | `(store SessionStore)` | Set session store |
 | `WithAuthenticator` | `(auth Authenticator)` | Set authenticator |
 | `WithAllowedOrigins` | `(origins []string)` | Allowed WebSocket origins |
-| `WithPermissiveOriginCheck` | `()` | Bypass origin check (dev only) |
+| `WithPermissiveOriginCheck` | `()` | Bypass origin check without dev mode (`WithDevMode` already relaxes origins) |
 | `WithMaxConnections` | `(max int64)` | Max WebSocket connections |
 | `WithMaxConnectionsPerGroup` | `(max int64)` | Max connections per group |
 | `WithWebSocketDisabled` | `()` | HTTP-only mode |

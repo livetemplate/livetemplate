@@ -154,7 +154,7 @@ type Config struct {
 	TemplateFSPatterns     []string                            // Glob patterns matched against TemplateFS
 	TemplateBaseDir        string                              // Base directory for template auto-discovery (default: directory of calling code via runtime.Caller)
 	IgnoreTemplateDirs     []string                            // Additional directories to ignore during auto-discovery
-	DevMode                bool                                // Development mode - use local client library instead of CDN
+	DevMode                bool                                // Development mode: allows ALL WebSocket origins (disables the same-origin/CSRF check — never in production), exposes {{.lvt.DevMode}} to templates, enables debug logging
 	MaxConnections         int64                               // Maximum total connections (0 = unlimited)
 	MaxConnectionsPerGroup int64                               // Maximum connections per group (0 = unlimited)
 	MessageRateLimit       float64                             // Messages per second per connection (0 = unlimited, default 10)
@@ -407,7 +407,16 @@ func WithLoadingDisabled() Option {
 	}
 }
 
-// WithDevMode enables development mode - uses local client library instead of CDN
+// WithDevMode enables development mode for local iteration.
+//
+// SECURITY: WithDevMode(true) allows WebSocket upgrade requests from ALL
+// origins, disabling the same-origin / allowlist CSRF check. Never enable it in
+// production — use WithAllowedOrigins to specify trusted origins in production.
+// Because dev mode already relaxes the origin check, WithPermissiveOriginCheck is
+// redundant alongside it; you do not need both for local development.
+//
+// Dev mode also exposes {{.lvt.DevMode}} to templates and enables extra debug
+// logging (parsed/discovered template counts).
 func WithDevMode(enabled bool) Option {
 	return func(c *Config) {
 		c.DevMode = enabled
@@ -499,13 +508,11 @@ func WithTrustForwardedHeaders(trust bool) Option {
 //
 // In production, use WithAllowedOrigins() instead to specify trusted origins.
 //
-// Example:
-//
-//	// Development only - DO NOT use in production
-//	tmpl := livetemplate.New("app",
-//	    livetemplate.WithDevMode(true),
-//	    livetemplate.WithPermissiveOriginCheck(),
-//	)
+// For local development you usually want WithDevMode(true) instead, which
+// already allows all origins (see its docs) plus enables debug logging and the
+// {{.lvt.DevMode}} template flag. Reach for WithPermissiveOriginCheck only when
+// you need to disable origin checking WITHOUT the other dev-mode effects — e.g.
+// a public endpoint whose CSRF protection is handled externally.
 func WithPermissiveOriginCheck() Option {
 	return func(c *Config) {
 		if gu, ok := c.Upgrader.(*GorillaUpgrader); ok {

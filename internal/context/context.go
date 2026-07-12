@@ -54,7 +54,7 @@ func putBuffer(buf *bytes.Buffer) {
 // TemplateContext, so concurrent access is not an issue.
 type TemplateContext struct {
 	messages      map[string]string // Unified map: field errors + flash (prefixed with "_flash:")
-	DevMode       bool              // Development mode - use local client library instead of CDN
+	DevMode       bool              // Development mode - exposed to templates as {{.lvt.DevMode}}
 	uploadEntries interface{}       // *upload.Registry for accessing upload state
 }
 
