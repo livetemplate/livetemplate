@@ -5,6 +5,16 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.18.0] - 2026-07-12
+
+### Changes
+
+- feat(client): pin the wire-compatible client version + template helpers (#486) (01df262b)
+- docs(server-actions): teach registry-free live-session fan-out (#483) (#485) (f670de39)
+- docs(changelog): curate v0.17.0 notes + promote stranded [Unreleased] entries (ab8668f0)
+
+
+
 ## [Unreleased]
 
 ### Added
