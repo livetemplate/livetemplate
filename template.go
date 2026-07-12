@@ -249,6 +249,10 @@ type Template struct {
 }
 
 // Funcs registers a template.FuncMap that will be applied to all template parsing and execution.
+//
+// Funcs merge into the map by name, so a func registered here overrides any
+// framework-seeded func with the same name (e.g. lvtClientScriptURL /
+// lvtClientStyleURL, which New seeds by default — see client_assets.go).
 func (t *Template) Funcs(funcMap template.FuncMap) *Template {
 	if len(funcMap) == 0 {
 		return t
@@ -1039,6 +1043,11 @@ func New(name string, opts ...Option) (*Template, error) {
 		name:   name,
 		config: config,
 	}
+
+	// Seed framework-provided template functions (e.g. lvtClientScriptURL) before
+	// any parse path runs — html/template requires referenced funcs to exist at
+	// parse time. User funcs from (*Template).Funcs merge on top of these.
+	tmpl.funcs = frameworkTemplateFuncs()
 
 	// Parse component templates first (before project templates)
 	// This establishes a base layer of templates that project templates can override
