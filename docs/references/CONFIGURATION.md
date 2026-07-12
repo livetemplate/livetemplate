@@ -132,9 +132,9 @@ Enable development mode.
 - **Accepted values**: `true`, `false`, `1`, `0`, `yes`, `no`, `on`, `off` (case-insensitive)
 
 **Features when enabled**:
-- Uses local client library instead of CDN
+- Allows **all** WebSocket origins — disables the same-origin/CSRF check, so `WithPermissiveOriginCheck()` is redundant in dev (**never enable in production**)
 - More verbose logging
-- Less strict origin checking
+- Exposes `{{.lvt.DevMode}}` to templates
 
 **Use case**: Local development and debugging.
 
@@ -337,7 +337,7 @@ tmpl := livetemplate.New("app",
 | `WithPubSubBroadcaster(broadcaster)` | Redis pub/sub for distributed deployments |
 | `WithComponentTemplates(sets...)` | Register component template sets |
 | `WithIgnoreTemplateDirs(dirs...)` | Skip directories during template discovery |
-| `WithPermissiveOriginCheck()` | Bypass origin check (dev only) |
+| `WithPermissiveOriginCheck()` | Bypass origin check without dev mode (`WithDevMode` already relaxes origins) |
 | `WithProgressiveEnhancement(enabled)` | Non-JS form submission support (default: true) |
 | `WithCookieMaxAge(duration)` | Session cookie max age (default: 365 days) |
 

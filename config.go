@@ -32,8 +32,9 @@ type EnvConfig struct {
 	AllowedOrigins []string
 
 	// DevMode enables development mode features.
-	// - Uses local client library instead of CDN
+	// - Allows all WebSocket origins (disables the same-origin/CSRF check — never in production)
 	// - More verbose logging
+	// - Exposes {{.lvt.DevMode}} to templates
 	// Environment: LVT_DEV_MODE (true/false, 1/0)
 	DevMode bool
 

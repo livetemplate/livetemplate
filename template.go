@@ -411,8 +411,8 @@ func WithLoadingDisabled() Option {
 //
 // SECURITY: WithDevMode(true) allows WebSocket upgrade requests from ALL
 // origins, disabling the same-origin / allowlist CSRF check. Never enable it in
-// production — use WithAllowedOrigins to specify trusted origins there. Because
-// dev mode already relaxes the origin check, WithPermissiveOriginCheck is
+// production — use WithAllowedOrigins to specify trusted origins in production.
+// Because dev mode already relaxes the origin check, WithPermissiveOriginCheck is
 // redundant alongside it; you do not need both for local development.
 //
 // Dev mode also exposes {{.lvt.DevMode}} to templates and enables extra debug

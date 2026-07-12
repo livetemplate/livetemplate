@@ -366,6 +366,14 @@ func TestWithDevModeWiresPermissiveOrigin(t *testing.T) {
 			opts: []Option{WithPermissiveOriginCheck()},
 			want: true,
 		},
+		{
+			// The pattern this change retires: the two are redundant, not
+			// conflicting — either alone already allows all origins, and
+			// together they still just allow all origins.
+			name: "dev mode and permissive origin check together allow cross-origin",
+			opts: []Option{WithDevMode(true), WithPermissiveOriginCheck()},
+			want: true,
+		},
 	}
 
 	for _, tt := range tests {
