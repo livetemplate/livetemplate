@@ -226,6 +226,47 @@ Two caveats:
   detail; a State method should compute a view of the state, not mutate anything or
   perform I/O.
 
+### Methods that take arguments (view helpers)
+
+Sometimes you want a method that takes a key and returns a per-item view — e.g. a
+CSS class for a given row, or a formatted label for a given id. **Put it on a struct
+field, not on the top-level State**, and call it through that field:
+
+```go
+type RowViews struct{ selected map[string]bool }
+
+func (v RowViews) Class(id string) string {
+    if v.selected[id] {
+        return "row selected"
+    }
+    return "row"
+}
+
+type BoardState struct {
+    Rows  []Row
+    Views RowViews // a "view helper" sub-struct
+}
+```
+
+```html
+{{range .Rows}}
+  <div class="{{$.Views.Class .ID}}">{{.Label}}</div>
+{{end}}
+```
+
+This works in both the initial HTTP render and WebSocket updates, and replaces the
+common workaround of precomputing a `map[string]string` in an action and looking it
+up by key in the template. It is the same shape as the framework's built-in
+`{{.lvt.AriaInvalid "field"}}`.
+
+**Why the field matters — top-level arg-methods are not supported.** LiveTemplate
+converts State to a map before rendering (to inject the `{{.lvt}}` namespace), and
+Go's `html/template` cannot call an argument-accepting method once its receiver is a
+map key — `{{.Class .ID}}` directly on State fails with *"Class is not a method but
+has arguments"*. A struct **field** is stored in the map as a struct value, so both
+renderers call its methods natively. Zero-arg State methods are unaffected (they are
+precomputed, as above); only *argument-accepting* methods need the field.
+
 ## Context API
 
 For the complete Context API (data extraction, HTTP operations, struct binding), see [API Reference — Context](api-reference.md#context).

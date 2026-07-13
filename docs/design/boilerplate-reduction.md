@@ -300,11 +300,34 @@ example would return to its documented ~10 lines; checklistkit's 5 builders coll
   disk and reloads them every Mount/OnConnect (`controller.go:258`), and `controller.go:240-245`
   does the same reload-from-disk-every-Mount for comments ("the CSV is the source of truth").
   → Propose a disk-backed durable store, separate from session-continuity persistence.
-- **C7. Template methods that accept arguments.** livetemplate auto-invokes only zero-arg
-  state methods (`internal/parse/eval.go`, `callMethod`), so prereview precomputes predicate
-  results into `map[string]…` that the template looks up by key
-  (`state.go:806-808,868-873`: `LineDisplay`, `BlockDiffStatus`, `ScrollHeadingBlockKey`).
-  → Propose arg-accepting template methods.
+- **C7. Template methods that accept arguments. ✅ RESOLVED (pattern, no core change).**
+  The finding: prereview precomputes predicate results into `map[string]…` that the template
+  looks up by key (`state.go:806-808,868-873`: `LineDisplay`, `BlockDiffStatus`,
+  `ScrollHeadingBlockKey`), because it assumed a top-level `{{.LineDisplay $key}}` would not
+  work. Investigation showed **arg-accepting methods already work — just not on the top-level
+  State struct.** Hang them off a struct FIELD (a "view helper") and `{{.Views.LineDisplay $key}}`
+  renders correctly in both render phases, deleting the precompute-map boilerplate.
+
+  **Why top-level is unsupported, and why there is no small core fix.** LiveTemplate flattens
+  State into a `map` (so it can inject the `{{.lvt}}` namespace and precompute zero-arg methods).
+  That map is consumed by *two* renderers: `html/template` for the initial HTTP response
+  (`renderHTML` → `context.ExecuteTemplateWithContext`, where the error is fatal) and the tree
+  evaluator for WebSocket updates (`buildTree`). `html/template` **cannot call an
+  argument-accepting method once its receiver is a map key** — it errors *"X is not a method but
+  has arguments"* — and nothing stored in the map changes that (a stored `func` value is not
+  called with args either). The obvious "wrap State in a synthetic struct so its methods survive"
+  fix does not work: `reflect.StructOf` explicitly *"does not generate wrapper methods for
+  embedded fields"*, so a dynamically-built wrapper would not expose the user's methods to
+  `html/template`'s `MethodByName`. The remaining options (template-rewriting `.M arg` into a
+  FuncMap call, or rendering the initial HTML from the tree instead of `html/template`) are
+  render-engine surgery — disproportionate for a boilerplate item.
+
+  **The working boundary** (locked by `template_arg_methods_test.go`): a struct-field / nested
+  arg-method works in **both** the initial render and the update tree; a top-level State
+  arg-method is unsupported and errors. This mirrors the framework's own idiom —
+  `{{.lvt.AriaInvalid "field"}}` is exactly this pattern (`.lvt` is a struct value in the map).
+  → **Resolution: document the view-helper pattern (guide + example), keep a regression anchor.
+  No core API change.**
 - **C8. Recursive `{{template}}` support (cross-app: prereview + tinkerdown).** livetemplate
   flattens `{{template}}` calls at parse time, which overflows on recursion, so a recursive
   file tree drops to a standalone `html/template` injected as `template.HTML`
@@ -321,11 +344,13 @@ example would return to its documented ~10 lines; checklistkit's 5 builders coll
 The issue explicitly invites *removing* features, and v0.2.0 was itself an "API Reduction
 Release", so subtraction is in-culture. Candidates:
 
-- **C4 — collapse the two session-store options into one.** `WithSessionStore` (New) and
-  `WithStore` (Handle) both set the same field at different phases. No scanned code uses
-  either (all rely on the in-memory default or `EnvConfig`). Recommend keeping **one**
-  (whichever level the store genuinely needs to bind at) and removing the other. Alpha + no
-  external users → collapse directly, no deprecation shim.
+- **C4 — collapse the two session-store options into one. ✅ RESOLVED.** `WithSessionStore`
+  (a `New` `Option`) and `WithStore` (a `Handle` `HandleOption`) both set the same
+  `SessionStore` field at different phases; `SessionStore` was the *only* dependency
+  configurable at both levels (`Authenticator`, `PubSubBroadcaster`, etc. are `New`-only).
+  No app or example used `WithStore` (only three sweep tests did). Removed `WithStore` and
+  kept `WithSessionStore` — the store now binds at construction, consistent with every other
+  dependency. Alpha + no external users → collapsed directly, no deprecation shim.
 - **General audit:** the `Context` `With*()` builder family is large and mostly
   internal/test-facing (`WithHTTP`, `WithAction`, `WithConnectKind`, `WithData`,
   `WithFormSchema`, `WithFlashSetter`, `WithUploads`, `WithTopicSubscriber`). Worth a
@@ -346,7 +371,9 @@ real, used capability.
    pinned `ClientScriptURL`/`ClientStyleURL`, **no bundling**). Removes a test-package-in-
    production smell + the unpinned-`@latest` wire-incompat risk from *every* app and example.
 4. **B3 (Page / ListenAndServe)** — collapses the most raw lines; low conceptual risk.
-5. **Tier C** individually as they come up; **C4** rides along as a cheap removal.
+5. **Tier C** individually as they come up; **C4** rides along as a cheap removal, and **C7**
+   resolves to a documented pattern (view-helper sub-struct) with a regression anchor — no
+   core change, so it works on any published release.
 
 ## Shipped with this document (core `livetemplate` repo)
 
@@ -357,6 +384,11 @@ real, used capability.
   reference example now threads `ctx` into its DB calls). No new API surface: `*Context`
   already embeds `context.Context`, so an explicit `ctx.Context()` accessor was deliberately
   *not* added (redundant).
+- **C4** — removed the duplicate `WithStore` `HandleOption`; the session store now binds only
+  at construction via `WithSessionStore` (`template.go`; sweep tests in `handle_test.go` updated).
+- **C7** — the view-helper arg-method boundary, documented in
+  `docs/references/controller-pattern.md` and locked by `template_arg_methods_test.go` (nested
+  works in both render phases; top-level errors). No API change.
 
 Sibling-repo companions (land as coordinated follow-up PRs, per the lockstep convention):
 

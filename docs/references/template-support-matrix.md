@@ -184,7 +184,8 @@ Template composition is fully supported through automatic AST flattening. `Flatt
 |---------|--------|-------|
 | Built-in Go functions | ✅ | All standard functions supported |
 | User-defined functions | ⚠️ | Must be registered with Go template engine |
-| Method calls on data | ✅ | Works if methods are public |
+| Zero-arg method calls on data | ✅ | Public methods; precomputed from State (`{{.Count}}`) |
+| Arg-accepting method calls | ⚠️ | Only on a struct **field**, not top-level State — `{{.Views.Class .ID}}`, not `{{.Class .ID}}` (see [Controller Pattern — view helpers](controller-pattern.md#methods-that-take-arguments-view-helpers)) |
 
 ## Performance Considerations
 
