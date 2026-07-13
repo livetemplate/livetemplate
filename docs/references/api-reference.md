@@ -103,7 +103,9 @@ handler := tmpl.Handle(&TodoController{DB: db}, livetemplate.AsState(&TodoState{
 
 | Option | Description |
 |--------|-------------|
-| `WithStore(store SessionStore)` | Override the session store for this handler |
+| `WithEphemeralSweepTTL(ttl time.Duration)` | How long an idle ephemeral HTTP cache entry survives before eviction (default 30m; no effect in persistent mode) |
+
+> The session store is set at construction via `WithSessionStore` (a `New` option), not per-handler.
 
 ---
 
