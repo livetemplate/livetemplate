@@ -41,4 +41,18 @@ func TestInjectPersistFields_NilFieldDoesNotDiscardState(t *testing.T) {
 	if restored.Tags != nil {
 		t.Errorf("Tags = %v, want nil", restored.Tags)
 	}
+
+	// The other shape a null arrives in: a LITERAL 4-byte "null", which is what
+	// encoding/json writes — so it is what any session stored before the move to
+	// json-iterator holds. That one never reaches the skip above (its RawMessage is
+	// not empty); it decodes, and must decode to nil rather than erroring.
+	stored := []byte(`{"repo_path":"/repo","expanded":null,"tags":null}`)
+	got, err = s.InjectPersistFields(stored)
+	if err != nil {
+		t.Fatalf("a literal \"null\" persist field must not fail the restore: %v", err)
+	}
+	restored = got.(persistState)
+	if restored.RepoPath != "/repo" || restored.Expanded != nil || restored.Tags != nil {
+		t.Errorf("restored = %+v, want RepoPath=/repo with nil Expanded/Tags", restored)
+	}
 }

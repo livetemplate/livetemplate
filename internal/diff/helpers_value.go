@@ -91,29 +91,3 @@ func HasRangeItems(value interface{}) bool {
 	}
 	return false
 }
-
-// ContainsRangeConstruct recursively checks if a tree node or any of its children contains a range construct.
-func ContainsRangeConstruct(value interface{}) bool {
-	if IsRangeConstruct(value) {
-		return true
-	}
-	if node, ok := value.(*TreeNode); ok {
-		for _, v := range node.Dynamics {
-			if ContainsRangeConstruct(v) {
-				return true
-			}
-		}
-		return false
-	}
-	if valueMap, ok := value.(map[string]interface{}); ok {
-		for k, v := range valueMap {
-			if k == "s" || k == "f" {
-				continue
-			}
-			if ContainsRangeConstruct(v) {
-				return true
-			}
-		}
-	}
-	return false
-}
