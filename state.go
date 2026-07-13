@@ -218,7 +218,13 @@ func (s *jsonState[T]) InjectPersistFields(data []byte) (interface{}, error) {
 	rv := reflect.ValueOf(&state).Elem()
 	for _, f := range s.persistFields {
 		fieldData, ok := raw[f.jsonName]
-		if !ok {
+		// A field that was nil at save time was written as JSON null, and jsoniter
+		// decodes null into a ZERO-LENGTH RawMessage (encoding/json yields the literal
+		// "null"). Feeding those empty bytes to Unmarshal below errors — and the error
+		// discards the ENTIRE restored state, so a single nil map would drop every other
+		// persist field on reconnect. Null carries nothing to apply: leave the field at
+		// its zero value, which is exactly what it round-trips to.
+		if !ok || len(fieldData) == 0 {
 			continue
 		}
 		fv := rv.Field(f.index)

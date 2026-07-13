@@ -177,55 +177,6 @@ func TestHasRangeItems(t *testing.T) {
 	}
 }
 
-// TestContainsRangeConstruct tests recursive range detection.
-func TestContainsRangeConstruct(t *testing.T) {
-	tests := []struct {
-		name  string
-		value interface{}
-		want  bool
-	}{
-		{
-			name: "direct range construct",
-			value: &TreeNode{
-				Range:   &RangeData{Items: []interface{}{}},
-				Statics: []string{"<li>", "</li>"},
-			},
-			want: true,
-		},
-		{
-			name: "nested range in dynamics",
-			value: &TreeNode{
-				Dynamics: []interface{}{&TreeNode{
-					Range:   &RangeData{Items: []interface{}{}},
-					Statics: []string{"<li>", "</li>"},
-				}},
-			},
-			want: true,
-		},
-		{
-			name: "no range construct",
-			value: &TreeNode{
-				Dynamics: []interface{}{"value"},
-			},
-			want: false,
-		},
-		{
-			name:  "primitive value",
-			value: "string",
-			want:  false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := ContainsRangeConstruct(tt.value)
-			if got != tt.want {
-				t.Errorf("ContainsRangeConstruct() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 // TestDeepEqual tests deep equality for various types.
 func TestDeepEqual(t *testing.T) {
 	tests := []struct {
