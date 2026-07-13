@@ -392,19 +392,25 @@ func handleNestedTreeNodes(
 	// Use fingerprint-based structure comparison for non-range matches
 	structureChanged := !isRangeMatch && ClientNeedsStatics(oldTreeNodePtr, newTreeNodePtr)
 
-	// Check if both contain ranges
-	oldHasRange := ContainsRangeConstruct(oldTreeNodePtr)
-	newHasRange := ContainsRangeConstruct(newTreeNodePtr)
-
-	if structureChanged && (!oldHasRange || !newHasRange) {
-		// Structure changed and this isn't just range item updates
-		// Send full tree with statics since client needs the new structure
+	// structureChanged means the statics differ, so the client cannot render this
+	// subtree from what it has cached — it needs the full tree, statics included.
+	// That holds whether or not the subtree contains a range: the recursion below
+	// strips statics, and for an UNMATCHED range it sends nothing at all (a range's
+	// content lives in Range.Items, not Dynamics, and only a matched range's
+	// item-diff ops carry it). Exempting ranges here silently DROPPED the update —
+	// the client kept stale items until a full page load. A range whose item statics
+	// are data-dependent hits this: a body slot that disappears when its nested
+	// template renders nothing changes the item's statics, so signature matching
+	// fails and the range is unmatched. Matched ranges never reach this branch:
+	// structureChanged is gated on !isRangeMatch.
+	if structureChanged {
 		changes.SetDynamic(k, newTreeNodePtr)
 	} else {
-		// Structure unchanged (same fingerprint) or both have ranges, do normal diff
+		// Same statics — the client can render this subtree from its cache, so the
+		// diff only has to carry the changed dynamics (and a matched range's item ops).
 		nestedChanges := CompareTreesAndGetChangesWithPath(
 			oldTreeNodePtr, newTreeNodePtr,
-			insideNewStructure || structureChanged,
+			insideNewStructure,
 			fieldPath,
 			rangeMatches,
 		)
