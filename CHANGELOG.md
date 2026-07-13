@@ -5,6 +5,16 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.18.1] - 2026-07-13
+
+### Changes
+
+- fix(diff,state): two silent update-loss bugs — dropped range updates, and a nil persist field wiping the session (#489) (6b925261)
+- docs(devmode): clarify WithDevMode(true) already allows all WS origins (#483) (#487) (eff2dea9)
+- docs(changelog): curate v0.18.0 release notes (51b2edc8)
+
+
+
 ## [v0.18.0] - 2026-07-12
 
 ### Added
