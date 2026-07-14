@@ -187,19 +187,33 @@ configurable **max-depth** (clear error on exceed) or a pointer-visited set mirr
 fingerprint code's existing `visitPath` pattern (`fingerprint.go:46,57-64`). Max-depth is simpler
 and gives a comprehensible error; recommend a generous default (e.g. 128) overridable via option.
 
-### 5. Fingerprint: reuse per template, don't re-hash per level
+### 5. Fingerprint: lean on the existing per-instance cache — do **not** cache per template name
 
-A recursive structure repeats the *same* statics at every level, so the invoked template's static
-fingerprint is **identical** at every node. Fingerprint the runtime-invoked sub-tree **once** (by
-template name) and reuse it, rather than re-hashing O(depth) times. The existing cycle guard in
-`fingerprint.go` already makes a cyclic `TreeNode` graph well-defined; this optimization keeps
-deep *acyclic* trees O(nodes) with a tiny constant.
+**Naive intuition (wrong):** "a recursive structure repeats the same statics at every level, so
+fingerprint the invoked template once by name and reuse it." This is unsafe, and the worked
+example below is exactly the counter-case: `{{if .IsDir}}<ul>…</ul>{{end}}` means a **leaf** node
+(`IsDir=false`) and a **directory** node (`IsDir=true`) take different conditional branches and so
+build **structurally different** trees — different structure fingerprints. A per-name cache would
+conflate them. Most real recursive templates have a leaf/branch conditional, so this is the common
+case, not an edge case.
 
-This is a **server-side** hashing optimization only — the client never sees fingerprints
-(§6). Its user-visible payoff is statics *suppression*: at **stable depth**, the per-position
-`ClientNeedsStatics` finds an unchanged node and sends dynamics-only. This is not free at
-*changing* depth: a newly-appeared level is position-new, so its statics are (correctly) sent
-once. The self-similarity is a hashing win, not a wire-cost guarantee across depth changes.
+**Correct approach — reuse existing machinery, add nothing.** The structure fingerprint is
+**content-independent**: two nodes with the same structure hash to the same value regardless of
+their dynamic content (per `CalculateStructureFingerprint`). A recursive template therefore emits
+a **small, bounded set of distinct branch-shapes** (here: leaf-shape and dir-shape), not one shape
+and not O(depth) shapes — and all nodes of a given shape already share a fingerprint *value* by
+equality, with no per-name cache. Recomputation is already avoided by the **existing per-instance
+lazy cache** `TreeNode.GetStructureFingerprint()` (`internal/build/types.go`): each node computes
+its fingerprint once on first access. So the design needs **no new fingerprint caching at all** —
+it must only *not* introduce a per-name cache that would collapse distinct branch-shapes. The
+existing `fingerprint.go` cycle guard (`visitPath`) keeps a cyclic `TreeNode` graph well-defined.
+
+The user-visible payoff is statics *suppression*, and it composes with the per-shape fingerprints:
+at **stable depth**, the per-position `ClientNeedsStatics` compares a node's fingerprint to its
+prior render's and sends dynamics-only when the shape is unchanged. A node that *flips branch*
+(a leaf becoming a directory) changes shape → its statics are correctly re-sent. A
+newly-materialized level at *growing* depth is position-new → its statics are (correctly) sent
+once. Suppression is per-node-per-shape, not a blanket "identical across all levels" guarantee.
 
 ### 6. Wire format & diffing — no new client ops
 
@@ -211,8 +225,8 @@ operations and no client changes** — verified, not assumed, against the client
 - **The client has no fingerprint concept at all.** Fingerprints are server-only: the server uses
   them to *decide whether to send statics* (`ClientNeedsStatics`), and the wire never carries them
   (`grep fingerprint` over `github.com/livetemplate/client` returns zero hits, as of client
-  v0.16.5). So there is no fingerprint-keyed client cache that identical-per-level structure could
-  collide in — the concern that self-similar levels confuse the client does not arise.
+  v0.16.5). So there is no fingerprint-keyed client cache that repeated per-level structure could
+  collide in — the concern that recurring levels confuse the client does not arise.
 - **The client caches statics *positionally* and merges depth-agnostically.** `TreeRenderer`
   (`client/state/tree-renderer.ts`) stores statics inline at each tree path in `treeState`, and
   `deepMergeTreeNodes` recurses on object nesting keyed by a path string with **no depth cap**.
@@ -263,9 +277,11 @@ position-distinct nested nodes so this per-position logic engages — see Open q
       renders identically to the equivalent stdlib `html/template` output at depths 1..N, plus a
       *between-render depth change* (grow and shrink) asserting a newly-materialized level receives
       its statics and a removed one is dropped — the Open-question-5 invariant.
-- [ ] **Phase 4 — Fingerprint reuse + eval-time depth guard.** Per-name fingerprint caching;
-      max-depth option with a clear error, applying the same on initial render *and* live update
-      (Open question 2). Tests: deep tree stays O(nodes); cyclic data errors cleanly on both paths.
+- [ ] **Phase 4 — Eval-time depth guard.** Confirm the existing per-instance
+      `GetStructureFingerprint()` lazy cache already covers deep trees (no new per-name cache — see
+      §5); add a max-depth option with a clear error, applying the same on initial render *and* live
+      update (Open question 2). Tests: deep tree stays O(nodes); a leaf⇄directory branch flip
+      re-sends statics correctly; cyclic data errors cleanly on both paths.
 - [ ] **Phase 5 — Minimal-update proof + docs.** Assert a deep single-node change emits one
       `["u", key, …]` and not a full re-send (the payoff). Update `template-support-matrix.md` and
       `current-limitations.md`; add a recipe. **Companion:** migrate prereview's `filetree.go`
@@ -278,8 +294,9 @@ position-distinct nested nodes so this per-position logic engages — see Open q
 
 - **Surfaces touched:** `internal/parse/` (cycle detection, runtime-boundary emission),
   a name→subtree registry on the compiled `Template`, `internal/build`/eval (instantiate sub-tree
-  → nested `TreeNode`), `internal/build/fingerprint.go` (per-name reuse), an eval-time depth
-  guard. `internal/diff` and the **client are unchanged** (reuses nested-tree wire format).
+  → nested `TreeNode`), an eval-time depth guard. `internal/build/fingerprint.go` is **reused
+  as-is** — the existing per-instance lazy cache already covers deep recursion (§5); no per-name
+  cache is added. `internal/diff` and the **client are unchanged** (reuses nested-tree wire format).
 - **Backward compatibility:** high. The selective split means non-recursive composition keeps the
   existing flatten path byte-for-byte; only cyclic invocation graphs take the new path.
 - **Biggest risk:** the eval-time sub-tree instantiation is new plumbing. Mitigated by leaning on
