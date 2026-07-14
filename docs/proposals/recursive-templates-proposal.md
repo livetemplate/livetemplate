@@ -264,8 +264,8 @@ position-distinct nested nodes so this per-position logic engages — see Open q
       *between-render depth change* (grow and shrink) asserting a newly-materialized level receives
       its statics and a removed one is dropped — the Open-question-5 invariant.
 - [ ] **Phase 4 — Fingerprint reuse + eval-time depth guard.** Per-name fingerprint caching;
-      max-depth option with a clear error. Tests: deep tree stays O(nodes); cyclic data errors
-      cleanly.
+      max-depth option with a clear error, applying the same on initial render *and* live update
+      (Open question 2). Tests: deep tree stays O(nodes); cyclic data errors cleanly on both paths.
 - [ ] **Phase 5 — Minimal-update proof + docs.** Assert a deep single-node change emits one
       `["u", key, …]` and not a full re-send (the payoff). Update `template-support-matrix.md` and
       `current-limitations.md`; add a recipe. **Companion:** migrate prereview's `filetree.go`
@@ -294,7 +294,10 @@ position-distinct nested nodes so this per-position logic engages — see Open q
    cleaner but a much larger blast radius and a perf regression for the common flat case. Confirm
    selective.
 2. **Depth guard: max-depth vs. pointer-visited.** Recommended max-depth (simpler, clearer error).
-   Default value + option name to settle.
+   Default value + option name to settle. Also settle **what exceeding max-depth does on a live
+   update** (not just initial render): error the whole render, or degrade gracefully (truncate the
+   subtree and flag)? Recommend erroring uniformly so behavior doesn't diverge between render and
+   update — but confirm, since a runaway update shouldn't necessarily blank a working page.
 3. **Mutual recursion / indirect cycles** (`a`→`b`→`a`). The design handles it (the cycle set can
    contain multiple names), but confirm test coverage expectations.
 4. **`data-key` requirement.** Targeted updates need stable node identity. Should the framework
@@ -308,5 +311,5 @@ position-distinct nested nodes so this per-position logic engages — see Open q
    assumes it and Phase 3's depth-1..N parity tests must exercise depth *growth and shrink between
    renders*, not just static depths. Confirm the eval reuses the range item-instantiation path,
    which already assigns position-distinct child nodes.
-5. **Dynamic invocation** (`{{template (printf …) .}}`) remains a documented fallback
+6. **Dynamic invocation** (`{{template (printf …) .}}`) remains a documented fallback
    (`current-limitations.md:15,19`); recursion support does not change that — out of scope.
