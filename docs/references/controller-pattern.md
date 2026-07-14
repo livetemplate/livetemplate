@@ -546,6 +546,25 @@ handler := tmpl.Handle(controller, livetemplate.AsState(initialState))
 http.Handle("/", handler)
 ```
 
+### Serving static assets alongside the app
+
+The handler returned by `Handle` is mounted at `/`, where Go's `ServeMux` treats it as a **catch-all**: every request that doesn't match a more specific pattern falls through to it (including the WebSocket upgrade). To serve static files — images, CSS, downloads — next to your app, register them under a **more specific prefix** on the same mux. Longest-prefix-match routes those requests to the file server and everything else to the app:
+
+```go
+handler := tmpl.Handle(controller, livetemplate.AsState(initialState))
+
+// Files under /assets/… are served from ./assets. http.Dir already rejects
+// "../" traversal, so http.FileServer needs no extra guard.
+http.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.Dir("assets"))))
+
+// The app owns everything else.
+http.Handle("/", handler)
+```
+
+The prefix just has to be distinct from your app's own routes — `ServeMux` does the rest. This composition is plain `net/http`; the framework adds nothing here on purpose.
+
+**When a prefix isn't enough.** If your app renders content that references assets at **arbitrary top-level paths** — e.g. user-authored HTML with `<img src="diagram.png">` resolving to `/diagram.png` — those paths can collide with app routes, and `ServeMux` can't disambiguate them by prefix. That case needs a fall-through wrapper: *serve the file if it exists under a safe root, otherwise defer to the app handler.* Keep it a small wrapper in your own `main` rather than reaching for a framework primitive — the security-relevant policy (which extensions to serve, embedded vs. disk, symlink resolution) is app-specific, and `http.Dir` / `http.FileServer` already supply the traversal-safe file access it builds on.
+
 ## Upload Access
 
 For file upload configuration and handling, see [Upload Reference](uploads.md).
