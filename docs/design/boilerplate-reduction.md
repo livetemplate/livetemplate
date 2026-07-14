@@ -380,9 +380,10 @@ real, used capability.
    pinned `ClientScriptURL`/`ClientStyleURL`, **no bundling**). Removes a test-package-in-
    production smell + the unpinned-`@latest` wire-incompat risk from *every* app and example.
 4. **B3 (Page / ListenAndServe)** — collapses the most raw lines; low conceptual risk.
-5. **Tier C** individually as they come up; **C4** rides along as a cheap removal, and **C7**
-   resolves to a documented pattern (view-helper sub-struct) with a regression anchor — no
-   core change, so it works on any published release.
+5. **Tier C** individually as they come up; **C4** rides along as a cheap removal, **C7**
+   resolves to a documented pattern (view-helper sub-struct) with a regression anchor, and
+   **C1** to a lifecycle callout — all three are docs/no-core-change, so they work on any
+   published release.
 
 ## Shipped with this document (core `livetemplate` repo)
 
@@ -393,14 +394,14 @@ real, used capability.
   reference example now threads `ctx` into its DB calls). No new API surface: `*Context`
   already embeds `context.Context`, so an explicit `ctx.Context()` accessor was deliberately
   *not* added (redundant).
+- **C1** — the "published action is not a re-Mount" lifecycle callout in
+  `docs/references/controller-pattern.md` (fan-out section): `Mount` = subscribe + load; the
+  published action = load only. No API change (the `Load` hook was considered and rejected).
 - **C4** — removed the duplicate `WithStore` `HandleOption`; the session store now binds only
   at construction via `WithSessionStore` (`template.go`; sweep tests in `handle_test.go` updated).
 - **C7** — the view-helper arg-method boundary, documented in
   `docs/references/controller-pattern.md` and locked by `template_arg_methods_test.go` (nested
   works in both render phases; top-level errors). No API change.
-- **C1** — the "published action is not a re-Mount" lifecycle callout in
-  `docs/references/controller-pattern.md` (fan-out section): `Mount` = subscribe + load; the
-  published action = load only. No API change (the `Load` hook was considered and rejected).
 
 Sibling-repo companions (land as coordinated follow-up PRs, per the lockstep convention):
 

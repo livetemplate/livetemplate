@@ -482,7 +482,7 @@ func (c *ChatController) RefreshMessages(state ChatState, ctx *livetemplate.Cont
 }
 ```
 
-`Mount` does **connect-time** work on top of loading: it `Subscribe`s to topics and runs any `IsInitialMount()`/`IsReconnect()`/`IsNewConnect()`-guarded setup (analytics, background goroutines, presence). A fan-out dispatch is an *action* — its connect-kind is `ConnectKindAction`, so all three of those helpers return `false`. Delegating the action to `Mount` therefore does the wrong thing on **both** halves: the unguarded `Subscribe` re-runs on every single broadcast (re-hitting the topic ACL each tick), while any connect-kind-guarded setup silently never runs. Keep the two jobs separate:
+`Mount` does **connect-time** work on top of loading: it `Subscribe`s to topics and runs any `IsInitialMount()`/`IsReconnect()`/`IsNewConnect()`-guarded setup (analytics, background goroutines, presence). A fan-out dispatch is an *action* — its connect-kind is `ConnectKindAction`, so all three of those helpers return `false`. Delegating the action to `Mount` therefore means any connect-kind-guarded setup **silently never runs**, and the unguarded `Subscribe` re-runs on every single broadcast — a cheap no-op for `ctx.SelfTopic()` (ACL-exempt and idempotent, as here), but a real per-tick ACL re-check for a developer topic like `Subscribe("room/" + id)`. Keep the two jobs separate:
 
 - **`Mount`** — subscribe + load. Runs on HTTP GET/POST, WS connect, WS reconnect.
 - **The published action** (`RefreshMessages`) — load only. Runs on every fan-out tick.
