@@ -342,11 +342,21 @@ example would return to its documented ~10 lines; checklistkit's 5 builders coll
   file tree drops to a standalone `html/template` injected as `template.HTML`
   (prereview `gitdiff/filetree.go:18-25`, noting *"the same native-`<details>` approach
   tinkerdown uses"*). → Propose recursive-partial support.
-- **C9. Static-asset passthrough alongside the `/` LiveHandler.** The SPA owns `/` and
-  `ServeMux` routes every unmatched GET to it, so relative asset paths inside rendered content
-  (`<img src="mockups/foo.png">`) receive the SPA HTML shell instead of bytes. prereview wraps
-  the LiveHandler with an allowlisted-extension, traversal-guarded static file server
-  (`server.go:447-524`, `staticFallback`). → Propose a framework static-passthrough wrapper.
+- **C9. Static-asset passthrough alongside the `/` LiveHandler.** ✅ **RESOLVED (docs, no new
+  API).** The original pitch was a framework static-passthrough wrapper. On audit the common
+  case — assets under a **known prefix** — is already handled by plain `net/http`:
+  `http.Handle("/assets/", http.StripPrefix(…, http.FileServer(http.Dir(…))))` +
+  `http.Handle("/", handler)`, and `ServeMux` longest-prefix-match routes them (shipped in the
+  `avatar-upload` example; `http.Dir` already supplies traversal safety). Two independent apps
+  confirm the prefix shape is the norm — tinkerdown routes everything under `/assets/` to its
+  own handler (`internal/server/server.go:504`), and each app hand-rolls its file handler only
+  for app-specific **policy** (embedded-first, extension allowlist, symlink eval), not for a
+  missing framework primitive. Only **prereview** needs the harder *arbitrary-path* fall-through
+  (`server.go:447-524`, `staticFallback`) because it serves user-authored content whose asset
+  paths collide with SPA routes — a single-consumer, code-review-tool-specific case. A generic
+  core wrapper would have to bake in one security policy that the two apps deliberately chose
+  differently, so the fall-through stays an app-`main` concern. → Shipped as a "Serving static
+  assets alongside the app" section in `controller-pattern.md`; no new API.
 
 ## Removal pass
 
@@ -381,9 +391,9 @@ real, used capability.
    production smell + the unpinned-`@latest` wire-incompat risk from *every* app and example.
 4. **B3 (Page / ListenAndServe)** — collapses the most raw lines; low conceptual risk.
 5. **Tier C** individually as they come up; **C4** rides along as a cheap removal, **C7**
-   resolves to a documented pattern (view-helper sub-struct) with a regression anchor, and
-   **C1** to a lifecycle callout — all three are docs/no-core-change, so they work on any
-   published release.
+   resolves to a documented pattern (view-helper sub-struct) with a regression anchor, **C1**
+   to a lifecycle callout, and **C9** to a static-assets composition note — all docs/no-core-
+   change, so they work on any published release.
 
 ## Shipped with this document (core `livetemplate` repo)
 
@@ -402,6 +412,11 @@ real, used capability.
 - **C7** — the view-helper arg-method boundary, documented in
   `docs/references/controller-pattern.md` and locked by `template_arg_methods_test.go` (nested
   works in both render phases; top-level errors). No API change.
+- **C9** — a "Serving static assets alongside the app" section in
+  `docs/references/controller-pattern.md`: the stdlib `ServeMux` prefix composition for the
+  common case, and why the arbitrary-path fall-through stays an app-`main` concern. No API
+  change (the static-passthrough wrapper was considered and rejected — one policy can't fit the
+  two apps' divergent choices).
 
 Sibling-repo companions (land as coordinated follow-up PRs, per the lockstep convention):
 
