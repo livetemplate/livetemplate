@@ -473,6 +473,22 @@ func (c *ChatController) RefreshMessages(state ChatState, ctx *livetemplate.Cont
 }
 ```
 
+**The published action reloads data only — it is not a re-Mount.** Notice `RefreshMessages` re-reads the messages and nothing else. Reach for the tempting shortcut and it bites you:
+
+```go
+// ❌ Don't do this. A fan-out tick is neither a page load nor a connect.
+func (c *ChatController) RefreshMessages(state ChatState, ctx *livetemplate.Context) (ChatState, error) {
+    return c.Mount(state, ctx)
+}
+```
+
+`Mount` does **connect-time** work on top of loading: it `Subscribe`s to topics and runs any `IsInitialMount()`/`IsReconnect()`/`IsNewConnect()`-guarded setup (analytics, background goroutines, presence). A fan-out dispatch is an *action* — its connect-kind is `ConnectKindAction`, so all three of those helpers return `false`. Delegating the action to `Mount` therefore does the wrong thing on **both** halves: the unguarded `Subscribe` re-runs on every single broadcast (re-hitting the topic ACL each tick), while any connect-kind-guarded setup silently never runs. Keep the two jobs separate:
+
+- **`Mount`** — subscribe + load. Runs on HTTP GET/POST, WS connect, WS reconnect.
+- **The published action** (`RefreshMessages`) — load only. Runs on every fan-out tick.
+
+The shortcut *appears* to work when `Mount` is a pure data-load with no `Subscribe` or guarded setup (its fields just get re-set to the same values) — which is exactly why it's a trap: it breaks silently the day `Mount` grows a connect-time concern. The runnable [`live-dashboard`](https://github.com/livetemplate/docs/tree/main/examples/live-dashboard) example follows the split from the start: `Mount` subscribes then snapshots; its `Refresh` action snapshots only.
+
 **Ordering.** `Publish` queues onto a per-action drain. Call it **after** every `ctx.With*()` shallow-copy mutation; publishes queued before a `With*()` are stranded on the pre-copy Context and won't propagate.
 
 **Cap.** A single action can enqueue at most `MaxPublishesPerAction` (declared in `topic_context.go`) `Publish` calls before subsequent calls become hard errors.

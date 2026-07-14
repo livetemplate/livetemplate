@@ -270,12 +270,21 @@ example would return to its documented ~10 lines; checklistkit's 5 builders coll
 
 ### Tier C — noted, lower priority / needs a decision
 
-- **C1. `Mount`/`OnConnect`/`Refresh` stub duplication** across ~15 controllers
-  (checklistkit `ui/*.go`, devbox-dash `*_controller.go`) — each hand-writes stubs bridging
-  the two lifecycle hooks to one load function. **Partly pattern-guidance**: `Mount` already
-  runs on WS connect, and `IsInitialMount`/`IsReconnect`/`IsNewConnect` exist to discriminate,
-  so much of this is avoidable today. A unified `Load(state, ctx)` hook would formalize it.
-  → Propose the hook *and* document the existing pattern.
+- **C1. `Mount`/`OnConnect`/`Refresh` stub duplication.** ✅ **RESOLVED (docs, no core
+  change).** Original claim was ~15 controllers across checklistkit + devbox-dash hand-writing
+  a lifecycle triple. On re-audit the signal had **collapsed to one un-migrated app**:
+  checklistkit uses a different notifier (0 triples), tinkerdown/prereview are `Mount`-only or
+  use a distinct `OnConnect`, and devbox-dash's own triple is the **pre-B1 pattern** — half of
+  it (`OnConnect{ hub.register(ctx.Session()) }` + the hub) is exactly the sync.Map handle
+  registry that [B1 / livetemplate#485](https://github.com/livetemplate/livetemplate/pull/485)
+  already retired. The residual boilerplate is just `Refresh(){ return c.Mount() }`, and that
+  turned out to be an **anti-pattern, not a primitive to bless**: `Mount` does connect-time work
+  (`Subscribe`, `IsInitialMount`-guarded setup) that must not repeat on every fan-out tick, so a
+  push-refresh action must reload data *only* — as the shipped `live-dashboard` example already
+  demonstrates (`Mount` subscribes+snapshots; `Refresh` snapshots only). A `Load(state, ctx)`
+  hook was considered and **rejected**: merging `Mount` (load) with `OnConnect` (subscribe)
+  conflates two genuinely different jobs. → Shipped as a "the published action is not a
+  re-Mount" callout in `controller-pattern.md`; no new API.
 - **C2. Guard→mutate→error-into-state→reload** action shape — checklistkit prototyped its own
   `mutate()` helper (`ui/editor.go:185-201`); devbox-dash open-codes it
   (`approvals_controller.go`). Hard to generalize without imposing an opinion → propose only.
@@ -389,6 +398,9 @@ real, used capability.
 - **C7** — the view-helper arg-method boundary, documented in
   `docs/references/controller-pattern.md` and locked by `template_arg_methods_test.go` (nested
   works in both render phases; top-level errors). No API change.
+- **C1** — the "published action is not a re-Mount" lifecycle callout in
+  `docs/references/controller-pattern.md` (fan-out section): `Mount` = subscribe + load; the
+  published action = load only. No API change (the `Load` hook was considered and rejected).
 
 Sibling-repo companions (land as coordinated follow-up PRs, per the lockstep convention):
 
