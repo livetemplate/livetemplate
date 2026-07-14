@@ -52,9 +52,12 @@ is reached. (The tree walker `walker.go:42-47` even returns a `ParseError` "temp
 found — should be flattened" if an invocation ever survives to tree-build time, confirming
 invocations are *only* ever inlined, never evaluated.)
 
-There is **no explicit "recursion unsupported" marker** in the docs; the support matrix
-(`template-support-matrix.md:174-179`) simply says composition is "automatically flattened,"
-which silently assumes a finite, acyclic invocation graph.
+The support matrix *does* flag this — `template-support-matrix.md` has a "Circular template
+references | ❌ | Not supported, would cause infinite loop" row — but it **mischaracterizes the
+failure mode**: it isn't a runtime infinite loop, it's a **stack overflow during `Parse`** (the
+recursive `walkAndFlatten` above), before any tree or render. And there is **no implementation
+guard** — the crash is unbounded on template source. Phase 1 both corrects that doc row and turns
+the crash into a clear `ParseError`, independent of whether the rest of the design lands.
 
 ### The real cost: opaque HTML defeats reactive diffing
 
@@ -273,8 +276,10 @@ position-distinct nested nodes so this per-position logic engages — see Open q
       body as a reusable sub-tree for templates flagged recursive in Phase 1. No rendering yet;
       unit-test the registry + sub-tree build.
 - [ ] **Phase 3 — Runtime invocation → nested `TreeNode`.** Wire eval to instantiate the sub-tree
-      per invocation against the pipe dot and splice the nested tree. Tests: a recursive fixture
-      renders identically to the equivalent stdlib `html/template` output at depths 1..N, plus a
+      per invocation against the pipe dot and splice the nested tree. Tests: a recursive fixture's
+      rendered **HTML content** matches the equivalent stdlib `html/template` output at depths 1..N
+      (content parity — the *wire format* deliberately differs: nested `TreeNode` vs. inlined
+      string), plus a
       *between-render depth change* (grow and shrink) asserting a newly-materialized level receives
       its statics and a removed one is dropped — the Open-question-5 invariant.
 - [ ] **Phase 4 — Eval-time depth guard.** Confirm the existing per-instance
