@@ -66,6 +66,15 @@ Fields tagged with `lvt:"persist"` follow this persistence schedule. Untagged fi
 
 This matches the pre-`lvt:"persist"` behavior where a path change always meant fresh state. Treat `lvt:"persist"` as "survives refresh," not "survives navigation."
 
+### What the session store is not for
+
+`lvt:"persist"` and the `SessionStore` provide **session continuity** — carrying UI state across a refresh or reconnect within a session group. They are not a durable application datastore:
+
+- The default `MemorySessionStore` is in-process. A **server relaunch loses every session**; the browser's cookie survives but now misses the fresh empty store, so persist fields fall back to their zero values and `Mount()` repopulates them. `RedisSessionStore` survives a relaunch, but its purpose is shared continuity across instances, not per-user durable storage.
+- Persistence is keyed by the cookie-derived `groupID`. State stored there is scoped to *that browser session*, not to a user — the same person on a second device (a different cookie) gets a different group.
+
+So data that must **outlive a process relaunch** or mean the same thing **across a user's sessions and devices** — durable user preferences, saved documents, anything you'd call "app data" — belongs in your own store (a file, your database), loaded in `Mount()`. Keep only genuine session-continuity state (filters, pagination, an in-progress draft) on `lvt:"persist"`. Mixing the two is the trap: a preference parked in the session silently resets on the next relaunch. The framework deliberately owns session continuity and leaves durable app data to the app.
+
 ### Explicit Peer Refresh
 
 ```go

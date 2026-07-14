@@ -285,30 +285,44 @@ example would return to its documented ~10 lines; checklistkit's 5 builders coll
   hook was considered and **rejected**: merging `Mount` (load) with `OnConnect` (subscribe)
   conflates two genuinely different jobs. → Shipped as a "the published action is not a
   re-Mount" callout in `controller-pattern.md`; no new API.
-- **C2. Guard→mutate→error-into-state→reload** action shape — checklistkit prototyped its own
-  `mutate()` helper (`ui/editor.go:185-201`); devbox-dash open-codes it
-  (`approvals_controller.go`). Hard to generalize without imposing an opinion → propose only.
+- **C2. Guard→mutate→error-into-state→reload** action shape. ✅ **RESOLVED (no change).** The
+  underlying mechanism — return a `FieldError`/`MultiError` and the framework surfaces it into
+  state for the re-render — is already documented in `error-handling.md`. checklistkit's
+  `mutate()` helper (the cited evidence) has since been **removed** from the app, so even the
+  one prototype is gone. Generalizing the shape into a framework primitive would bake in an
+  opinion about *when* to reload and *how* to structure the guard; the primitives it composes
+  (`FieldError`, `Mount`-reload) are already first-class. → No primitive; mechanism already
+  documented.
 - **C3. Self-sync idiom** `ctx.Subscribe(ctx.SelfTopic())` + `ctx.Publish(ctx.SelfTopic(),
-  "Refresh", nil)` (todos, tinkerdown examples). Common but not universal → propose an opt-in
-  `WithSelfSync()` / auto-broadcast flag.
-- **C4. Removal candidate — duplicate session-store option.** Two ways to set the store:
-  `WithSessionStore` (a `New` Option) and `WithStore` (a `HandleOption`) — both defined in
-  `template.go`. Neither is used by any scanned example or app. They operate at different
-  levels (construction vs per-handler), so this is a genuine API decision, not a mechanical
-  dedup → **pick one to keep** (see Removal pass).
+  "Refresh", nil)`. ✅ **RESOLVED (no change).** The idiom is already taught in **three**
+  reference docs (`controller-pattern.md` fan-out section, `session.md` "Explicit Peer
+  Refresh", `error-handling.md`). A `WithSelfSync()` auto-broadcast flag was considered and
+  **rejected**: the explicit two-line idiom is discoverable and self-documenting, whereas an
+  implicit "everything fans out" flag hides the opt-in boundary the framework deliberately
+  makes explicit (see CLAUDE.md "peer fan-out is opt-in"). → No flag; idiom already documented.
+- **C4. Removal candidate — duplicate session-store option.** ✅ **RESOLVED (shipped, #488).**
+  Removed the `WithStore` `HandleOption`; the store now binds only at construction via
+  `WithSessionStore`. See the Removal pass and "Shipped" list below.
 - **C5. e2e harness capture gap** — checklistkit rebuilt a 276-line harness
   (`e2e_harness_test.go`) over the low-level `e2etest` primitives to get WS-frame + browser
-  console + server-log capture that the shared `e2etest.Setup` lacks. → Enrich the shared
-  harness with capture hooks.
+  console + server-log capture that the shared `e2etest.Setup` lacks. ⏭️ **DEFERRED to the
+  `lvt` repo.** The shared harness lives in `github.com/livetemplate/lvt` (`lvt/testing/`), not
+  in core livetemplate — enriching it with capture hooks is an `lvt`-repo change, out of scope
+  for this core-repo pass. → Track as an `lvt` follow-up.
 
 **Surfaced by the prereview scan (new):**
 
-- **C6. Disk-durable store distinct from `lvt:"persist"`.** The default in-memory
-  cookie-keyed SessionStore resets on every process relaunch, so a constantly-relaunched CLI
-  loses all persisted UI state: prereview `internal/review/uiprefs.go:11-27` writes prefs to
-  disk and reloads them every Mount/OnConnect (`controller.go:258`), and `controller.go:240-245`
-  does the same reload-from-disk-every-Mount for comments ("the CSV is the source of truth").
-  → Propose a disk-backed durable store, separate from session-continuity persistence.
+- **C6. Disk-durable store distinct from `lvt:"persist"`.** ✅ **RESOLVED (docs, no new API).**
+  The pitch was a disk-backed `SessionStore`. On audit the prereview evidence points the other
+  way: prereview *keeps* its session-continuity state (Base, SelectedFile, DraftBody) on
+  `lvt:"persist"` and moves **only** durable, per-user-global view prefs to a disk file
+  (`internal/review/uiprefs.go`) — by its own design an **app-domain preference store, not a
+  session-store gap**. And the `SessionStore` is keyed by cookie-derived `groupID`, so a disk
+  `SessionStore` couldn't serve per-user prefs (different device → different cookie → different
+  group) without re-keying. No app has hand-rolled a disk `SessionStore` — a speculative third
+  impl with zero demonstrated consumers. The real gap was that the *boundary* (session
+  continuity vs. durable app data) wasn't documented. → Shipped a "What the session store is
+  not for" section in `session.md`; no new API.
 - **C7. Template methods that accept arguments. ✅ RESOLVED (pattern, no core change).**
   The finding: prereview precomputes predicate results into `map[string]…` that the template
   looks up by key (`state.go:806-808,868-873`: `LineDisplay`, `BlockDiffStatus`,
@@ -390,10 +404,12 @@ real, used capability.
    pinned `ClientScriptURL`/`ClientStyleURL`, **no bundling**). Removes a test-package-in-
    production smell + the unpinned-`@latest` wire-incompat risk from *every* app and example.
 4. **B3 (Page / ListenAndServe)** — collapses the most raw lines; low conceptual risk.
-5. **Tier C** individually as they come up; **C4** rides along as a cheap removal, **C7**
-   resolves to a documented pattern (view-helper sub-struct) with a regression anchor, **C1**
-   to a lifecycle callout, and **C9** to a static-assets composition note — all docs/no-core-
-   change, so they work on any published release.
+5. **Tier C** individually as they come up. Most resolved to docs/no-core-change: **C4** a
+   cheap removal, **C7** a documented view-helper pattern with a regression anchor, **C1** a
+   lifecycle callout, **C9** a static-assets composition note, **C6** a session-durability
+   boundary note; **C2** and **C3** needed nothing (mechanism/idiom already documented); **C5**
+   is an `lvt`-repo follow-up. **C8** (recursive `{{template}}`) is the one remaining item with
+   a genuine cross-app capability gap — reserved for its own full treatment.
 
 ## Shipped with this document (core `livetemplate` repo)
 
@@ -417,6 +433,11 @@ real, used capability.
   common case, and why the arbitrary-path fall-through stays an app-`main` concern. No API
   change (the static-passthrough wrapper was considered and rejected — one policy can't fit the
   two apps' divergent choices).
+- **C6** — a "What the session store is not for" section in `docs/references/session.md`: the
+  session-continuity vs. durable-app-data boundary (the store resets on relaunch and is
+  cookie-keyed, so durable/per-user data belongs in your own store). No API change (a disk
+  `SessionStore` was considered and rejected — zero demonstrated consumers, and it wouldn't
+  serve prereview's actual per-user need anyway).
 
 Sibling-repo companions (land as coordinated follow-up PRs, per the lockstep convention):
 
