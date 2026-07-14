@@ -487,7 +487,7 @@ func (c *ChatController) RefreshMessages(state ChatState, ctx *livetemplate.Cont
 - **`Mount`** — subscribe + load. Runs on HTTP GET/POST, WS connect, WS reconnect.
 - **The published action** (`RefreshMessages`) — load only. Runs on every fan-out tick.
 
-The shortcut *appears* to work when `Mount` is a pure data-load with no `Subscribe` or guarded setup (its fields just get re-set to the same values) — which is exactly why it's a trap: it breaks silently the day `Mount` grows a connect-time concern. The runnable [`live-dashboard`](https://github.com/livetemplate/docs/tree/main/examples/live-dashboard) example follows the split from the start: `Mount` subscribes then snapshots; its `Refresh` action snapshots only.
+The shortcut *appears* to work when `Mount` is a pure data-load with no `Subscribe` or guarded setup (its fields just get re-set to the same values) — which is exactly why it's a trap: it breaks silently the day `Mount` grows a connect-time concern. So split them unconditionally, even while `Mount` is still a plain load; don't wait for the break. The runnable [`live-dashboard`](https://github.com/livetemplate/docs/tree/main/examples/live-dashboard) example follows the split from the start: `Mount` subscribes then snapshots; its `Refresh` action snapshots only.
 
 **Ordering.** `Publish` queues onto a per-action drain. Call it **after** every `ctx.With*()` shallow-copy mutation; publishes queued before a `With*()` are stranded on the pre-copy Context and won't propagate.
 
