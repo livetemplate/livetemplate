@@ -137,7 +137,9 @@ are routing recursion through the path that works, not inventing a new one.
   recursive invocations (see "Selective" below).
 - **Con:** the deepest change — parse must detect recursion and emit a runtime boundary; the
   framework must retain named templates as pre-built sub-trees and instantiate them per
-  invocation; needs an eval-time depth/cycle guard for pathological data.
+  invocation; needs an eval-time depth guard for pathological *data* (a self-referential
+  `.Children` pointer cycle, distinct from a merely-deep-but-finite tree — see Phase 4 for how
+  max-depth covers both shapes).
 
 ### Approach C — A sanctioned opaque-HTML subtree primitive (lighter fallback)
 
@@ -327,9 +329,16 @@ Three categories, each a hard gate — no phase merges with a category left as "
 - [ ] **Phase 4 — Eval-time depth guard.** Confirm the existing per-instance
       `GetStructureFingerprint()` lazy cache already covers deep trees (no new per-name cache — see
       §5); add a max-depth option with a clear error, applying the same on initial render *and* live
-      update (Open question 2). **Unit:** deep tree stays O(nodes); a leaf⇄directory branch flip
-      re-sends statics correctly; cyclic data errors cleanly on both render and update paths. **E2E:**
-      a data-driven cycle surfaces the max-depth error in the browser without wedging the session.
+      update (Open question 2). **Invariant that makes max-depth sufficient:** depth is incremented
+      **before** the guard check on every recursion level, so a Go-value **pointer cycle** in
+      `.Children` (a self-referential node — a shorter loop than max-depth) is still caught: each
+      traversal step advances depth and eventually trips the ceiling rather than infinite-looping.
+      This is the deliberate tradeoff behind choosing max-depth over a pointer-visited set (Decision
+      2): simpler, at the cost of erroring on a legitimately-deep-but-finite tree too — hence
+      configurable. **Unit:** deep tree stays O(nodes); a leaf⇄directory branch flip re-sends statics
+      correctly; a **self-referential-pointer `.Children`** errors at max-depth (not a hang); cyclic
+      data errors cleanly on both render and update paths. **E2E:** a data-driven cycle surfaces the
+      max-depth error in the browser without wedging the session.
 - [ ] **Phase 5 — Minimal-update proof + benchmarks + docs.** **Unit + Bench:** assert a deep
       single-node change emits one `["u", key, …]` and not a full re-send (the payoff);
       `BenchmarkRecursiveUpdate` + the wire-size assertion land here with the opaque-`template.HTML`
@@ -384,7 +393,8 @@ Three categories, each a hard gate — no phase merges with a category left as "
 ## Decisions
 
 The three headline questions this proposal solicited are **decided** (maintainer sign-off,
-2026-07-15):
+2026-07-15). *(Items keep their original open-question numbers; decided ones are pulled up here,
+so the numbering below is 1/2/4 and § Remaining design notes keeps 3/5/6.)*
 
 1. ✅ **Selective, not uniform.** Convert *only* recursive invocations to runtime boundaries; keep
    flattening non-recursive ones. Uniform runtime invocation is conceptually cleaner but a much
