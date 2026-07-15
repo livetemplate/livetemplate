@@ -351,13 +351,15 @@ example would return to its documented ~10 lines; checklistkit's 5 builders coll
   `{{.lvt.AriaInvalid "field"}}` is exactly this pattern (`.lvt` is a struct value in the map).
   → **Resolution: document the view-helper pattern (guide + example), keep a regression anchor.
   No core API change.**
-- **C8. Recursive `{{template}}` support (cross-app: prereview + tinkerdown).** 📝 **DESIGN
-  APPROVED (2026-07-15) — Phase 1 next.** livetemplate flattens `{{template}}` calls at parse time with
-  no cycle guard, so a self-referential template stack-overflows during `Parse`; a recursive file
-  tree drops to a standalone `html/template` injected as opaque `template.HTML` (prereview
-  `internal/review/filetree.go`, noting *"the same native-`<details>` approach tinkerdown uses"*),
-  which removes the whole subtree from reactive diffing. The one Tier C item with a genuine
-  capability gap and ≥2 hand-rolled consumers → **full design written**:
+- **C8. Recursive `{{template}}` support (direct consumer: prereview; latent: tinkerdown).**
+  📝 **DESIGN APPROVED (2026-07-15) — Phase 1 next.** livetemplate flattens `{{template}}` calls at
+  parse time with no cycle guard, so a self-referential template stack-overflows during `Parse`; a
+  recursive file tree drops to a standalone `html/template` injected as opaque `template.HTML`
+  (prereview `internal/review/filetree.go`), which removes the whole subtree from reactive diffing.
+  tinkerdown corroborates the recursive-tree UI pattern (recursive-Go `writeNavNode` →
+  native-`<details>`) but serves static HTML, so it's a latent case, not a second bug victim. The
+  one Tier C item with a genuine capability gap and a documented direct consumer → **full design
+  written**:
   [`docs/proposals/recursive-templates-proposal.md`](../proposals/recursive-templates-proposal.md).
   Recommended approach: route recursive invocations through the runtime nested-`TreeNode` path
   `{{range}}` already uses (bounded by data depth, not parse-time expansion). Approach A

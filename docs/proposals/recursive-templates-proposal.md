@@ -9,11 +9,16 @@ Phase 1 (crash → `ParseError` guard) is ready to implement.
 
 **Problem.** livetemplate inlines every `{{template "name" .}}` invocation into one flat
 template at parse time. A self-referential template (a folder tree, a nav tree, a threaded
-comment list) expands forever and **stack-overflows during `Parse`**. Two independent apps
-(prereview, tinkerdown) work around it by rendering the recursive part with standalone
-`html/template` and injecting the result as opaque `template.HTML` — which **removes the whole
-subtree from livetemplate's reactive diffing**: the entire tree is re-rendered and re-sent on
-every keystroke, defeating the framework's core value.
+comment list) expands forever and **stack-overflows during `Parse`**. **prereview** hits this
+directly: it wants a reactive folder tree, cannot use a recursive livetemplate template, and
+works around it by rendering the tree with standalone `html/template` and injecting the result as
+opaque `template.HTML` — which **removes the whole subtree from livetemplate's reactive diffing**:
+the entire tree is re-rendered and re-sent on every keystroke, defeating the framework's core
+value. **tinkerdown** corroborates that recursive tree UI is a recurring need — its sidebar nav is
+built by a recursive Go function emitting the same native-`<details>` markup — though its pages are
+currently served as static HTML (not livetemplate-reactive), so it is a latent case, not a second
+victim of the flatten bug. The core justification rests on the objective crash + prereview's
+documented reactive-diffing loss, not on consumer count.
 
 **Solution (recommended).** Stop inlining *recursive* invocations. Detect a self-referential
 invocation graph at parse time (the guard that's missing today), and evaluate those invocations
@@ -62,8 +67,8 @@ the crash into a clear `ParseError`, independent of whether the rest of the desi
 
 ### The real cost: opaque HTML defeats reactive diffing
 
-Both apps that need recursion escape-hatch identically. prereview
-(`internal/review/filetree.go`) is the clearest:
+The one app that hits this inside a livetemplate reactive tree, prereview
+(`internal/review/filetree.go`), shows the cost sharply:
 
 ```go
 // fileBrowserTmpl is a standalone html/template (NOT processed by livetemplate)
@@ -87,17 +92,27 @@ That is the boilerplate C8 removes: a hand-maintained standalone template, a zer
 large, frequently-touched structure (a repo's whole file tree) where incremental updates matter
 most.
 
-### Evidence (≥2 independent consumers)
+### Evidence
 
-- **prereview** — `internal/review/filetree.go` + `filetree.tmpl` (`treeNode` recurses on
-  `.Children`; native `<details>`; injected as `template.HTML`).
-- **tinkerdown** — nested nav built recursively (`internal/site/manager.go:115`,
-  `buildNavPageNode` recurses into children), rendered via the same native-`<details>` opaque-HTML
-  approach prereview's comment cross-references.
+- **prereview (the direct consumer)** — `internal/review/filetree.go` + `filetree.tmpl`
+  (`treeNode` recurses on `.Children`; native `<details>`; `data-key` on every node; injected as
+  `template.HTML`). It runs inside a livetemplate reactive tree, so the opaque slot is a real,
+  measured loss of incremental diffing. The `filetree.go` comment states the cause verbatim
+  ("livetemplate flattens `{{template}}` calls at parse time, which overflows on recursion").
+- **tinkerdown (corroborating pattern, not a bug victim)** — the sidebar nav is rendered by a
+  recursive **Go** function (`writeNavNode`, `internal/server/server.go:3660`, recursing over
+  `node.Children` and emitting the same native-`<details>` markup); the tree it walks is built by
+  `buildNavPageNode` (`internal/site/manager.go:121`). But tinkerdown serves pages as **static
+  HTML** (`servePage`: *"For now, just serve the static HTML"*) — the nav is never a livetemplate
+  reactive tree, and stdlib `html/template` would handle its recursion fine — so tinkerdown did
+  **not** hit the flatten bug. It confirms recursive-tree UI is a recurring need and that
+  native-`<details>` is the idiom, and it would become a real consumer *if* it made the nav
+  reactive — a latent case, kept separate from the direct evidence per this project's
+  "don't bundle unverified downstream-impact claims" discipline.
 
-This is the one Tier C item with two independent hand-rolled consumers *and* a genuine capability
-gap (not a discoverability or docs gap) — which is why it earns a real implementation rather than
-a doc note.
+This is the one Tier C item with a documented direct consumer (prereview) *and* a genuine
+capability gap (not a discoverability or docs gap) — the objective parse-time crash plus
+prereview's reactive-diffing loss are what earn it a real implementation rather than a doc note.
 
 ---
 
@@ -175,8 +190,9 @@ When evaluation reaches a runtime invocation boundary:
 1. Resolve the invoked name against the registry (step 2).
 2. Evaluate that sub-tree against the invocation's **pipe value** as the new dot. `$` naturally
    rebinds to that dot per invocation — matching Go's rule that a template calling itself drops
-   the caller's `$` (prereview relies on this: it resolves per-node display state at build time so
-   the recursive body never needs the root `$`).
+   the caller's `$`. This is a non-issue for prereview: its recursive `treeNode` body never
+   references root `$` (its only `$` — `{{$.FileFilter}}` — is in the non-recursive `fileBrowser`
+   wrapper), so the rebind doesn't change its behavior.
 3. Emit the result as a **nested `TreeNode`** under the current node (the same slot a nested tree
    already occupies).
 
@@ -266,33 +282,83 @@ position-distinct nested nodes so this per-position logic engages — see Open q
 
 ## Implementation phases
 
-> Outline for review — not yet a commitment. Each phase is one focused change with its own tests.
+> Outline for review — not yet a commitment. Each phase is one focused change. **Every phase must
+> ship its own tests across the three categories below; a phase is not done until its slice of the
+> test matrix is green.**
+
+### Test strategy (applies to every phase)
+
+Three categories, each a hard gate — no phase merges with a category left as "later":
+
+- **Correctness unit tests** (`internal/…`, in-repo): parse/build/eval invariants against
+  in-memory fixtures and `fstest`. Every phase adds the unit tests for the behavior it introduces.
+- **E2E integration tests** (chromedp, black-box in the `lvt` repo's `e2e/livetemplate_core_test.go`
+  suite per CLAUDE.md): a real browser drives a recursive-tree page; the harness captures **browser
+  console logs, server stderr, WebSocket frames, and rendered HTML** so a failure is diagnosable.
+  Asserts the payoff end-to-end — a deep single-node change delivers one `["u", key, …]` frame, not
+  a full re-send — and that expand/collapse/reorder at depth behave.
+- **Performance benchmarks** (`go test -bench`, checked in): `BenchmarkRecursiveRender` (first
+  render, O(nodes)) and `BenchmarkRecursiveUpdate` (one deep node changes) at depths/breadths
+  {10, 100, 1000 nodes}, plus a wire-size assertion (updated-bytes ≪ full-render bytes). Guards the
+  central claim that recursion is O(nodes) render + near-dynamics-only wire, and catches regressions
+  vs. today's opaque full-string re-send as a baseline row.
+
+### Core library
 
 - [ ] **Phase 1 — Defensive cycle guard (independently shippable).** Add visited-set/depth
       detection to `walkAndFlatten` so a self-referential template returns a clear
       `ParseError` ("recursive template requires runtime invocation; see …") instead of
       stack-overflowing. Ships value on its own (crash → diagnosable error) and lays the parse-time
-      detection Phase 2 builds on. Tests: direct + indirect cycle → error, not panic.
+      detection Phase 2 builds on. **Unit:** direct + indirect (`a`→`b`→`a`) cycle → error not
+      panic; a fuzz seed of self-referential sources. **E2E:** n/a (parse-time). **Bench:** n/a.
 - [ ] **Phase 2 — Retain runtime-invoked templates as sub-trees.** Build + register the named
-      body as a reusable sub-tree for templates flagged recursive in Phase 1. No rendering yet;
-      unit-test the registry + sub-tree build.
+      body as a reusable sub-tree for templates flagged recursive in Phase 1. No rendering yet.
+      **Unit:** registry membership + sub-tree build for direct and mutual recursion; non-recursive
+      `{{template}}` still flattens byte-for-byte (golden parity). **Bench:** compile-time cost of
+      registration is negligible vs. flatten.
 - [ ] **Phase 3 — Runtime invocation → nested `TreeNode`.** Wire eval to instantiate the sub-tree
-      per invocation against the pipe dot and splice the nested tree. Tests: a recursive fixture's
+      per invocation against the pipe dot and splice the nested tree. **Unit:** a recursive fixture's
       rendered **HTML content** matches the equivalent stdlib `html/template` output at depths 1..N
       (content parity — the *wire format* deliberately differs: nested `TreeNode` vs. inlined
-      string), plus a
-      *between-render depth change* (grow and shrink) asserting a newly-materialized level receives
-      its statics and a removed one is dropped — the Open-question-5 invariant.
+      string); a *between-render depth change* (grow and shrink) asserting a newly-materialized level
+      receives its statics and a removed one is dropped (Open-question-5 invariant). **E2E:** a
+      chromedp recursive-tree page renders correctly at depth and survives expand/collapse. **Bench:**
+      `BenchmarkRecursiveRender` lands here.
 - [ ] **Phase 4 — Eval-time depth guard.** Confirm the existing per-instance
       `GetStructureFingerprint()` lazy cache already covers deep trees (no new per-name cache — see
       §5); add a max-depth option with a clear error, applying the same on initial render *and* live
-      update (Open question 2). Tests: deep tree stays O(nodes); a leaf⇄directory branch flip
-      re-sends statics correctly; cyclic data errors cleanly on both paths.
-- [ ] **Phase 5 — Minimal-update proof + docs.** Assert a deep single-node change emits one
-      `["u", key, …]` and not a full re-send (the payoff). Update `template-support-matrix.md` and
-      `current-limitations.md`; add a recipe. **Companion:** migrate prereview's `filetree.go`
-      off the standalone-template escape hatch onto a native recursive `{{template}}` (proves the
-      boilerplate is actually removed; lands per the lockstep convention once a release ships).
+      update (Open question 2). **Unit:** deep tree stays O(nodes); a leaf⇄directory branch flip
+      re-sends statics correctly; cyclic data errors cleanly on both render and update paths. **E2E:**
+      a data-driven cycle surfaces the max-depth error in the browser without wedging the session.
+- [ ] **Phase 5 — Minimal-update proof + benchmarks + docs.** **Unit + Bench:** assert a deep
+      single-node change emits one `["u", key, …]` and not a full re-send (the payoff);
+      `BenchmarkRecursiveUpdate` + the wire-size assertion land here with the opaque-`template.HTML`
+      approach as the baseline row. **E2E:** the full black-box gate (console + server + WS + HTML
+      capture) proving the incremental-update path end-to-end. **Docs:** correct the
+      `template-support-matrix.md` "Circular template references" row (failure mode), update
+      `current-limitations.md`, add a recipe.
+
+### Companion migrations (dependent repos — land per the lockstep convention once a release ships)
+
+- [ ] **Phase 6 — prereview: remove the escape hatch (true workaround removal).** Replace
+      `FileBrowserHTML`/`fileBrowserTmpl` (`internal/review/filetree.go`) with a native recursive
+      `{{template "treeNode"}}` inside the reactive `prereview.tmpl`, deleting the standalone
+      `html/template` and the zero-arg `template.HTML` method. **Acceptance:** the file tree now
+      receives incremental `["u", key, …]` updates (verify via WS-frame capture in prereview's e2e
+      harness that selecting a deep file no longer re-sends the whole tree); existing prereview e2e
+      stays green; a benchmark/measurement of update bytes before/after documents the win.
+- [ ] **Phase 7 — tinkerdown: make the sidebar nav reactive (latent case → real consumer).**
+      Migrate `writeNavNode` (recursive-Go `<details>` string building, `internal/server/server.go`)
+      to a native recursive livetemplate `{{template}}`. **Note the honest scope:** tinkerdown
+      currently serves pages as static HTML (`servePage`'s *"Add WebSocket support for interactivity"*
+      TODO), so this phase also entails routing the nav through a livetemplate reactive tree — a
+      larger change than prereview's, and optional to the core feature. It earns its place by
+      proving recursion on a *second, independently-authored* app and retiring the hand-rolled
+      recursive-Go renderer. **Acceptance:** nav renders identically to the `writeNavNode` output
+      (visual-regression screenshot parity), and a nav change (e.g. active-page move) produces a
+      targeted update; tinkerdown e2e green. If reactive nav proves out of scope for tinkerdown's
+      roadmap, this phase degrades to "tinkerdown *could* adopt it" and is dropped without blocking
+      C8 — the core feature stands on Phase 6.
 
 ---
 
@@ -303,6 +369,11 @@ position-distinct nested nodes so this per-position logic engages — see Open q
   → nested `TreeNode`), an eval-time depth guard. `internal/build/fingerprint.go` is **reused
   as-is** — the existing per-instance lazy cache already covers deep recursion (§5); no per-name
   cache is added. `internal/diff` and the **client are unchanged** (reuses nested-tree wire format).
+  Tests span the core repo (unit + benchmarks), the `lvt` repo (chromedp e2e per CLAUDE.md), and —
+  for the companion migrations — the **prereview** and **tinkerdown** repos (Phases 6–7).
+- **Cross-repo work:** prereview (Phase 6, escape-hatch removal — a genuine simplification) and
+  tinkerdown (Phase 7, nav→reactive — a larger, optional migration). Both land per the lockstep
+  convention *after* a livetemplate release ships the feature; neither blocks the core phases.
 - **Backward compatibility:** high. The selective split means non-recursive composition keeps the
   existing flatten path byte-for-byte; only cyclic invocation graphs take the new path.
 - **Biggest risk:** the eval-time sub-tree instantiation is new plumbing. Mitigated by leaning on
