@@ -1,8 +1,9 @@
 # Recursive `{{template}}` Support
 
-**Status:** Proposed
+**Status:** Approved (2026-07-15) — the three headline decisions are settled (see § Decisions);
+Phase 1 (crash → `ParseError` guard) is ready to implement.
 **Tracking:** Tier C item C8 of the boilerplate-reduction pass (issue #483)
-**Audience:** livetemplate maintainers — a design to review before any implementation.
+**Audience:** livetemplate maintainers — the approved design of record for implementation.
 
 ## TL;DR
 
@@ -309,23 +310,29 @@ position-distinct nested nodes so this per-position logic engages — see Open q
 - **Performance:** deep trees render O(nodes); positionally-cached statics keep the wire cost
   near dynamics-only after first render — strictly better than today's full-string re-send.
 
-## Open questions
+## Decisions
 
-1. **Selective vs. uniform.** Recommended: convert *only* recursive invocations to runtime
-   boundaries (keep flattening non-recursive ones). Uniform runtime invocation is conceptually
-   cleaner but a much larger blast radius and a perf regression for the common flat case. Confirm
-   selective.
-2. **Depth guard: max-depth vs. pointer-visited.** Recommended max-depth (simpler, clearer error).
-   Default value + option name to settle. Also settle **what exceeding max-depth does on a live
-   update** (not just initial render): error the whole render, or degrade gracefully (truncate the
-   subtree and flag)? Recommend erroring uniformly so behavior doesn't diverge between render and
-   update — but confirm, since a runaway update shouldn't necessarily blank a working page.
+The three headline questions this proposal solicited are **decided** (maintainer sign-off,
+2026-07-15):
+
+1. ✅ **Selective, not uniform.** Convert *only* recursive invocations to runtime boundaries; keep
+   flattening non-recursive ones. Uniform runtime invocation is conceptually cleaner but a much
+   larger blast radius and a perf regression for the common flat case — not worth it.
+2. ✅ **Max-depth guard, erroring uniformly.** Use a configurable **max-depth** (simpler and a
+   clearer error than a pointer-visited set), enforced identically on initial render **and** live
+   update — exceeding it errors the render rather than degrading/truncating, so behavior doesn't
+   diverge between the two paths. (Default value + option name to settle during Phase 4; a
+   partial-render fallback can be revisited later if the hard-error UX proves too blunt.)
+4. ✅ **`data-key` falls back like `{{range}}`.** Do *not* require an explicit `data-key` inside a
+   runtime-invoked template; fall back to content-hash keys exactly as `{{range}}` does today.
+   Document that an explicit `data-key` is strongly preferred for large or reorderable trees.
+
+## Remaining design notes
+
+These are implementation invariants / scope boundaries, not open decisions:
+
 3. **Mutual recursion / indirect cycles** (`a`→`b`→`a`). The design handles it (the cycle set can
-   contain multiple names), but confirm test coverage expectations.
-4. **`data-key` requirement.** Targeted updates need stable node identity. Should the framework
-   *require* a `data-key` inside a runtime-invoked template (error if absent), or fall back to
-   content-hash keys as `{{range}}` does today? Recommend: fall back like range, document that
-   explicit `data-key` is strongly preferred for large trees.
+   contain multiple names); confirm test coverage during Phase 1/3.
 5. **Depth-change ⇒ position-distinct nested nodes.** The "no client changes" result (§6) rests on
    the eval producing genuinely position-distinct nested nodes at each recursion level, so the
    existing per-position `ClientNeedsStatics(nil, new)` fires for a *newly-materialized* level and

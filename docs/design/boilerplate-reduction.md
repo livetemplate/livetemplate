@@ -352,7 +352,7 @@ example would return to its documented ~10 lines; checklistkit's 5 builders coll
   → **Resolution: document the view-helper pattern (guide + example), keep a regression anchor.
   No core API change.**
 - **C8. Recursive `{{template}}` support (cross-app: prereview + tinkerdown).** 📝 **DESIGN
-  PROPOSED — awaiting greenlight.** livetemplate flattens `{{template}}` calls at parse time with
+  APPROVED (2026-07-15) — Phase 1 next.** livetemplate flattens `{{template}}` calls at parse time with
   no cycle guard, so a self-referential template stack-overflows during `Parse`; a recursive file
   tree drops to a standalone `html/template` injected as opaque `template.HTML` (prereview
   `internal/review/filetree.go`, noting *"the same native-`<details>` approach tinkerdown uses"*),
@@ -360,8 +360,10 @@ example would return to its documented ~10 lines; checklistkit's 5 builders coll
   capability gap and ≥2 hand-rolled consumers → **full design written**:
   [`docs/proposals/recursive-templates-proposal.md`](../proposals/recursive-templates-proposal.md).
   Recommended approach: route recursive invocations through the runtime nested-`TreeNode` path
-  `{{range}}` already uses (bounded by data depth, not parse-time expansion). Needs maintainer
-  greenlight before implementation.
+  `{{range}}` already uses (bounded by data depth, not parse-time expansion). Approach A
+  (selective), a max-depth guard erroring uniformly, and content-hash `data-key` fallback are all
+  decided (see the proposal's § Decisions); Phase 1 (crash → `ParseError`) is independently
+  shippable and up next.
 - **C9. Static-asset passthrough alongside the `/` LiveHandler.** ✅ **RESOLVED (docs, no new
   API).** The original pitch was a framework static-passthrough wrapper. On audit the common
   case — assets under a **known prefix** — is already handled by plain `net/http`:
@@ -414,8 +416,9 @@ real, used capability.
    cheap removal, **C7** a documented view-helper pattern with a regression anchor, **C1** a
    lifecycle callout, **C9** a static-assets composition note, **C6** a session-durability
    boundary note; **C2** and **C3** needed nothing (mechanism/idiom already documented); **C5**
-   is an `lvt`-repo follow-up. **C8** (recursive `{{template}}`) is the one remaining item with
-   a genuine cross-app capability gap — reserved for its own full treatment.
+   is an `lvt`-repo follow-up. **C8** (recursive `{{template}}`) is the one item with a genuine
+   cross-app capability gap — got its own full design, now **approved** with Phase 1 ready to
+   implement.
 
 ## Shipped with this document (core `livetemplate` repo)
 
