@@ -307,12 +307,21 @@ Three categories, each a hard gate — no phase merges with a category left as "
 
 ### Core library
 
-- [ ] **Phase 1 — Defensive cycle guard (independently shippable).** Add visited-set/depth
-      detection to `walkAndFlatten` so a self-referential template returns a clear
-      `ParseError` ("recursive template requires runtime invocation; see …") instead of
-      stack-overflowing. Ships value on its own (crash → diagnosable error) and lays the parse-time
-      detection Phase 2 builds on. **Unit:** direct + indirect (`a`→`b`→`a`) cycle → error not
-      panic; a fuzz seed of self-referential sources. **E2E:** n/a (parse-time). **Bench:** n/a.
+- [x] **Phase 1 — Defensive cycle guard (independently shippable). DONE.** Added an active-path
+      cycle check (`checkFlattenCycle`) to `walkAndFlatten` (`internal/parse/flatten.go`): a
+      `{{template}}` whose name is already being inlined on the current path returns a
+      `ParseError` naming the cycle (`treeNode -> treeNode`, `a -> b -> a`) instead of
+      stack-overflowing during `Parse`. The stack is seeded with the entry point's name so a
+      self-referential entry point is caught too. Preserves the cycle-name info Phase 2 needs to
+      flag runtime-invoked templates. Also corrected the `template-support-matrix.md`
+      "Recursive / circular template references" row (failure mode: parse-time `ParseError`, not a
+      runtime infinite loop). **Unit (`internal/parse/flatten_cycle_test.go`):** the discriminating
+      *diamond* test (same template invoked on non-nested paths still flattens — proves active-path,
+      not global-visited), direct + mutual (`a`→`b`→`a`) + self-referential-entry cycles → `*ParseError`
+      not panic, non-recursive composition unaffected. **Black-box (`recursive_template_test.go`):**
+      the real `New(...).Parse(...)` path returns an error, not a crash. **Fuzz
+      (`FuzzFlattenTemplate`):** seeded with self-referential sources; 370K execs, no overflow.
+      **E2E:** n/a (parse-time). **Bench:** n/a.
 - [ ] **Phase 2 — Retain runtime-invoked templates as sub-trees.** Build + register the named
       body as a reusable sub-tree for templates flagged recursive in Phase 1. No rendering yet.
       **Unit:** registry membership + sub-tree build for direct and mutual recursion; non-recursive
@@ -343,9 +352,10 @@ Three categories, each a hard gate — no phase merges with a category left as "
       single-node change emits one `["u", key, …]` and not a full re-send (the payoff);
       `BenchmarkRecursiveUpdate` + the wire-size assertion land here with the opaque-`template.HTML`
       approach as the baseline row. **E2E:** the full black-box gate (console + server + WS + HTML
-      capture) proving the incremental-update path end-to-end. **Docs:** correct the
-      `template-support-matrix.md` "Circular template references" row (failure mode), update
-      `current-limitations.md`, add a recipe.
+      capture) proving the incremental-update path end-to-end. **Docs:** flip the
+      `template-support-matrix.md` "Recursive / circular template references" row from ❌ to ✅
+      (Phase 1 already corrected its *failure-mode* wording), update `current-limitations.md`, add a
+      recipe.
 
 ### Companion migrations (dependent repos — land per the lockstep convention once a release ships)
 

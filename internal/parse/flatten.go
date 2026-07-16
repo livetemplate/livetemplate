@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"html/template"
+	"slices"
 	"strings"
 	"text/template/parse"
 )
@@ -61,9 +62,11 @@ func FlattenTemplate(tmpl *template.Template) (string, error) {
 		templates[t.Name()] = t
 	}
 
-	// Walk the tree and flatten
+	// Walk the tree and flatten. The active-path stack is seeded with the entry
+	// point's name so a self-referential entry point is caught on its first
+	// re-invocation and mutual-recursion errors print the cycle as authored.
 	var buf bytes.Buffer
-	if err := walkAndFlatten(mainTemplate.Tree.Root, templates, &buf); err != nil {
+	if err := walkAndFlatten(mainTemplate.Tree.Root, templates, &buf, []string{mainTemplate.Name()}); err != nil {
 		return "", err
 	}
 
@@ -202,7 +205,15 @@ func hasTemplateNode(node parse.Node) bool {
 }
 
 // walkAndFlatten recursively walks the AST and builds flattened template string.
-func walkAndFlatten(node parse.Node, templates map[string]*template.Template, buf *bytes.Buffer) error {
+//
+// stack holds the names of the templates whose bodies are currently being
+// inlined on the path from the entry point to this node (an active-path set,
+// not a global visited-set). A {{template "X"}} whose name is already on the
+// stack is a self-referential cycle: inlining it would expand forever and
+// stack-overflow at Parse, so it returns a ParseError instead. The same name
+// invoked twice on non-nested paths (a diamond) is not a cycle and still
+// inlines, because each invocation pops off the stack when its body returns.
+func walkAndFlatten(node parse.Node, templates map[string]*template.Template, buf *bytes.Buffer, stack []string) error {
 	if node == nil {
 		return nil
 	}
@@ -211,7 +222,7 @@ func walkAndFlatten(node parse.Node, templates map[string]*template.Template, bu
 	case *parse.ListNode:
 		// Process all child nodes
 		for _, child := range n.Nodes {
-			if err := walkAndFlatten(child, templates, buf); err != nil {
+			if err := walkAndFlatten(child, templates, buf, stack); err != nil {
 				return err
 			}
 		}
@@ -232,13 +243,13 @@ func walkAndFlatten(node parse.Node, templates map[string]*template.Template, bu
 		buf.WriteString(formatPipeForFlatten(n.Pipe))
 		buf.WriteString("}}")
 
-		if err := walkAndFlatten(n.List, templates, buf); err != nil {
+		if err := walkAndFlatten(n.List, templates, buf, stack); err != nil {
 			return err
 		}
 
 		if n.ElseList != nil {
 			buf.WriteString("{{else}}")
-			if err := walkAndFlatten(n.ElseList, templates, buf); err != nil {
+			if err := walkAndFlatten(n.ElseList, templates, buf, stack); err != nil {
 				return err
 			}
 		}
@@ -251,13 +262,13 @@ func walkAndFlatten(node parse.Node, templates map[string]*template.Template, bu
 		buf.WriteString(formatPipeForFlatten(n.Pipe))
 		buf.WriteString("}}")
 
-		if err := walkAndFlatten(n.List, templates, buf); err != nil {
+		if err := walkAndFlatten(n.List, templates, buf, stack); err != nil {
 			return err
 		}
 
 		if n.ElseList != nil {
 			buf.WriteString("{{else}}")
-			if err := walkAndFlatten(n.ElseList, templates, buf); err != nil {
+			if err := walkAndFlatten(n.ElseList, templates, buf, stack); err != nil {
 				return err
 			}
 		}
@@ -270,13 +281,13 @@ func walkAndFlatten(node parse.Node, templates map[string]*template.Template, bu
 		buf.WriteString(formatPipeForFlatten(n.Pipe))
 		buf.WriteString("}}")
 
-		if err := walkAndFlatten(n.List, templates, buf); err != nil {
+		if err := walkAndFlatten(n.List, templates, buf, stack); err != nil {
 			return err
 		}
 
 		if n.ElseList != nil {
 			buf.WriteString("{{else}}")
-			if err := walkAndFlatten(n.ElseList, templates, buf); err != nil {
+			if err := walkAndFlatten(n.ElseList, templates, buf, stack); err != nil {
 				return err
 			}
 		}
@@ -293,6 +304,16 @@ func walkAndFlatten(node parse.Node, templates map[string]*template.Template, bu
 		if refTemplate.Tree == nil || refTemplate.Tree.Root == nil {
 			return fmt.Errorf("template %q has no parse tree", n.Name)
 		}
+
+		// Cycle detection: if this template is already being inlined on the
+		// current path, inlining its body again would recurse forever and
+		// stack-overflow during Parse (livetemplate inlines {{template}} calls
+		// at parse time; it does not yet evaluate recursive invocations at
+		// runtime). Return a structured error naming the cycle instead.
+		if err := checkFlattenCycle(n, stack); err != nil {
+			return err
+		}
+		stack = append(stack, n.Name)
 
 		// Handle data context changes
 		// If template invocation passes a different context (e.g., {{template "name" .Field}}),
@@ -312,14 +333,14 @@ func walkAndFlatten(node parse.Node, templates map[string]*template.Template, bu
 			buf.WriteString(formatPipeForFlatten(n.Pipe))
 			buf.WriteString("}}")
 
-			if err := walkAndFlatten(refTemplate.Tree.Root, templates, buf); err != nil {
+			if err := walkAndFlatten(refTemplate.Tree.Root, templates, buf, stack); err != nil {
 				return err
 			}
 
 			buf.WriteString("{{end}}")
 		} else {
 			// No context change needed - inline as-is
-			if err := walkAndFlatten(refTemplate.Tree.Root, templates, buf); err != nil {
+			if err := walkAndFlatten(refTemplate.Tree.Root, templates, buf, stack); err != nil {
 				return err
 			}
 		}
@@ -331,6 +352,28 @@ func walkAndFlatten(node parse.Node, templates map[string]*template.Template, bu
 	}
 
 	return nil
+}
+
+// checkFlattenCycle reports a self-referential {{template}} invocation. If the
+// invoked name already appears on the active-path stack, inlining it again
+// would expand forever, so it returns a ParseError naming the cycle (the path
+// from the name's first appearance back to itself, e.g. "page -> row -> page").
+// Returns nil when the invocation is acyclic and safe to inline.
+func checkFlattenCycle(n *parse.TemplateNode, stack []string) error {
+	i := slices.Index(stack, n.Name)
+	if i < 0 {
+		return nil
+	}
+	cycle := strings.Join(stack[i:], " -> ") + " -> " + n.Name
+	return &ParseError{
+		Phase:    "parse",
+		NodeType: "template",
+		Expr:     n.Name,
+		Pos:      int(n.Position()),
+		Msg: fmt.Sprintf("recursive template invocation is not supported (cycle: %s); "+
+			"livetemplate inlines {{template}} calls at parse time, so a self-referential "+
+			"template would expand infinitely", cycle),
+	}
 }
 
 // formatPipe converts a pipe to its string representation.
