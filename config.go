@@ -38,6 +38,14 @@ type EnvConfig struct {
 	// Environment: LVT_DEV_MODE (true/false, 1/0)
 	DevMode bool
 
+	// MaxTemplateDepth caps how deep recursive {{template}} invocations may nest
+	// while building the reactive tree. It stops unbounded recursion (e.g.
+	// self-referential data) from overflowing the stack, surfacing a clear error
+	// instead. Zero uses the built-in default (128); set a higher value only if
+	// your data is legitimately deeper.
+	// Environment: LVT_MAX_TEMPLATE_DEPTH (positive integer)
+	MaxTemplateDepth int
+
 	// WebSocketDisabled disables WebSocket connections (HTTP-only mode).
 	// Environment: LVT_WEBSOCKET_DISABLED (true/false, 1/0)
 	WebSocketDisabled bool
@@ -163,6 +171,15 @@ func LoadEnvConfig() (*EnvConfig, error) {
 		config.DevMode = b
 	}
 
+	// Load MaxTemplateDepth
+	if val := os.Getenv("LVT_MAX_TEMPLATE_DEPTH"); val != "" {
+		n, err := strconv.Atoi(val)
+		if err != nil || n <= 0 {
+			return nil, fmt.Errorf("invalid LVT_MAX_TEMPLATE_DEPTH %q: must be a positive integer", val)
+		}
+		config.MaxTemplateDepth = n
+	}
+
 	// Load WebSocketDisabled
 	if val := os.Getenv("LVT_WEBSOCKET_DISABLED"); val != "" {
 		b, err := parseBool(val)
@@ -284,6 +301,10 @@ func (c *EnvConfig) ToOptions() []Option {
 
 	if c.DevMode {
 		opts = append(opts, WithDevMode(true))
+	}
+
+	if c.MaxTemplateDepth > 0 {
+		opts = append(opts, WithMaxTemplateDepth(c.MaxTemplateDepth))
 	}
 
 	if c.WebSocketDisabled {

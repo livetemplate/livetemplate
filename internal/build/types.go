@@ -172,6 +172,17 @@ type Context struct {
 	// TemplateName is the name of the template being built.
 	// Used for expression caching to avoid redundant template executions.
 	TemplateName string
+
+	// InvocationDepth counts how many recursive {{template}} invocations are
+	// currently nested on the build path. Incremented in a per-invocation copy
+	// of the Context (see invokeTemplate), so sibling branches count
+	// independently. Guards against runaway recursion — self-referential data
+	// or a pathologically deep tree — overflowing the Go stack during the walk.
+	InvocationDepth int
+
+	// MaxInvocationDepth caps InvocationDepth. Zero means "use the built-in
+	// default"; a positive value (set via WithMaxTemplateDepth) overrides it.
+	MaxInvocationDepth int
 }
 
 // NewContext creates a context for first render (includes all statics).

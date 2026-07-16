@@ -1,6 +1,7 @@
 package parse
 
 import (
+	"bytes"
 	"errors"
 	"html/template"
 	"strings"
@@ -41,14 +42,19 @@ func TestFlattenTemplate_Diamond(t *testing.T) {
 	}
 }
 
-// TestFlattenTemplate_Cycles covers the self-referential invocation graphs that
-// stack-overflowed during Parse before this guard. Each must come back as a
-// *ParseError naming the cycle — never a panic and never a silent success.
-func TestFlattenTemplate_Cycles(t *testing.T) {
+// TestFlattenTemplate_RecursionEmittedForRuntime covers the self-referential
+// invocation graphs that once stack-overflowed during Parse. They must now
+// flatten cleanly: each cycle member's {{template}} call is left verbatim (so it
+// survives re-parse and is evaluated at build time by invokeTemplate) and its
+// body is re-emitted once as a {{define}} block for the recursion registry.
+func TestFlattenTemplate_RecursionEmittedForRuntime(t *testing.T) {
 	tests := []struct {
-		name      string
-		src       string
-		wantCycle string // substring expected in the reported cycle
+		name string
+		src  string
+		// verbatim invocations that must remain un-inlined, and the {{define}}
+		// blocks that must be appended for the registry.
+		wantVerbatim []string
+		wantDefines  []string
 	}{
 		{
 			name: "direct recursion",
@@ -56,43 +62,77 @@ func TestFlattenTemplate_Cycles(t *testing.T) {
 				`{{range .Children}}{{template "treeNode" .}}{{end}}` +
 				`</ul></li>{{end}}` +
 				`{{template "treeNode" .}}`,
-			wantCycle: "treeNode -> treeNode",
+			wantVerbatim: []string{`{{template "treeNode"`},
+			wantDefines:  []string{`{{define "treeNode"}}`},
 		},
 		{
 			name: "mutual recursion",
 			src: `{{define "a"}}<div>{{template "b" .}}</div>{{end}}` +
 				`{{define "b"}}<span>{{template "a" .}}</span>{{end}}` +
 				`{{template "a" .}}`,
-			wantCycle: "a -> b -> a",
+			wantVerbatim: []string{`{{template "a"`, `{{template "b"`},
+			wantDefines:  []string{`{{define "a"}}`, `{{define "b"}}`},
 		},
 		{
-			name:      "self-referential entry point",
-			src:       `<div>{{template "main" .}}</div>`,
-			wantCycle: "main -> main",
+			name:         "self-referential entry point",
+			src:          `<div>{{template "main" .}}</div>`,
+			wantVerbatim: []string{`{{template "main"`},
+			wantDefines:  []string{`{{define "main"}}`},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := FlattenTemplate(mustParse(t, tt.src))
-			if err == nil {
-				t.Fatal("expected a ParseError for recursive template, got nil")
+			out, err := FlattenTemplate(mustParse(t, tt.src))
+			if err != nil {
+				t.Fatalf("recursive template must flatten for runtime invocation, got: %v", err)
 			}
-
-			var pe *ParseError
-			if !errors.As(err, &pe) {
-				t.Fatalf("expected *ParseError, got %T: %v", err, err)
+			for _, want := range tt.wantVerbatim {
+				if !strings.Contains(out, want) {
+					t.Errorf("expected verbatim invocation %q (recursion left un-inlined) in:\n%s", want, out)
+				}
 			}
-			if pe.Phase != "parse" {
-				t.Errorf("expected Phase %q, got %q", "parse", pe.Phase)
+			for _, want := range tt.wantDefines {
+				if !strings.Contains(out, want) {
+					t.Errorf("expected registry define %q appended in:\n%s", want, out)
+				}
 			}
-			if !strings.Contains(err.Error(), tt.wantCycle) {
-				t.Errorf("error should report cycle %q, got: %v", tt.wantCycle, err)
-			}
-			if !strings.Contains(err.Error(), "recursive") {
-				t.Errorf("error should mention %q, got: %v", "recursive", err)
+			// The flattened string must re-parse (it feeds parse.Parse), which
+			// also confirms the appended defines are well-formed.
+			if _, err := template.New("verify").Parse(out); err != nil {
+				t.Errorf("flattened output must re-parse, got: %v\n%s", err, out)
 			}
 		})
+	}
+}
+
+// TestFlattenTemplate_CycleBackstop proves the active-path guard (checkFlattenCycle)
+// still fires as a safety net: if detection ever under-identifies a cycle, the
+// un-emitted {{template}} call re-enters walkAndFlatten and must produce a clean
+// ParseError naming the cycle — never a stack overflow. Simulated by walking a
+// self-referential template with an empty recursive set (detection "missed" it).
+func TestFlattenTemplate_CycleBackstop(t *testing.T) {
+	src := `{{define "treeNode"}}<li>{{.Name}}` +
+		`{{range .Children}}{{template "treeNode" .}}{{end}}` +
+		`</li>{{end}}` +
+		`{{template "treeNode" .}}`
+	tmpl := mustParse(t, src)
+	templates := map[string]*template.Template{}
+	for _, tm := range tmpl.Templates() {
+		templates[tm.Name()] = tm
+	}
+
+	var buf bytes.Buffer
+	err := walkAndFlatten(tmpl.Tree.Root, templates, &buf, []string{tmpl.Name()}, map[string]bool{})
+	if err == nil {
+		t.Fatal("empty recursive set must fall through to the cycle backstop, got nil")
+	}
+	var pe *ParseError
+	if !errors.As(err, &pe) {
+		t.Fatalf("expected *ParseError, got %T: %v", err, err)
+	}
+	if !strings.Contains(err.Error(), "treeNode -> treeNode") || !strings.Contains(err.Error(), "recursive") {
+		t.Errorf("backstop error should name the cycle, got: %v", err)
 	}
 }
 

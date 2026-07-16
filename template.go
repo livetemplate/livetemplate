@@ -155,6 +155,7 @@ type Config struct {
 	TemplateBaseDir        string                              // Base directory for template auto-discovery (default: directory of calling code via runtime.Caller)
 	IgnoreTemplateDirs     []string                            // Additional directories to ignore during auto-discovery
 	DevMode                bool                                // Development mode: allows ALL WebSocket origins (disables the same-origin/CSRF check — never in production), exposes {{.lvt.DevMode}} to templates, enables debug logging
+	MaxTemplateDepth       int                                 // Max recursive {{template}} nesting depth during tree generation (0 = built-in default of 128)
 	MaxConnections         int64                               // Maximum total connections (0 = unlimited)
 	MaxConnectionsPerGroup int64                               // Maximum connections per group (0 = unlimited)
 	MessageRateLimit       float64                             // Messages per second per connection (0 = unlimited, default 10)
@@ -420,6 +421,17 @@ func WithLoadingDisabled() Option {
 func WithDevMode(enabled bool) Option {
 	return func(c *Config) {
 		c.DevMode = enabled
+	}
+}
+
+// WithMaxTemplateDepth sets the maximum nesting depth for recursive {{template}}
+// invocations during reactive tree generation. Beyond this depth, tree building
+// fails with a clear error rather than overflowing the stack — a guard against
+// unbounded recursion in the data. A non-positive value keeps the built-in
+// default (128). Raise it only when the data is legitimately deeper.
+func WithMaxTemplateDepth(depth int) Option {
+	return func(c *Config) {
+		c.MaxTemplateDepth = depth
 	}
 }
 
@@ -1609,6 +1621,7 @@ func (t *Template) buildTreeWithCache(data interface{}, ctx *build.Context) (*tr
 func (t *Template) generateInitialTreeWithoutRegistry(data interface{}, extractedContent string) *treeNode {
 	ctx := build.NewContext()
 	ctx.DevMode = t.config.DevMode
+	ctx.MaxInvocationDepth = t.config.MaxTemplateDepth
 
 	tree, err := t.buildTreeWithCache(data, ctx)
 	if err != nil {
@@ -1642,6 +1655,7 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, newData interf
 		// path below, which is unreachable once hasInitialTree is true.
 		ctx := build.NewContext()
 		ctx.DevMode = t.config.DevMode
+		ctx.MaxInvocationDepth = t.config.MaxTemplateDepth
 
 		newTree, err := t.buildTreeWithCache(newData, ctx)
 		if err != nil {
