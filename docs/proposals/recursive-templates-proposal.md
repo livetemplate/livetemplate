@@ -28,7 +28,16 @@ each level is a first-class diffable subtree. Non-recursive invocations keep fla
 unchanged (zero regression risk to existing composition).
 
 **Non-goal.** This is not "arbitrary Go template recursion at any cost." It's "let a template
-call itself over a finite data structure and still get minimal updates."
+call itself over a finite data structure and stay inside the reactive tree."
+
+**What ships now vs. later (measured, not assumed).** What lands with C8: recursive templates
+*render* correctly and *update reactively* in place (DOM/focus/scroll preserved) — the capability
+prereview and tinkerdown lack today. What does **not** yet land: genuinely *minimal* per-edit
+payloads. Recursive range items are keyed by a deep content hash, so a deep edit re-sends its whole
+enclosing top-level branch; for a deep, narrow tree that is ~the size of re-sending the entire
+opaque string it replaces (benchmarked: ~24 KB vs ~23.5 KB, at ~25× the CPU). Scoping deep edits to
+a single leaf `["u", key, {…}]` needs the data-key-through-the-wrapper follow-up (§ Remaining design
+notes). So C8 is shipped for the *capability*, with update-size optimization tracked separately.
 
 ---
 
@@ -303,9 +312,17 @@ position-distinct nested nodes so this per-position logic engages. **Verified** 
 - User renames a file 4 levels deep: the change reaches the client, and the diff is scoped to the
   branch that contains the edit — its sibling branches are **not** re-sent. (Per the keying caveat
   above, today the enclosing branch is re-sent whole rather than a single per-leaf
-  `["u", "<path>", {…}]`; scoping the deep edit down to the leaf is a tracked follow-up.) Even so,
-  this is dramatically smaller than the status quo, where the entire `{{.FileBrowserHTML}}` string
-  re-sends on any change anywhere.
+  `["u", "<path>", {…}]`; scoping the deep edit down to the leaf is a tracked follow-up.)
+  **How much this beats the status quo depends on the tree's shape, and the honest answer is "less
+  than you'd hope for deep, narrow trees."** The enclosing branch is `1/branch` of the tree, so a
+  wide tree (many top-level entries) re-sends a small slice, but a deep, narrow one re-sends a large
+  fraction. Measured (`recursive_template_bench_test.go`, depth-5 branch-3): a deep-leaf edit's
+  update is **~24 KB vs ~23.5 KB** for re-sending the entire opaque `{{.FileBrowserHTML}}` string —
+  essentially equal in bytes, and ~25× the CPU to compute. So the unconditional win here is **not**
+  payload size; it is (a) rendering correctly at all (the status quo overflows the flattener) and
+  (b) applying the change as an in-place tree update that preserves DOM/focus/scroll state, where the
+  opaque string can only replace `innerHTML` wholesale. The payload-size win arrives with the
+  data-key-through-the-wrapper follow-up.
 
 ---
 
@@ -390,16 +407,32 @@ Three categories, each a hard gate — no phase merges with a category left as "
       HTML-structure fallback while the **update** path propagates the guard error. **Unit:** tree-path
       guard on infinite data; no-crash on the full path; `WithMaxTemplateDepth(3)` rejects a deep tree
       on update that the default renders.
-- [ ] **Phase 5 — Benchmarks + browser e2e + docs (remaining).** The minimal-update **proof** landed
+- [~] **Phase 5 — Benchmarks + browser e2e + docs (partly done).** The minimal-update **proof** landed
       in Phase 3 (`_MinimalUpdate_AddChild`/`_InsertMiddle`/`_Reorder`/`_Remove`/`_DepthGrows`,
       `_DescendantBranchRebuild`), plus the depth-guard first-render leg (`_FirstRenderOverLimit`).
-      Still to do: `BenchmarkRecursiveRender`/`BenchmarkRecursiveUpdate` with the opaque-`template.HTML`
-      baseline row; the full chromedp black-box gate (console + server + WS + HTML capture, in the lvt
-      repo against the local build); flip the `template-support-matrix.md` "Recursive / circular
-      template references" row from ❌ to ✅ **with the keying footnote** (deep edits re-render the
-      enclosing branch; explicit `data-key` not yet honored through the invocation wrapper), update
-      `current-limitations.md`, add a recipe. **Splittable into a fast-follow PR** so the functional
-      change reviews on its own.
+      - [x] **Browser e2e written + validated.** `lvt/e2e/recursive_tree_e2e_test.go`
+        (`TestRecursiveTemplate_E2E`, `//go:build browser`): a full-HTML recursive file tree renders
+        its complete nested structure on first load AND reactively applies a deep-branch insert through
+        the **published** client — no reload, no console errors — capturing all four sources (console +
+        server logs + WS frames + HTML). **PASS (1.96s)** against the C8 branch via a temporary go.work
+        repoint to the worktree. This gate caught a real bug the fragment-only unit tests missed: the
+        e2e first failed with a `walkAndFlatten` **stack overflow** because it was silently building
+        against the *published* (pre-C8) livetemplate — proving the run genuinely exercises the
+        recursion path. **Release-gated:** committed on branch `lvt/tierc-c8-recursive-e2e` (not `main`
+        — lvt CI builds against published livetemplate, which overflows until C8 releases); open the PR
+        in lockstep once a livetemplate release ships C8.
+      - [x] `BenchmarkRecursiveRender`/`BenchmarkRecursiveUpdate` with the opaque-`template.HTML`
+        baseline row (`recursive_template_bench_test.go`). **Finding (corrects the "minimal updates"
+        premise):** a deep-leaf edit's update (~24 KB, the enclosing top-level branch) is
+        ~equal in bytes to re-sending the whole opaque string (~23.5 KB) and ~25× the CPU — so the
+        payload win is not delivered for deep, narrow trees pre-follow-up. Render is ~20-30× an opaque
+        Execute. The benchmark comments and TL;DR/§6 now state this honestly; the win C8 ships is
+        capability + reactive DOM-state preservation, not payload size.
+      - [ ] **Release-gated docs:** flip the `template-support-matrix.md` "Recursive / circular template
+        references" row from ❌ to ✅ **with the keying footnote** (deep edits re-render the enclosing
+        branch; explicit `data-key` not yet honored through the invocation wrapper), update
+        `current-limitations.md`, add a recipe. Matrix reflects *released* behavior, so this lands with
+        the release, not before.
 - [ ] **Follow-up — honor explicit `data-key` through the invocation wrapper.** So a deep-descendant
       edit scopes down to a single per-leaf `["u", key, {…}]` instead of re-sending the enclosing
       branch. The naive unwrap (exposing the item's `<li>` as its top-level tree) regressed the
