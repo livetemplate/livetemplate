@@ -313,6 +313,11 @@ func walkAndFlatten(node parse.Node, templates map[string]*template.Template, bu
 		if err := checkFlattenCycle(n, stack); err != nil {
 			return err
 		}
+		// Push this name for the body recursion below. Reusing stack's backing
+		// array across sibling {{template}} invocations is safe only because the
+		// walk is strictly sequential (each child fully returns before the next
+		// starts) — a stale tail is never read concurrently. This invariant must
+		// hold if the walk is ever parallelized.
 		stack = append(stack, n.Name)
 
 		// Handle data context changes
