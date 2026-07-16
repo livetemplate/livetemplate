@@ -50,11 +50,14 @@ func invokeTemplate(n *parse.TemplateNode, eval *evaluator, data interface{}, va
 		}
 	}
 
-	// Go rebinds dot on a template call to the pipe value (defaulting to the
-	// caller's dot when the invocation is {{template "name"}} with no argument).
-	invocationDot := dot(data, varCtx)
+	// Go rebinds dot on a template call to the pipe value; a no-argument
+	// {{template "name"}} rebinds dot to nil (NOT the caller's dot). Matching
+	// that keeps the tree path byte-identical to html/template Execute. The pipe,
+	// when present, still resolves against the caller's dot (e.g. {{template "x"
+	// .Field}} reads .Field from the caller).
+	var invocationDot interface{}
 	if n.Pipe != nil {
-		v, err := eval.evalPipe(n.Pipe, invocationDot, varCtx)
+		v, err := eval.evalPipe(n.Pipe, dot(data, varCtx), varCtx)
 		if err != nil {
 			return nil, &ParseError{Phase: "eval", NodeType: "template", Expr: n.Name, Err: err}
 		}
