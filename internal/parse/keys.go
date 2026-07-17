@@ -122,9 +122,20 @@ func wrappedItemKey(item *TreeNode) (string, bool) {
 // (nil, false) if any item does not expose one. It is all-or-nothing so a range
 // never mixes stable data-keys with content hashes.
 func allWrappedItemKeys(items []rangeItemWithStatics) ([]string, bool) {
+	if len(items) == 0 {
+		return nil, false
+	}
+	// Probe the first item before allocating: an ordinary (non-recursive)
+	// auto-keyed range fails here, so it avoids an N-length slice thrown away on
+	// every render — only a genuine recursive-invocation range gets past item 0.
+	first, ok := wrappedItemKey(items[0].tree)
+	if !ok {
+		return nil, false
+	}
 	out := make([]string, len(items))
-	for i, item := range items {
-		key, ok := wrappedItemKey(item.tree)
+	out[0] = first
+	for i := 1; i < len(items); i++ {
+		key, ok := wrappedItemKey(items[i].tree)
 		if !ok {
 			return nil, false
 		}

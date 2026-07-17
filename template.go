@@ -1618,10 +1618,19 @@ func (t *Template) buildTreeWithCache(data interface{}, ctx *build.Context) (*tr
 // NOTE: This method modifies template state. Caller must hold t.mu write lock.
 // Errors from buildTreeWithCache are absorbed via the HTML structure-based fallback,
 // so this method never propagates failure to the caller.
-func (t *Template) generateInitialTreeWithoutRegistry(data interface{}, extractedContent string) *treeNode {
+// newBuildContext returns a build context seeded from the template's config. Both
+// tree-build entry points use it, so a config field that must reach the build
+// (DevMode, MaxInvocationDepth) is projected in one place and can't drift between
+// the first-render and update paths.
+func (t *Template) newBuildContext() *build.Context {
 	ctx := build.NewContext()
 	ctx.DevMode = t.config.DevMode
 	ctx.MaxInvocationDepth = t.config.MaxTemplateDepth
+	return ctx
+}
+
+func (t *Template) generateInitialTreeWithoutRegistry(data interface{}, extractedContent string) *treeNode {
+	ctx := t.newBuildContext()
 
 	tree, err := t.buildTreeWithCache(data, ctx)
 	if err != nil {
@@ -1653,9 +1662,7 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, newData interf
 		// Note: t.lastHTML is intentionally not updated here — it holds stale data from
 		// the first render. This is safe because lastHTML is only consumed by the fallback
 		// path below, which is unreachable once hasInitialTree is true.
-		ctx := build.NewContext()
-		ctx.DevMode = t.config.DevMode
-		ctx.MaxInvocationDepth = t.config.MaxTemplateDepth
+		ctx := t.newBuildContext()
 
 		newTree, err := t.buildTreeWithCache(newData, ctx)
 		if err != nil {
