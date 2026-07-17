@@ -200,10 +200,9 @@ func itemKeys(t *testing.T, tmpl *Template, data fileNode) []string {
 // the key of the preceding sibling. That key only resolves if range keying reaches
 // through the {{template}} invocation wrapper down to the item's identity —
 // appending always lands at the tail (the ["a"] fast path) and never resolves an
-// after-id, so it proves nothing about mid-list keying. (Keys are content hashes,
-// not the raw data-key value, because the wrapper hides the item's top-level
-// statics from hasExplicitKeyAttribute; identity is still exact since the data-key
-// value is itself one of the hashed dynamics — see the file-level note.)
+// after-id, so it proves nothing about mid-list keying. (The key is the item's raw
+// data-key value — its path — read through the wrapper by allWrappedItemKeys, not a
+// content hash of the subtree; see the file-level note.)
 func TestRecursiveTemplate_MinimalUpdate_InsertMiddle(t *testing.T) {
 	tmpl, err := Must(New("test")).Parse(recursiveTreeSrc)
 	if err != nil {
@@ -249,8 +248,8 @@ func TestRecursiveTemplate_MinimalUpdate_InsertMiddle(t *testing.T) {
 // for recursive lists: reordering children (no content change) emits a single
 // ["o", [ids…]] permutation carrying only the keys — not a teardown/rebuild of
 // every invoked subtree. A correct 3-distinct-key permutation is itself proof that
-// range keying descends through the invocation wrapper (the keys are content
-// hashes, not the raw data-key value — see the file-level note).
+// range keying descends through the invocation wrapper (each key is the item's raw
+// data-key value read through the wrapper, not a content hash — see the file-level note).
 func TestRecursiveTemplate_MinimalUpdate_Reorder(t *testing.T) {
 	before := dirWith(leaf("a.go", "/a.go"), leaf("b.go", "/b.go"), leaf("c.go", "/c.go"))
 	after := dirWith(leaf("c.go", "/c.go"), leaf("a.go", "/a.go"), leaf("b.go", "/b.go"))
