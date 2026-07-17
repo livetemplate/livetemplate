@@ -192,6 +192,13 @@ func injectWrapperDivStringBased(htmlDoc string, wrapperID string, loadingDisabl
 // template. Handles body tags with or without attributes (e.g., <body>,
 // <body class="dark">). Uses html.Tokenizer (see locateBodyAndFirstScript)
 // to avoid being fooled by '<body' substrings in head content.
+//
+// It also re-attaches any trailing {{define}} blocks that FlattenTemplate appends
+// AFTER the document (past </body></html>) for recursive {{template}} support: the
+// body's {{template}} calls reference those defines, and the extracted content is
+// parsed on its own for reactive tree generation, so dropping them would leave the
+// recursion registry empty and silently degrade recursive templates to HTML-string
+// diffing.
 func ExtractTemplateBodyContent(templateStr string) string {
 	bodyOpenStart, bodyOpenEnd, bodyCloseStart, _ := locateBodyAndFirstScript(templateStr)
 	if bodyOpenStart < 0 {
@@ -205,7 +212,21 @@ func ExtractTemplateBodyContent(templateStr string) string {
 	if bodyCloseStart < 0 || bodyOpenEnd > bodyCloseStart {
 		return strings.TrimSpace(templateStr[bodyOpenEnd:])
 	}
-	return strings.TrimSpace(templateStr[bodyOpenEnd:bodyCloseStart])
+	body := strings.TrimSpace(templateStr[bodyOpenEnd:bodyCloseStart])
+	return body + trailingDefineBlocks(templateStr[bodyCloseStart:])
+}
+
+// trailingDefineBlocks returns the {{define}} blocks (from the first {{define
+// onward) found in the content after the body close, or "" if there are none.
+// FlattenTemplate appends recursion cycle members there; Go templates collect
+// {{define}} regardless of position, so appending them to the body content keeps
+// the extracted template self-contained.
+func trailingDefineBlocks(afterBody string) string {
+	idx := strings.Index(afterBody, "{{define")
+	if idx < 0 {
+		return ""
+	}
+	return strings.TrimRight(afterBody[idx:], " \t\r\n")
 }
 
 // ExtractTemplateContent extracts template content using wrapper ID with proper HTML parsing.

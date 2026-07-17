@@ -354,8 +354,23 @@ func hasStaticsInMap(m map[string]any) bool {
 		return true
 	}
 	for _, v := range m {
-		if nested, ok := v.(map[string]any); ok {
-			if hasStaticsInMap(nested) {
+		if staticsInValue(v) {
+			return true
+		}
+	}
+	return false
+}
+
+// staticsInValue recurses into nested maps AND slices — a ["u"] payload can carry
+// statics inside a nested range-op array (e.g. {"2": [["u", k, {"s": …}]]}), not
+// only inside nested maps, so the array case must be walked too.
+func staticsInValue(v any) bool {
+	switch val := v.(type) {
+	case map[string]any:
+		return hasStaticsInMap(val)
+	case []any:
+		for _, e := range val {
+			if staticsInValue(e) {
 				return true
 			}
 		}

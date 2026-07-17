@@ -40,10 +40,19 @@ func transitionRangeIfHomogeneous(rd *build.RangeData) {
 	if !ok {
 		return
 	}
+	// Ranges whose items contain nested ranges stay on the differential path,
+	// which retains the old item trees stream mode discards. Only that path can
+	// recursively diff a kept-but-changed item into a nested ["u", key, …]
+	// (see GenerateRangeDifferentialOperations); transitioning to stream would
+	// force the whole enclosing branch to re-send on any deep edit. The check
+	// rides the homogeneity loop below, which already walks every item.
+	if nodeContainsNestedRange(firstItem) {
+		return
+	}
 	ref := build.CalculateStaticsFingerprint(firstItem)
 	for _, item := range rd.Items[1:] {
 		itemNode, ok := item.(*build.TreeNode)
-		if !ok || build.CalculateStaticsFingerprint(itemNode) != ref {
+		if !ok || build.CalculateStaticsFingerprint(itemNode) != ref || nodeContainsNestedRange(itemNode) {
 			return
 		}
 	}

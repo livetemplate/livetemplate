@@ -121,12 +121,15 @@ func GenerateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 		return nil
 	}
 
-	// Kept-item changes can't be encoded as differential ops; full-tree fallback (spec §5c/§5d).
-	if hasKeptItemChanged(ctx) {
-		return nil
-	}
+	// A kept-but-changed item is encoded as a per-item ["u", key, <recursive diff>]
+	// (generateKeptItemUpdateOps); if any can't be expressed that way, keptOK is
+	// false and we fall back to a full-tree replace (spec §5c/§5d).
+	keptChanged := hasKeptItemChanged(ctx)
 
-	if isPureReorderingCtx(ctx) {
+	// A content change is not a pure reorder; only take the reorder shortcut when
+	// nothing changed in place (a trailing ["o"] is still appended below when the
+	// key order changed alongside content).
+	if !keptChanged && isPureReorderingCtx(ctx) {
 		return []interface{}{[]interface{}{"o", ctx.newKeys}}
 	}
 
@@ -138,6 +141,13 @@ func GenerateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 
 	operations := make([]interface{}, 0, 4)
 	operations = generateRemovalOps(ctx, operations)
+	if keptChanged {
+		updated, keptOK := generateKeptItemUpdateOps(ctx, operations)
+		if !keptOK {
+			return nil
+		}
+		operations = updated
+	}
 	operations = generateInsertionOps(ctx, operations)
 
 	if sameKeySet(ctx.oldKeys, ctx.newKeys) && HasReordering(ctx.oldKeys, ctx.newKeys) {
@@ -241,6 +251,98 @@ func GenerateRangeStreamOperations(
 	}
 
 	return operations
+}
+
+// generateKeptItemUpdateOps emits ["u", key, <recursive item diff>] for each item
+// present in both renders whose content changed, reusing the same tree-compare
+// that produced this range's ops so a deep edit scopes to the changed leaf rather
+// than re-sending the whole item. It returns ok=false when a changed item cannot
+// be expressed as a per-item update (a non-*TreeNode item, or a change the
+// recursive diff produced no payload for) — the caller then falls back to a
+// full-tree replace, preserving the pre-existing safe behavior.
+func generateKeptItemUpdateOps(ctx *rangeContext, operations []interface{}) ([]interface{}, bool) {
+	for _, key := range ctx.newKeys {
+		oldItem, exists := ctx.oldByKey[key]
+		if !exists {
+			continue
+		}
+		oldNode, ok1 := oldItem.(*TreeNode)
+		newNode, ok2 := ctx.newByKey[key].(*TreeNode)
+		if !ok1 || !ok2 {
+			return nil, false
+		}
+		structureChanged, contentChanged := itemChange(oldNode, newNode)
+		// A changed statics fingerprint means the item's own structure changed (a
+		// conditional branch flipped in/out); it needs statics a dynamics-only ["u"]
+		// cannot carry, so fall back to a full-range replace. Decided from the
+		// fingerprint up front, before spending a recursive diff on it.
+		if structureChanged {
+			return nil, false
+		}
+		if !contentChanged {
+			continue
+		}
+		rangeMatches := FindRangeConstructMatches(oldNode, newNode)
+		itemChanges := CompareTreesAndGetChangesWithPath(oldNode, newNode, false, "", rangeMatches)
+		payload := itemUpdatePayload(itemChanges, ctx.keyPos)
+		// The item's own structure is unchanged, but a NESTED range may have inserted
+		// a sub-item whose statics ride in the payload — still not a valid
+		// dynamics-only update, so fall back to a full-range replace.
+		if len(payload) == 0 || containsStatics(payload) {
+			return nil, false
+		}
+		operations = append(operations, []interface{}{"u", key, payload})
+	}
+	return operations, true
+}
+
+// itemChange reports how a kept item changed between renders: structureChanged
+// when its statics fingerprint differs (a conditional branch flipped — needs
+// statics a ["u"] cannot carry), contentChanged when its dynamics differ within
+// the same structure. Both signals gate the kept-item path (hasKeptItemChanged
+// uses their OR; generateKeptItemUpdateOps needs them apart).
+func itemChange(oldNode, newNode *TreeNode) (structureChanged, contentChanged bool) {
+	structureChanged = build.CalculateStaticsFingerprint(oldNode) != build.CalculateStaticsFingerprint(newNode)
+	contentChanged = keys.ItemHashUint64(oldNode.Dynamics) != keys.ItemHashUint64(newNode.Dynamics)
+	return
+}
+
+// containsStatics reports whether a ["u"] payload carries statics anywhere (an "s"
+// key at any depth, including inside nested range-op arrays like
+// {"2": [["u", k, {"s": …}]]}). Such a payload is not a valid dynamics-only update
+// — the range must fall back to a full replace.
+func containsStatics(v interface{}) bool {
+	switch val := v.(type) {
+	case map[string]interface{}:
+		if _, ok := val["s"]; ok {
+			return true
+		}
+		for _, e := range val {
+			if containsStatics(e) {
+				return true
+			}
+		}
+	case []interface{}:
+		for _, e := range val {
+			if containsStatics(e) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// itemUpdatePayload converts an item's recursive-diff changes tree into the wire
+// payload map the client deep-merges into the retained item (nested range diffs
+// ride along as {"d": [...]} fields). The key position is dropped: the client
+// already indexes by key, so re-sending it is redundant (matches
+// dynamicsToUpdatePayload).
+func itemUpdatePayload(changes *TreeNode, keyPos int) map[string]interface{} {
+	m := changes.ToMap()
+	if keyPos >= 0 {
+		delete(m, build.PositionKey(keyPos))
+	}
+	return m
 }
 
 // generateStreamRemovalOps: sorted for determinism (mirrors generateRemovalOps).
@@ -471,10 +573,7 @@ func hasKeptItemChanged(ctx *rangeContext) bool {
 		if !oldOk || !newOk {
 			return true
 		}
-		if build.CalculateStaticsFingerprint(oldNode) != build.CalculateStaticsFingerprint(newNode) {
-			return true
-		}
-		if keys.ItemHashUint64(oldNode.Dynamics) != keys.ItemHashUint64(newNode.Dynamics) {
+		if structureChanged, contentChanged := itemChange(oldNode, newNode); structureChanged || contentChanged {
 			return true
 		}
 	}

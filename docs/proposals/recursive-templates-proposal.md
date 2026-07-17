@@ -30,14 +30,19 @@ unchanged (zero regression risk to existing composition).
 **Non-goal.** This is not "arbitrary Go template recursion at any cost." It's "let a template
 call itself over a finite data structure and stay inside the reactive tree."
 
-**What ships now vs. later (measured, not assumed).** What lands with C8: recursive templates
-*render* correctly and *update reactively* in place (DOM/focus/scroll preserved) — the capability
-prereview and tinkerdown lack today. What does **not** yet land: genuinely *minimal* per-edit
-payloads. Recursive range items are keyed by a deep content hash, so a deep edit re-sends its whole
-enclosing top-level branch; for a deep, narrow tree that is ~the size of re-sending the entire
-opaque string it replaces (benchmarked: ~24 KB vs ~23.5 KB, at ~25× the CPU). Scoping deep edits to
-a single leaf `["u", key, {…}]` needs the data-key-through-the-wrapper follow-up (§ Remaining design
-notes). So C8 is shipped for the *capability*, with update-size optimization tracked separately.
+**What ships with C8 (measured, e2e-verified).** Recursive templates *render* correctly (the flatten
+path overflows), *update reactively* in place (DOM/focus/scroll preserved via morphdom), AND scope a
+deep edit to a **minimal per-leaf payload**: recursive range items are keyed by their real data-key
+(read through the invocation wrapper), so a deep edit leaves every ancestor's key stable and the
+differential range diff emits a nested `["u", key, …]` chain down to the single changed node —
+statics-free, no unaffected sibling. Benchmarked at depth-5 branch-3: a deep-leaf update is **~200 B
+vs ~23.5 KB** for re-sending the opaque `{{.FileBrowserHTML}}` string (~100× smaller), at ~20× the
+CPU to compute the diff. Delivering this required two diff-engine changes beyond keying — teaching
+the differential range path to emit per-item `["u"]` for kept-changed items (framework-wide: it
+benefits every nested data-keyed range, not just recursion) and re-attaching the flatten-appended
+`{{define}}` blocks in body extraction so full HTML documents take the reactive path instead of
+silently degrading to HTML-string diffing. Verified end-to-end by a chromedp browser test (deep
+rename morphs the node in place, the unaffected sibling's DOM survives, the WS frame is scoped).
 
 ---
 
@@ -254,22 +259,30 @@ once. Suppression is per-node-per-shape, not a blanket "identical across all lev
 
 Each level serializes as a nested tree: statics sent on first render, dynamics-only on update.
 Direct-child list edits (add / insert / reorder / remove) produce granular range ops
-(`["a"]`/`["i"]`/`["o"]`/`["r"]`) carrying only the changed items — **no new wire operations and no
-client changes** — verified, not assumed, against the client source below.
+(`["a"]`/`["i"]`/`["o"]`/`["r"]`); a deep content edit produces a nested `["u", key, …]` chain —
+**no new wire operations and no client changes** — verified, not assumed, against the client source
+below and by browser e2e.
 
-> **Keying caveat (implemented behavior, corrected from the original claim).** Each `{{range}}`
-> item is a `{{template}}` invocation, so its top-level tree is the invocation wrapper (empty
-> statics). `buildRangeTreeWithStatics` looks for an explicit `data-key` in those top-level statics
-> and, not finding it (the wrapper hides the item's real `<li data-key>`), falls back to a **deep
-> content hash** over the item's dynamics. Identity is still exact — the `data-key` value is one of
-> the hashed dynamics, so distinct items get distinct keys. But because the hash is *deep* (a
-> directory item's dynamics include its whole nested subtree), editing a node **deep** in the tree
-> changes every ancestor's key, so the enclosing branch is re-sent whole (its unaffected siblings
-> are not). A per-leaf `["u", key, {…}]` for deep edits requires honoring the explicit `data-key`
-> *through* the invocation wrapper; a first attempt (unwrapping the item) regressed the deep-edit
-> case to a full range re-send, so it is deferred to a focused follow-up. Renders are always
-> correct; this is update *size*, not correctness. Pinned by
-> `TestRecursiveTemplate_DescendantBranchRebuild`.
+> **Keying + deep-update design (implemented).** Each `{{range}}` item is a `{{template}}`
+> invocation, so its top-level tree is the invocation wrapper (empty statics) that hides the item's
+> real `<li data-key>` one level down. `buildRangeTreeWithStatics` reads that `data-key` value
+> **through** the wrapper (`allWrappedItemKeys`) and uses it as the item's stable key — not a content
+> hash of the subtree. Because the key is stable, a deep-descendant edit leaves every ancestor's key
+> unchanged, so the item is *kept-but-changed* rather than remove+insert. Two diff-engine changes
+> then make deep edits **per-leaf** minimal:
+> 1. **Nested-range-containing ranges stay off the stream-mode transition** (`transition.go`), which
+>    keeps the old item trees on the differential path (stream mode discards them).
+> 2. **The differential range diff emits `["u", key, <recursive diff>]` for kept-changed items**
+>    (`generateKeptItemUpdateOps`) instead of bailing to a full-tree replace — reusing the same
+>    tree-compare that produced the range's ops, so the recursion composes down to the changed leaf.
+>    An item whose *statics* changed (a conditional branch flipped) would need statics a `["u"]`
+>    payload cannot carry, so those fall back to a full-range replace (guarded by `mapContainsStatics`).
+>
+> This is framework-wide: every nested data-keyed range gets per-item `["u"]`, not just recursion.
+> The client already applies nested-ops-in-payload (`deepMergeTreeNodes`), so it is server-only.
+> Pinned by `TestRecursiveTemplate_DescendantScopesToLeaf` and the nested-range fuzz + TS-oracle
+> suites; verified end-to-end by the lvt browser e2e (deep rename morphs in place, sibling DOM
+> survives, WS frame scoped).
 
 - **The client has no fingerprint concept at all.** Fingerprints are server-only: the server uses
   them to *decide whether to send statics* (`ClientNeedsStatics`), and the wire never carries them
@@ -309,20 +322,15 @@ position-distinct nested nodes so this per-position logic engages. **Verified** 
   becomes runtime-invoked.
 - First render: full nested `TreeNode` tree; `treeNode`'s statics transmitted once per level the
   data materializes, then cached client-side positionally and merged dynamics-only thereafter.
-- User renames a file 4 levels deep: the change reaches the client, and the diff is scoped to the
-  branch that contains the edit — its sibling branches are **not** re-sent. (Per the keying caveat
-  above, today the enclosing branch is re-sent whole rather than a single per-leaf
-  `["u", "<path>", {…}]`; scoping the deep edit down to the leaf is a tracked follow-up.)
-  **How much this beats the status quo depends on the tree's shape, and the honest answer is "less
-  than you'd hope for deep, narrow trees."** The enclosing branch is `1/branch` of the tree, so a
-  wide tree (many top-level entries) re-sends a small slice, but a deep, narrow one re-sends a large
-  fraction. Measured (`recursive_template_bench_test.go`, depth-5 branch-3): a deep-leaf edit's
-  update is **~24 KB vs ~23.5 KB** for re-sending the entire opaque `{{.FileBrowserHTML}}` string —
-  essentially equal in bytes, and ~25× the CPU to compute. So the unconditional win here is **not**
-  payload size; it is (a) rendering correctly at all (the status quo overflows the flattener) and
-  (b) applying the change as an in-place tree update that preserves DOM/focus/scroll state, where the
-  opaque string can only replace `innerHTML` wholesale. The payload-size win arrives with the
-  data-key-through-the-wrapper follow-up.
+- User renames a file 4 levels deep: because items are keyed by their stable `data-key` (read
+  through the invocation wrapper), every ancestor's key is unchanged, so the diff emits a nested
+  `["u", "<path>", {…}]` chain down to the single renamed node — statics-free, and carrying no
+  unaffected sibling (neither a top-level branch nor an in-branch sibling). Measured
+  (`recursive_template_bench_test.go`, depth-5 branch-3, ~364 nodes): a deep-leaf edit's update is
+  **~200 B vs ~23.5 KB** for re-sending the entire opaque `{{.FileBrowserHTML}}` string — a ~100×
+  wire-size reduction, at ~20× the CPU to compute the diff. The client applies it by merging the
+  nested ops into the item and morphing the existing `<li>` in place (DOM/focus/scroll preserved),
+  where the opaque string can only replace `innerHTML` wholesale.
 
 ---
 
@@ -391,10 +399,9 @@ Three categories, each a hard gate — no phase merges with a category left as "
       direct-child edits emit granular range ops (`["a"]` append, `["i", after-id]` mid-list insert
       anchored on the preceding sibling's key, `["o"]` reorder, `["r"]` remove) carrying only the
       changed item — proving keying descends through the invocation wrapper; a between-render
-      **depth-grows** change resends the new level's statics; a **deep**-descendant edit re-sends the
-      enclosing branch whole (`_DescendantBranchRebuild`, per the §6 keying caveat) while leaving
-      sibling branches untouched; `Execute` (initial HTTP HTML) renders recursion natively.
-      **E2E/Bench:** deferred to Phase 5.
+      **depth-grows** change resends the new level's statics; a **deep**-descendant edit scopes to a
+      nested per-leaf `["u", key, …]` chain (`_DescendantScopesToLeaf`, per §6) leaving every sibling
+      untouched; `Execute` (initial HTTP HTML) renders recursion natively. **E2E/Bench:** in Phase 5.
 - [x] **Phase 4 — Eval-time depth guard + option. DONE.** `build.Context` gained
       `InvocationDepth`/`MaxInvocationDepth`; `invokeTemplate` increments a per-invocation `*ctx` copy
       **before** the guard check, so a Go-value **pointer cycle** in `.Children` (a short loop) still
@@ -407,38 +414,32 @@ Three categories, each a hard gate — no phase merges with a category left as "
       HTML-structure fallback while the **update** path propagates the guard error. **Unit:** tree-path
       guard on infinite data; no-crash on the full path; `WithMaxTemplateDepth(3)` rejects a deep tree
       on update that the default renders.
-- [~] **Phase 5 — Benchmarks + browser e2e + docs (partly done).** The minimal-update **proof** landed
-      in Phase 3 (`_MinimalUpdate_AddChild`/`_InsertMiddle`/`_Reorder`/`_Remove`/`_DepthGrows`,
-      `_DescendantBranchRebuild`), plus the depth-guard first-render leg (`_FirstRenderOverLimit`).
+- [x] **Phase 5 — Benchmarks + browser e2e + docs. DONE (minus release-gated docs).** Diff proofs in
+      Phase 3 (`_MinimalUpdate_*`, `_DescendantScopesToLeaf`, `_FullDocument_Reactive`) + depth-guard
+      first-render leg (`_FirstRenderOverLimit`).
       - [x] **Browser e2e written + validated.** `lvt/e2e/recursive_tree_e2e_test.go`
         (`TestRecursiveTemplate_E2E`, `//go:build browser`): a full-HTML recursive file tree renders
-        its complete nested structure on first load AND reactively applies a deep-branch insert through
-        the **published** client — no reload, no console errors — capturing all four sources (console +
-        server logs + WS frames + HTML). **PASS (1.96s)** against the C8 branch via a temporary go.work
-        repoint to the worktree. This gate caught a real bug the fragment-only unit tests missed: the
-        e2e first failed with a `walkAndFlatten` **stack overflow** because it was silently building
-        against the *published* (pre-C8) livetemplate — proving the run genuinely exercises the
-        recursion path. **Release-gated:** committed on branch `lvt/tierc-c8-recursive-e2e` (not `main`
-        — lvt CI builds against published livetemplate, which overflows until C8 releases); open the PR
-        in lockstep once a livetemplate release ships C8.
-      - [x] `BenchmarkRecursiveRender`/`BenchmarkRecursiveUpdate` with the opaque-`template.HTML`
-        baseline row (`recursive_template_bench_test.go`). **Finding (corrects the "minimal updates"
-        premise):** a deep-leaf edit's update (~24 KB, the enclosing top-level branch) is
-        ~equal in bytes to re-sending the whole opaque string (~23.5 KB) and ~25× the CPU — so the
-        payload win is not delivered for deep, narrow trees pre-follow-up. Render is ~20-30× an opaque
-        Execute. The benchmark comments and TL;DR/§6 now state this honestly; the win C8 ships is
-        capability + reactive DOM-state preservation, not payload size.
+        its complete nested structure, reactively applies a deep-branch **insert**, AND a deep
+        **rename** — the rename morphs the existing `<li>` in place (a JS marker on it survives), the
+        unaffected sibling's DOM node survives (its marker survives too), and the WS frame is **scoped**
+        to the changed leaf (carries `hash-RENAMED.go`, not README/main/new-1). Captures all four
+        sources (console + server logs + WS frames + HTML). **PASS** against the worktree via a
+        temporary go.work repoint. This gate caught the full-document registry-drop bug the
+        fragment-only unit tests missed (see below). **Release-gated:** on branch
+        `lvt/tierc-c8-recursive-e2e`; open the PR in lockstep once a livetemplate release ships C8.
+      - [x] `BenchmarkRecursiveRender`/`BenchmarkRecursiveUpdate` + opaque-`template.HTML` baseline
+        (`recursive_template_bench_test.go`). Deep-leaf update **~200 B vs ~23.5 KB** opaque re-send
+        (~100× smaller, statics-free per-leaf `["u"]` chain), at ~20× the CPU. TL;DR/§6/benchmark
+        comments updated to the delivered numbers.
+      - [x] **Full-document registry-drop fix** (surfaced by the e2e): `FlattenTemplate` appends the
+        recursion cycle members as `{{define}}` blocks after `</html>`, and body extraction dropped
+        them for full HTML documents — leaving the recursion registry empty at serve time, so the whole
+        template silently degraded to HTML-string diffing (none of the reactive tree / per-leaf path
+        ran). `ExtractTemplateBodyContent` now re-attaches trailing `{{define}}` blocks; pinned by
+        `TestRecursiveTemplate_FullDocument_Reactive`.
       - [ ] **Release-gated docs:** flip the `template-support-matrix.md` "Recursive / circular template
-        references" row from ❌ to ✅ **with the keying footnote** (deep edits re-render the enclosing
-        branch; explicit `data-key` not yet honored through the invocation wrapper), update
-        `current-limitations.md`, add a recipe. Matrix reflects *released* behavior, so this lands with
-        the release, not before.
-- [ ] **Follow-up — honor explicit `data-key` through the invocation wrapper.** So a deep-descendant
-      edit scopes down to a single per-leaf `["u", key, {…}]` instead of re-sending the enclosing
-      branch. The naive unwrap (exposing the item's `<li>` as its top-level tree) regressed the
-      deep-edit case to a full range re-send via an un-diagnosed diff-engine path — so this needs a
-      diagnosed diff-engine fix, tracked as its own issue. Not a C8 blocker (renders are correct;
-      this is update size).
+        references" row from ❌ to ✅, update `current-limitations.md`, add a recipe. Matrix reflects
+        *released* behavior, so this lands with the release, not before.
 
 ### Companion migrations (dependent repos — land per the lockstep convention once a release ships)
 
@@ -502,14 +503,12 @@ so the numbering below is 1/2/4 and § Remaining design notes keeps 3/5/6.)*
    (`compat.ParseTemplateToTree`) relies solely on this guard. The uniform-hard-error goal was
    dropped as it would require special-casing depth errors out of the shared fallback — acceptable
    for alpha; revisit if the divergence proves confusing.
-4. ✅ **`data-key` falls back like `{{range}}`.** Do *not* require an explicit `data-key` inside a
-   runtime-invoked template; fall back to content-hash keys exactly as `{{range}}` does today.
-   **Implemented reality (see §6 keying caveat):** a recursive range item is a `{{template}}`
-   invocation whose wrapper hides its `<li data-key>`, so keying *always* uses the content hash today
-   — the explicit `data-key` is not yet honored through the wrapper. Identity is still exact (the
-   `data-key` value is a hashed dynamic), and direct-child add/insert/reorder/remove stay granular;
-   the only cost is that a *deep* edit re-sends the enclosing branch. Making an explicit `data-key`
-   actually take effect (and scope deep edits to the leaf) is the tracked follow-up.
+4. ✅ **`data-key` honored through the wrapper.** A recursive range item is a `{{template}}`
+   invocation whose wrapper hides its `<li data-key>`; `buildRangeTreeWithStatics` reads that
+   `data-key` value **through** the wrapper (`allWrappedItemKeys`) and keys by it, falling back to a
+   content hash only when an item exposes none. Stable keys are what let a deep edit scope to a
+   per-leaf `["u", key, …]` chain (via the differential per-item diff, §6) instead of re-sending the
+   enclosing branch. Direct-child add/insert/reorder/remove stay granular.
 
 ## Remaining design notes
 

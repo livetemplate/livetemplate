@@ -10,12 +10,11 @@ import (
 
 // These benchmarks characterize the runtime-invocation recursion path (C8)
 // against the status quo it replaces — a whole recursive subtree rendered as one
-// opaque html/template string and shipped as {{.FileBrowserHTML}}. They exist to
-// keep the value story honest: recursion support's unconditional win is
-// *correctness* (a recursive {{template}} renders at all, and does so as part of
-// the page's reactive tree instead of an innerHTML blob), NOT a smaller update
-// payload. The update-size numbers below show why the "minimal update" claim does
-// not yet hold for deep, narrow trees — see BenchmarkRecursiveUpdate.
+// opaque html/template string and shipped as {{.FileBrowserHTML}}. Recursion
+// support renders a recursive {{template}} at all (the flatten path overflows) AND
+// keeps it inside the page's reactive tree. With per-leaf recursive range diffing,
+// a deep edit is scoped to a nested ["u", key, …] chain down to the single changed
+// node — see BenchmarkRecursiveUpdate for the wire-size win over the opaque baseline.
 
 // benchTree builds a balanced directory tree of the given depth and branching
 // factor — a stand-in for a file browser / comment thread / org chart, the shapes
@@ -58,25 +57,18 @@ func BenchmarkRecursiveRender(b *testing.B) {
 // tree: rebuild and diff against the previous render (what the framework does on
 // every action), reporting the wire payload as "update_bytes".
 //
-// The honest finding this benchmark exists to surface: the update is NOT scoped to
-// the changed leaf. Recursive range items are keyed by a *deep content hash* (the
-// item's real <li data-key> is hidden one level down inside the invocation
-// wrapper, so range keying can't see it — see the keying caveat in
-// docs/proposals/recursive-templates-proposal.md §6). Renaming any node changes
-// every ancestor's hash, so the diff re-sends the item's whole ENCLOSING TOP-LEVEL
-// BRANCH as ["r", oldkey],["p", [full branch with statics]] — its sibling branches
-// are spared, but the branch itself comes back whole.
+// The update is scoped to the changed leaf. Recursive range items are keyed by
+// their real data-key (the <li data-key>, read through the invocation wrapper), so
+// a deep edit leaves every ancestor's key stable and the differential range diff
+// emits a nested ["u", key, …] chain down to the single renamed node — statics-free
+// and carrying no unaffected sibling.
 //
-// Concretely, for this depth-5 branch-3 shape a deep-leaf edit's update_bytes
-// (~24KB, one of three top-level branches) lands ESSENTIALLY EQUAL to
-// BenchmarkOpaqueHTMLBaseline's full_html_bytes (~23.5KB, the whole tree) — and
-// costs ~25x the CPU to produce. So for a deep, narrow tree the reactive update is
-// no smaller on the wire than shipping the entire opaque string, and much dearer to
-// compute. The update-size win only materializes when the enclosing branch is a
-// small fraction of the tree (a WIDE tree, many top-level branches) or once the
-// data-key-through-the-wrapper follow-up lands and deep edits scope to a single
-// per-leaf ["u", key, {…}]. Recursion support's win here is correctness and
-// reactive DOM-state preservation, not payload size.
+// Concretely, for this depth-5 branch-3 shape (~364 nodes) a deep-leaf edit's
+// update_bytes is ~200 B versus BenchmarkOpaqueHTMLBaseline's full_html_bytes
+// (~23.5 KB, the whole tree re-sent) — a ~100x wire-size reduction, the win
+// recursion-in-the-reactive-tree delivers over the opaque {{.FileBrowserHTML}}
+// escape hatch. The trade is CPU: the reactive path rebuilds + diffs the tree
+// (~20x an opaque Execute), buying the minimal payload and in-place DOM updates.
 func BenchmarkRecursiveUpdate(b *testing.B) {
 	parsed, err := Must(New("bench")).Parse(recursiveTreeSrc)
 	if err != nil {
@@ -114,10 +106,9 @@ func BenchmarkRecursiveUpdate(b *testing.B) {
 // which the client applies by replacing innerHTML — no tree diff, and every DOM
 // node in the region is destroyed and rebuilt (focus, scroll, and event state in
 // the subtree are lost). Its full_html_bytes is the number BenchmarkRecursiveUpdate's
-// update_bytes should be read against: for the deep-narrow shape here they are
-// ~equal in bytes, but this baseline is ~25x cheaper in CPU. Recursion support does
-// not beat it on payload or CPU for this shape — it beats it on *what the client can
-// do with the payload* (in-place reconciliation) and on rendering correctly at all.
+// update_bytes should be read against: the reactive per-leaf update is ~100x smaller
+// on the wire and preserves DOM state, at the cost of ~20x the CPU to compute the
+// diff. The baseline is cheaper per render but re-sends everything on every change.
 func BenchmarkOpaqueHTMLBaseline(b *testing.B) {
 	// A standalone recursive html/template (the workaround: recursion works, but
 	// the output is one opaque string with no tree/diff).

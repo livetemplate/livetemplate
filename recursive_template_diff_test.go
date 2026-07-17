@@ -11,20 +11,17 @@ import (
 
 // Keying note for recursive-template range items: each {{range}} item is a
 // {{template …}} invocation, so its top-level tree is the invocation wrapper (empty
-// statics). buildRangeTreeWithStatics inspects those top-level statics for a
-// data-key attribute; the wrapper hides the item's real <li data-key="…">, so
-// keying falls back to a content hash over the item's dynamics. That is still
-// *correct* identity — the data-key value (.Path) is one of the hashed dynamics, so
-// distinct items get distinct keys and the diff emits granular i/r/o/a ops for
-// direct-child edits (proven below).
+// statics) that hides the item's real <li data-key="…"> one level down.
+// buildRangeTreeWithStatics reads that data-key *through* the wrapper
+// (allWrappedItemKeys) and uses it as the item's stable key, so an item keeps its
+// identity across deep edits instead of keying on a content hash of its subtree.
 //
-// Consequence, pinned by _DescendantBranchRebuild: because the hash is DEEP (a
-// directory item's dynamics include its whole nested subtree), editing a deep
-// descendant changes the enclosing branch's key, so that branch is re-sent whole
-// (its unaffected siblings are not). Honoring the explicit data-key through the
-// wrapper — which would let a deep edit re-send only the changed leaf — needs
-// diff-engine work and is tracked as a follow-up, not a C8 blocker. Renders are
-// always correct either way; this is update size, not correctness.
+// Consequence, pinned by _DescendantScopesToLeaf: because the key is stable, a deep
+// descendant edit leaves every ancestor's key unchanged, so the diff engine's
+// per-item recursive diff scopes it to a nested chain of ["u", key, …] ops down to
+// the single changed leaf — no ancestor branch, and no unaffected sibling (top-level
+// or in-branch), is re-sent. Direct-child edits still emit granular i/r/o/a ops
+// (proven below). Renders are always correct; this is the delivered update-size win.
 
 // TestRecursiveTemplate_MinimalUpdate_AddChild is the correctness proof for the
 // UPDATE path (not just first render): adding one child to a recursive tree must
@@ -311,15 +308,14 @@ func TestRecursiveTemplate_MinimalUpdate_Remove(t *testing.T) {
 	}
 }
 
-// TestRecursiveTemplate_DescendantBranchRebuild pins the confirmed content-hash
-// keying consequence for DEEP edits (distinct from the direct-child i/r/o/a ops
-// above): renaming a grandchild under a nested directory changes that directory's
-// deep item hash, so the enclosing branch (/sub) is re-sent whole — while its
-// unaffected sibling is NOT. This documents the known limitation in code: honoring
-// the explicit data-key through the invocation wrapper (which would re-send only
-// the changed leaf) is a tracked follow-up, not a C8 blocker. The render is always
-// correct; only the update size differs.
-func TestRecursiveTemplate_DescendantBranchRebuild(t *testing.T) {
+// TestRecursiveTemplate_DescendantScopesToLeaf pins the delivered per-leaf update
+// for DEEP edits: renaming a grandchild deep under a nested directory is encoded as
+// a nested chain of ["u", key, …] ops down to the single changed leaf. Neither the
+// unaffected top-level sibling branch NOR an unaffected sibling grandchild in the
+// SAME branch is re-sent — the churn is scoped to the changed leaf, not its
+// enclosing branch. This is the payload win from keying recursive items by their
+// data-key through the invocation wrapper plus the differential per-item diff.
+func TestRecursiveTemplate_DescendantScopesToLeaf(t *testing.T) {
 	tmpl, err := Must(New("test")).Parse(recursiveTreeSrc)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -328,8 +324,9 @@ func TestRecursiveTemplate_DescendantBranchRebuild(t *testing.T) {
 		return dirWith(
 			fileNode{Name: "sub", Path: "/sub", IsDir: true, Children: []fileNode{
 				leaf(grandchild, "/sub/g.go"),
+				leaf("g-sibling.go", "/sub/g-sibling.go"), // sibling IN the edited branch
 			}},
-			leaf("sibling.go", "/sibling.go"),
+			leaf("sibling.go", "/sibling.go"), // unaffected top-level branch
 		)
 	}
 	first, err := tmpl.buildTree(mk("g.go"), nil)
@@ -349,10 +346,68 @@ func TestRecursiveTemplate_DescendantBranchRebuild(t *testing.T) {
 	if !strings.Contains(update, "g-RENAMED.go") {
 		t.Errorf("update must carry the renamed grandchild, got:\n%s", update)
 	}
-	// The unaffected sibling branch is NOT re-sent — the churn is scoped to the
-	// branch containing the edit, not the whole list.
-	if strings.Contains(update, "sibling.go") {
-		t.Errorf("unaffected sibling branch must not be re-sent (scoped rebuild):\n%s", update)
+	// The unaffected top-level sibling branch is NOT re-sent.
+	if strings.Contains(update, "sibling.go") && !strings.Contains(update, "g-sibling.go") {
+		t.Errorf("unaffected top-level sibling branch must not be re-sent:\n%s", update)
+	}
+	// Per-leaf scoping: the sibling grandchild IN the edited branch is NOT re-sent
+	// either — the update reaches only the changed leaf, not its enclosing branch.
+	if strings.Contains(update, "g-sibling.go") {
+		t.Errorf("sibling grandchild in the edited branch must not be re-sent (per-leaf scope):\n%s", update)
+	}
+	// No statics in the wire — a deep content edit is a pure dynamics-only chain.
+	if strings.Contains(update, `"s":[`) {
+		t.Errorf("deep content edit must not re-send statics:\n%s", update)
+	}
+}
+
+// TestRecursiveTemplate_FullDocument_Reactive is a regression guard for a silent
+// C8 bug: FlattenTemplate appends the recursion cycle members as {{define}} blocks
+// AFTER the document, and body extraction for a FULL HTML document used to drop
+// them — leaving the recursion registry empty at serve time, so the whole template
+// degraded to HTML-string diffing (hasInitialTree=false) with none of the reactive
+// tree or per-leaf machinery running. A fragment kept the defines and worked, so
+// the gap was invisible to every fragment-based test. This asserts a full document
+// takes the reactive AST path AND scopes a deep edit to a per-leaf ["u"] chain.
+func TestRecursiveTemplate_FullDocument_Reactive(t *testing.T) {
+	const fullDoc = `<!DOCTYPE html><html><head><title>T</title></head><body>` +
+		`{{define "treeNode"}}<li data-key="{{.Path}}"><span>{{.Name}}</span>` +
+		`{{if .IsDir}}<ul>{{range .Children}}{{template "treeNode" .}}{{end}}</ul>{{end}}</li>{{end}}` +
+		`<ul id="tree">{{template "treeNode" .Root}}</ul></body></html>`
+	type fullDocState struct{ Root fileNode }
+
+	tmpl, err := Must(New("fulldoc")).Parse(fullDoc)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	mk := func(deepName string) fullDocState {
+		return fullDocState{Root: dirWith(
+			fileNode{Name: "sub", Path: "/sub", IsDir: true, Children: []fileNode{
+				leaf(deepName, "/sub/g.go"),
+			}},
+			leaf("sibling.go", "/sibling.go"),
+		)}
+	}
+	if _, err := tmpl.buildTree(mk("g.go"), nil); err != nil {
+		t.Fatalf("first render: %v", err)
+	}
+	// The reactive AST path must be active — a fallback to HTML-string diffing
+	// (hasInitialTree=false) is the exact silent regression this test guards.
+	if !tmpl.hasInitialTree {
+		t.Fatal("full-document recursive template fell back to HTML-structure diffing (registry drop regressed)")
+	}
+	update, _ := tmpl.buildTree(mk("g-RENAMED.go"), nil)
+	js, _ := json.Marshal(update.ToMap())
+	s := string(js)
+	t.Logf("full-doc deep-edit update:\n%s", s)
+	if !strings.Contains(s, "g-RENAMED.go") {
+		t.Errorf("update must carry the renamed deep node:\n%s", s)
+	}
+	if strings.Contains(s, "sibling.go") {
+		t.Errorf("unaffected sibling must not be re-sent (per-leaf scope):\n%s", s)
+	}
+	if strings.Contains(s, `"s":[`) {
+		t.Errorf("deep content edit must not re-send statics:\n%s", s)
 	}
 }
 
