@@ -16,7 +16,7 @@ import "html/template"
 // which is a no-op on older servers).
 //
 // Maintainers: bump this in the same release that adopts a new client version.
-const ClientVersion = "0.16.5"
+const ClientVersion = "0.18.2"
 
 // clientCDNBase is the jsdelivr base URL for the pinned client bundle. jsdelivr
 // serves the published npm package @livetemplate/client.
