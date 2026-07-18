@@ -390,11 +390,9 @@ func walkAndFlatten(node parse.Node, templates map[string]*template.Template, bu
 			return fmt.Errorf("template %q has no parse tree", n.Name)
 		}
 
-		// Cycle detection: if this template is already being inlined on the
-		// current path, inlining its body again would recurse forever and
-		// stack-overflow during Parse (livetemplate inlines {{template}} calls
-		// at parse time; it does not yet evaluate recursive invocations at
-		// runtime). Return a structured error naming the cycle instead.
+		// Backstop only: recursive names were already marked above and returned
+		// verbatim, so a name on the active path here means the recursive set
+		// disagrees with this walk. Erroring beats overflowing the stack.
 		if err := checkFlattenCycle(n, stack); err != nil {
 			return err
 		}
@@ -444,11 +442,15 @@ func walkAndFlatten(node parse.Node, templates map[string]*template.Template, bu
 	return nil
 }
 
-// checkFlattenCycle reports a self-referential {{template}} invocation. If the
-// invoked name already appears on the active-path stack, inlining it again
-// would expand forever, so it returns a ParseError naming the cycle (the path
-// from the name's first appearance back to itself, e.g. "page -> row -> page").
-// Returns nil when the invocation is acyclic and safe to inline.
+// checkFlattenCycle is a backstop against inlining a cycle forever. It is not
+// reachable through FlattenTemplate: detectRecursiveTemplates runs first over
+// the same invocation edges this walk follows, so any name on a cycle is marked
+// recursive and emitted verbatim rather than pushed onto the stack. It stays as
+// a guard for direct walkAndFlatten callers (and any future traversal that
+// drifts from detectRecursiveTemplates), where an under-populated recursive set
+// would otherwise expand forever and overflow the stack.
+//
+// Recursion itself is supported — see invokeTemplate for the runtime path.
 func checkFlattenCycle(n *parse.TemplateNode, stack []string) error {
 	i := slices.Index(stack, n.Name)
 	if i < 0 {
@@ -460,9 +462,10 @@ func checkFlattenCycle(n *parse.TemplateNode, stack []string) error {
 		NodeType: "template",
 		Expr:     n.Name,
 		Pos:      int(n.Position()),
-		Msg: fmt.Sprintf("recursive template invocation is not supported (cycle: %s); "+
-			"livetemplate inlines {{template}} calls at parse time, so a self-referential "+
-			"template would expand infinitely", cycle),
+		Msg: fmt.Sprintf("internal: reached the flatten-cycle backstop for %s; "+
+			"recursive templates should have been detected before inlining "+
+			"(this indicates detectRecursiveTemplates and walkAndFlatten "+
+			"disagree about the invocation graph)", cycle),
 	}
 }
 
