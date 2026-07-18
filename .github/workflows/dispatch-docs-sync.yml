@@ -19,13 +19,28 @@ jobs:
           # Same PAT used by all four source repos. Setup once via:
           #   gh secret set DOCS_DISPATCH_TOKEN --repo livetemplate/<this> --body <token>
           GH_TOKEN: ${{ secrets.DOCS_DISPATCH_TOKEN }}
+          # A tag name is chosen by whoever pushes the tag, so it does not go
+          # into the script body via ${{ }} — that would be shell injection into
+          # a job holding a cross-repo write token. It arrives as an environment
+          # variable and is quoted at every use. github.repository is set by the
+          # runner rather than by user input, but travels the same path so no
+          # interpolation remains in this run: block at all.
+          SOURCE_REPO: https://github.com/${{ github.repository }}
+          SOURCE_REF: ${{ github.ref_name }}
         run: |
+          set -euo pipefail
           if [ -z "$GH_TOKEN" ]; then
             echo "::warning::DOCS_DISPATCH_TOKEN not set; skipping docs sync dispatch"
             exit 0
           fi
+          # The docs sync rejects refs outside this shape too; failing here means
+          # a bad tag never spends the token.
+          if ! printf '%s' "$SOURCE_REF" | grep -Eq '^[A-Za-z0-9._/-]+$'; then
+            echo "::error::refusing to dispatch an unsafe ref: $SOURCE_REF"
+            exit 1
+          fi
           gh api -X POST /repos/livetemplate/docs/dispatches \
             -F event_type=sync-source \
-            -F "client_payload[source_repo]=https://github.com/${{ github.repository }}" \
-            -F "client_payload[ref]=${{ github.ref_name }}"
-          echo "::notice::dispatched docs sync for ${{ github.ref_name }}"
+            -F "client_payload[source_repo]=$SOURCE_REPO" \
+            -F "client_payload[ref]=$SOURCE_REF"
+          echo "::notice::dispatched docs sync for $SOURCE_REF"

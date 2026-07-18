@@ -79,11 +79,55 @@ bump_version() {
     echo "${major}.${minor}.${patch}"
 }
 
+# Restore VERSION / CHANGELOG.md if the release aborts after they are written
+# but before the release commit lands. Without this, an abort (a flaky test, a
+# failed tag) leaves a dirty tree — and main() refuses to run on a dirty tree,
+# so the retry is blocked until someone works out what to revert.
+release_files_written=false
+release_committed=false
+
+restore_release_files() {
+    [ "$release_files_written" = true ] || return 0
+    [ "$release_committed" = false ] || return 0
+
+    log_warn "Release aborted before committing — restoring VERSION and CHANGELOG.md"
+
+    # Restore from HEAD, not from the index: commit_and_tag stages both files
+    # before committing, so if the commit itself fails they are already staged
+    # and a plain `git checkout --` would restore them from the index — copying
+    # the modified versions back over themselves.
+    #
+    # One path per invocation. `git checkout HEAD -- a b` resolves the pathspec
+    # first and bails before touching the worktree if any entry is missing from
+    # HEAD, so a single call would restore *neither* file when one is untracked.
+    # git's stderr is left visible; a generic "couldn't restore" would send the
+    # next person down the wrong trail.
+    local f
+    for f in VERSION CHANGELOG.md; do
+        if git cat-file -e "HEAD:$f" 2>/dev/null; then
+            git checkout HEAD -- "$f" || \
+                log_warn "Could not restore $f; revert it by hand before retrying"
+        elif [ -f "$f" ]; then
+            # Absent from HEAD but on disk means this run created it: main()
+            # refuses to start on a dirty tree and `git status --porcelain`
+            # lists untracked files, so it cannot have pre-existed. Removing it
+            # restores the exact pre-run state. Both steps are needed —
+            # commit_and_tag may already have staged it, and a bare `rm` would
+            # leave an "A " entry that still counts as dirty.
+            git rm -f --quiet --ignore-unmatch -- "$f" 2>/dev/null || true
+            rm -f "$f"
+            log_warn "Removed $f, which this run created"
+        fi
+    done
+}
+trap restore_release_files EXIT
+
 # Update all version files
 update_versions() {
     local new_version=$1
 
     log_step "Updating VERSION file to $new_version"
+    release_files_written=true
     echo "$new_version" > VERSION
 
     log_info "VERSION file updated to $new_version"
@@ -149,6 +193,10 @@ Related repositories:
 - Examples: https://github.com/livetemplate/examples
 
 🤖 Generated with automated release script"
+
+    # VERSION / CHANGELOG.md now live in a commit; restoring them on a later
+    # failure would discard the release commit itself, so stand the guard down.
+    release_committed=true
 
     log_step "Creating git tag v$new_version"
     git tag -a "v$new_version" -m "Release v$new_version"
@@ -395,10 +443,13 @@ main() {
     log_info "Starting release process..."
     echo ""
 
-    # Execute release steps
+    # Execute release steps. Tests run FIRST, before anything is written: no Go
+    # code reads the VERSION file, so the bump cannot change the result, and a
+    # failure (a flaky test especially) then leaves the tree untouched instead
+    # of half-bumped.
+    build_and_test
     update_versions "$new_version"
     generate_changelog "$new_version"
-    build_and_test
     commit_and_tag "$new_version"
     publish_github "$new_version"
 
