@@ -7,39 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.19.0] - 2026-07-18
 
-### Changes
-
-- chore: adopt client 0.18.2 and curate CHANGELOG ahead of v0.19.0 (3734813b)
-- feat: recursive {{template}} support + per-leaf nested-range diffs (Tier C · C8) (c02ddb38)
-- docs(proposal): recursive {{template}} support design (Tier C · C8) (#493) (3ee6d07a)
-- docs(tier-c): resolve C6 + record C2/C3/C5 dispositions (#492) (3929361e)
-- docs(serving): static assets alongside the app (Tier C · C9) (#491) (ac0e1bc6)
-- docs(lifecycle): a published action is not a re-Mount (Tier C · C1) (#490) (bce63d47)
-- Tier C boilerplate-reduction: remove WithStore (C4) + document arg-method view-helper pattern (C7) (#488) (f33a763e)
-
-
-
-## [v0.18.1] - 2026-07-13
-
-### Fixed
-
-- An **unmatched range whose item statics changed** had its update silently dropped: the client kept rendering stale items until a full page load, with no error anywhere. `handleNestedTreeNodes` exempted range-bearing subtrees from the "statics changed → send the full tree" branch, on the assumption that a range's item changes always travel through the range-diff operations. They only do for a **matched** range: `FindRangeConstructMatches` pairs ranges by signature (= the item statics), so a range whose item statics change shape does not match — and the fall-through recursion then finds nothing to send, because a range's content lives in `Range.Items`, not `Dynamics`. An item's statics are data-dependent whenever its body has a slot that can vanish: a nested `{{template}}` that renders nothing for an empty argument contributes no dynamic, so the item's statics differ between the render where it is empty and the one where it is not (the reported case: a comment card whose conversation thread renders only once a reply exists — the reply never reached the open page). The guard is now simply `if structureChanged`, which is what it always meant: if the statics differ, the client cannot render the subtree from its cache, so it needs the whole thing. Matched ranges are unaffected — they never reach this branch — and keep their item-diff operations. This fixes the statics-shape-change case; signature matching itself is unchanged. (#489)
-- A **nil `lvt:"persist"` field no longer discards the entire restored state** on reconnect. A field that is nil when the state is saved is written as JSON `null`, and json-iterator decodes `null` into a **zero-length** `json.RawMessage` where `encoding/json` yields the literal `"null"`. `InjectPersistFields` fed those empty bytes to `Unmarshal` and errored (`ReadMapCB: expect { or n, but found \x00`); because it returns on the first error and `restorePersistedState` drops the state when it does, **one** nil field silently reverted **every other** persist field to its zero value — with only a server-log line to show for it. The trigger is ordinary: any persist-tagged map or slice nobody has written to yet. `null` carries nothing to apply, so it is now skipped and the field is left at its zero value, which is exactly what it round-trips to. This regressed in v0.17.0 with the migration of the remaining `encoding/json` callsites to `jsonutil.API` (#231), whose "wire output is unchanged" note held for encoding but not for this decode path. (#489)
-
-### Changed
-
-- Clarified that `WithDevMode(true)` already relaxes the WebSocket origin check to allow **all** origins — so pairing it with `WithPermissiveOriginCheck()` for local development is redundant. This was always the behavior (`createSecureOriginChecker` short-circuits to allow-all when dev mode is on, and `New` installs it on the default upgrader), but the `WithDevMode` godoc, the `DevMode` field/config comments, and the `LVT_DEV_MODE` reference docs previously described it as "uses local client library instead of CDN" — a stale claim that never reflected core behavior and led apps to hand-append `WithPermissiveOriginCheck()`. The godoc now leads with the security semantics ("allows all WebSocket origins, disabling the same-origin/CSRF check — never in production"), notes it also exposes `{{.lvt.DevMode}}` to templates, and `WithPermissiveOriginCheck`'s godoc points local-dev users to `WithDevMode` instead, reserving itself for the disable-origin-check-*without*-dev-mode case. A new `TestWithDevModeWiresPermissiveOrigin` locks the wiring through `New()` (dev mode alone allows cross-origin; no options rejects it). No behavior change. (#483) (#487)
-
-
-
-## [v0.18.0] - 2026-07-12
-
-### Added
-
-- `ClientVersion`, `ClientScriptURL`, and `ClientStyleURL` exported constants pin the `@livetemplate/client` browser bundle this LiveTemplate release is wire-compatible with, plus two framework-seeded template functions — `lvtClientScriptURL` and `lvtClientStyleURL` — that render those URLs. Templates can now reference `{{lvtClientScriptURL}}` / `{{lvtClientStyleURL}}` with no per-app wiring (the funcs are seeded into every template's FuncMap in `New`, before any parse path runs, so they resolve in full-HTML documents, fragments, and component templates alike; a user `Funcs` call still overrides them by key). This replaces the previous pattern of hardcoding an unpinned `@latest` CDN URL — which was unsafe because there is no runtime server↔client version handshake, so a client-only release could ship a wire-protocol change to browsers still talking to an older server. Pinning moves the client version only on a deliberate `go get -u`, in lockstep with the compatible server. `ClientVersion` is pinned to the release `@latest` resolves to today, so behavior is preserved. Self-hosters (offline / air-gapped / CSP-strict) vendor `@livetemplate/client@<ClientVersion>` and serve it from their own origin instead. (#483)
-
-## [Unreleased]
-
 ### Added
 
 - **Recursive `{{template}}` invocation** — self-referential templates (file trees, comment threads, nested navigation) now render. Previously they were rejected at parse time, because `{{template}}` calls are inlined during flattening and a self-referential template cannot be inlined. The parser now detects self-referential invocation cycles, leaves them un-inlined, and evaluates them at build time as nested `TreeNode`s, so the recursive region stays inside the reactive tree rather than degrading to opaque HTML. Dot-rebinding matches `html/template` semantics. (Tier C · C8)
@@ -58,6 +25,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - `WithStore(store)` `HandleOption` — removed in favor of the existing `WithSessionStore(store)` `New` `Option`. Both set the same `SessionStore` field, just at different phases (per-`Handle` vs per-`New`), and `SessionStore` was the only dependency configurable at both levels — every other dependency (`Authenticator`, `PubSubBroadcaster`, allowed origins, …) binds only at `New`. No app or example used `WithStore`; the session store now binds at construction like everything else. Migrate `tmpl.Handle(ctrl, state, WithStore(s))` to `New(name, WithSessionStore(s))`. (#483)
+
+### Documentation
+
+- Recursive-template design proposal (#493), Tier C dispositions for C2/C3/C5/C6 (#492), serving static assets alongside the app (#491), the arg-method view-helper pattern (#488), and a clarification that a published action is not a re-`Mount` (#490).
+
+## [v0.18.1] - 2026-07-13
+
+### Fixed
+
+- An **unmatched range whose item statics changed** had its update silently dropped: the client kept rendering stale items until a full page load, with no error anywhere. `handleNestedTreeNodes` exempted range-bearing subtrees from the "statics changed → send the full tree" branch, on the assumption that a range's item changes always travel through the range-diff operations. They only do for a **matched** range: `FindRangeConstructMatches` pairs ranges by signature (= the item statics), so a range whose item statics change shape does not match — and the fall-through recursion then finds nothing to send, because a range's content lives in `Range.Items`, not `Dynamics`. An item's statics are data-dependent whenever its body has a slot that can vanish: a nested `{{template}}` that renders nothing for an empty argument contributes no dynamic, so the item's statics differ between the render where it is empty and the one where it is not (the reported case: a comment card whose conversation thread renders only once a reply exists — the reply never reached the open page). The guard is now simply `if structureChanged`, which is what it always meant: if the statics differ, the client cannot render the subtree from its cache, so it needs the whole thing. Matched ranges are unaffected — they never reach this branch — and keep their item-diff operations. This fixes the statics-shape-change case; signature matching itself is unchanged. (#489)
+- A **nil `lvt:"persist"` field no longer discards the entire restored state** on reconnect. A field that is nil when the state is saved is written as JSON `null`, and json-iterator decodes `null` into a **zero-length** `json.RawMessage` where `encoding/json` yields the literal `"null"`. `InjectPersistFields` fed those empty bytes to `Unmarshal` and errored (`ReadMapCB: expect { or n, but found \x00`); because it returns on the first error and `restorePersistedState` drops the state when it does, **one** nil field silently reverted **every other** persist field to its zero value — with only a server-log line to show for it. The trigger is ordinary: any persist-tagged map or slice nobody has written to yet. `null` carries nothing to apply, so it is now skipped and the field is left at its zero value, which is exactly what it round-trips to. This regressed in v0.17.0 with the migration of the remaining `encoding/json` callsites to `jsonutil.API` (#231), whose "wire output is unchanged" note held for encoding but not for this decode path. (#489)
+
+### Changed
+
+- Clarified that `WithDevMode(true)` already relaxes the WebSocket origin check to allow **all** origins — so pairing it with `WithPermissiveOriginCheck()` for local development is redundant. This was always the behavior (`createSecureOriginChecker` short-circuits to allow-all when dev mode is on, and `New` installs it on the default upgrader), but the `WithDevMode` godoc, the `DevMode` field/config comments, and the `LVT_DEV_MODE` reference docs previously described it as "uses local client library instead of CDN" — a stale claim that never reflected core behavior and led apps to hand-append `WithPermissiveOriginCheck()`. The godoc now leads with the security semantics ("allows all WebSocket origins, disabling the same-origin/CSRF check — never in production"), notes it also exposes `{{.lvt.DevMode}}` to templates, and `WithPermissiveOriginCheck`'s godoc points local-dev users to `WithDevMode` instead, reserving itself for the disable-origin-check-*without*-dev-mode case. A new `TestWithDevModeWiresPermissiveOrigin` locks the wiring through `New()` (dev mode alone allows cross-origin; no options rejects it). No behavior change. (#483) (#487)
+
+## [v0.18.0] - 2026-07-12
+
+### Added
+
+- `ClientVersion`, `ClientScriptURL`, and `ClientStyleURL` exported constants pin the `@livetemplate/client` browser bundle this LiveTemplate release is wire-compatible with, plus two framework-seeded template functions — `lvtClientScriptURL` and `lvtClientStyleURL` — that render those URLs. Templates can now reference `{{lvtClientScriptURL}}` / `{{lvtClientStyleURL}}` with no per-app wiring (the funcs are seeded into every template's FuncMap in `New`, before any parse path runs, so they resolve in full-HTML documents, fragments, and component templates alike; a user `Funcs` call still overrides them by key). This replaces the previous pattern of hardcoding an unpinned `@latest` CDN URL — which was unsafe because there is no runtime server↔client version handshake, so a client-only release could ship a wire-protocol change to browsers still talking to an older server. Pinning moves the client version only on a deliberate `go get -u`, in lockstep with the compatible server. `ClientVersion` is pinned to the release `@latest` resolves to today, so behavior is preserved. Self-hosters (offline / air-gapped / CSP-strict) vendor `@livetemplate/client@<ClientVersion>` and serve it from their own origin instead. (#483)
 
 ## [v0.17.0] - 2026-07-10
 
