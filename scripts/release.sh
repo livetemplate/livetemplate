@@ -107,8 +107,16 @@ restore_release_files() {
         if git cat-file -e "HEAD:$f" 2>/dev/null; then
             git checkout HEAD -- "$f" || \
                 log_warn "Could not restore $f; revert it by hand before retrying"
-        else
-            log_warn "$f is not in HEAD — this run created it; delete it by hand before retrying"
+        elif [ -f "$f" ]; then
+            # Absent from HEAD but on disk means this run created it: main()
+            # refuses to start on a dirty tree and `git status --porcelain`
+            # lists untracked files, so it cannot have pre-existed. Removing it
+            # restores the exact pre-run state. Both steps are needed —
+            # commit_and_tag may already have staged it, and a bare `rm` would
+            # leave an "A " entry that still counts as dirty.
+            git rm -f --quiet --ignore-unmatch -- "$f" 2>/dev/null || true
+            rm -f "$f"
+            log_warn "Removed $f, which this run created"
         fi
     done
 }
