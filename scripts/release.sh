@@ -423,7 +423,21 @@ main() {
         echo "Finish that release first:"
         echo ""
         echo "  git push origin $branch"
-        echo "  git push origin v$pending"
+        # An absent tag is a real state, not just a defensive branch:
+        # commit_and_tag sets release_committed immediately after the commit and
+        # tags afterwards, so a failure at the tag step leaves a release commit
+        # with no tag. Printing the push unconditionally would hand over a
+        # command that just fails, hiding the step that actually needs redoing.
+        if git rev-parse -q --verify "refs/tags/v$pending" >/dev/null 2>&1; then
+            echo "  git push origin v$pending"
+        else
+            echo ""
+            echo "  # No v$pending tag exists locally — the tag step never completed."
+            echo "  # Recreate it before pushing:"
+            echo "  git tag -a v$pending -m \"Release v$pending\""
+            echo "  git push origin v$pending"
+        fi
+        echo ""
         echo "  gh release view v$pending    # if this reports no release, create it:"
         echo "  gh release create v$pending --title \"v$pending\" --notes-file <notes>"
         echo ""
