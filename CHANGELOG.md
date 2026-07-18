@@ -5,6 +5,20 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.19.0] - 2026-07-18
+
+### Changes
+
+- chore: adopt client 0.18.2 and curate CHANGELOG ahead of v0.19.0 (3734813b)
+- feat: recursive {{template}} support + per-leaf nested-range diffs (Tier C · C8) (c02ddb38)
+- docs(proposal): recursive {{template}} support design (Tier C · C8) (#493) (3ee6d07a)
+- docs(tier-c): resolve C6 + record C2/C3/C5 dispositions (#492) (3929361e)
+- docs(serving): static assets alongside the app (Tier C · C9) (#491) (ac0e1bc6)
+- docs(lifecycle): a published action is not a re-Mount (Tier C · C1) (#490) (bce63d47)
+- Tier C boilerplate-reduction: remove WithStore (C4) + document arg-method view-helper pattern (C7) (#488) (f33a763e)
+
+
+
 ## [v0.18.1] - 2026-07-13
 
 ### Fixed
