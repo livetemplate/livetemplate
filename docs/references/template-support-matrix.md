@@ -173,10 +173,29 @@ Stripping uses the HTML tokenizer (not a regex), so it is context-aware:
 |---------|--------|-------|
 | `{{define}}` / `{{template}}` | ✅ | Automatically flattened via `FlattenTemplate()` in `internal/parse/flatten.go` |
 | `{{block}}` | ✅ | Resolved during flattening; equivalent to `{{define}}` + `{{template}}` |
-| Recursive / circular template references | ❌ | Rejected at parse time with a clear `ParseError` naming the cycle (e.g. `treeNode -> treeNode`). Because `{{template}}` calls are inlined during flattening, a self-referential template cannot be inlined; runtime invocation of recursive templates is a planned feature (see `docs/proposals/recursive-templates-proposal.md`). |
+| Recursive / circular template references | ✅ | Supported since v0.19.0 — direct self-recursion (`node -> node`), mutual recursion (`a -> b -> a`), longer cycles, and a self-referential entry point all render. `{{template}}` calls are normally inlined during flattening, which a cycle cannot survive, so `FlattenTemplate` detects templates reachable from themselves and leaves those invocations un-inlined, evaluating them at build time as nested `TreeNode`s. The recursive region stays inside the reactive tree, so updates diff per-leaf rather than re-sending the branch. Depth is capped — see [Recursion depth](#recursion-depth). |
 | Undefined template invocation | ❌ | Returns error from Go template engine |
 
-Template composition is fully supported through automatic AST flattening. `FlattenTemplate()` walks the parsed template tree, identifies the entry point, and inlines all `{{template}}` invocations into a single flat template before tree generation.
+Template composition is fully supported through automatic AST flattening. `FlattenTemplate()` walks the parsed template tree, identifies the entry point, and inlines all `{{template}}` invocations into a single flat template before tree generation. Templates that are reachable from themselves are the exception: they are left un-inlined and invoked at build time instead.
+
+### Recursion depth
+
+Recursive invocation is capped so that self-referential *data* (a node whose child list contains itself) surfaces an error instead of overflowing the stack. The cap defaults to **128** and is configurable:
+
+```go
+lt.New("tree", lt.WithMaxTemplateDepth(256))
+```
+
+```bash
+export LVT_MAX_TEMPLATE_DEPTH=256   # must be a positive integer
+```
+
+Exceeding the cap on a **reactive update** returns a build-phase `ParseError` naming the template and the limit. Raise the cap only if your data is legitimately deeper — the default exists to catch cycles in data, not to constrain real nesting.
+
+Two behaviours differ from that and are worth knowing:
+
+- **First render with finite data deeper than the cap does not error.** The build degrades and still produces a usable, keyed page, so a too-low cap can go unnoticed until the first update fails.
+- **If the initial tree build errors outright** — genuinely self-referential data, where a node's children contain the node itself — the initial render falls back to an HTML-structure-based tree and logs `Template parsing failed, falling back to HTML structure-based tree`. That region then stays on HTML-string diffing for the life of the template rather than the reactive path. A recursive region that renders but never updates reactively is the symptom; that warning in the server log is the confirmation.
 
 ## Custom Functions
 

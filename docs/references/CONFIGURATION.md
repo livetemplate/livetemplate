@@ -173,6 +173,18 @@ Base directory for template auto-discovery.
 
 **Use case**: Override automatic template directory detection. Useful in containerized deployments where `runtime.Caller` may resolve to an unexpected path.
 
+#### `LVT_MAX_TEMPLATE_DEPTH`
+
+Maximum nesting depth for recursive `{{template}}` invocations while building the reactive tree.
+
+- **Type**: Integer
+- **Default**: `128`
+- **Example**: `LVT_MAX_TEMPLATE_DEPTH=256`
+- **Validation**: Must be a positive integer; an invalid value is a hard startup error
+- **Option**: `WithMaxTemplateDepth(n)`
+
+**Use case**: Recursive templates (file trees, comment threads, nested navigation) render self-referential data. This cap stops a *cycle in the data* — a node whose children contain itself — from overflowing the stack, surfacing an error instead. Raise it only when your data is legitimately deeper than the default; the cap is a safety net, not a tuning knob. See [Template Support Matrix — Recursion depth](template-support-matrix.md#recursion-depth) for the first-render versus update behavior.
+
 ### Graceful Shutdown
 
 #### `LVT_SHUTDOWN_TIMEOUT`
