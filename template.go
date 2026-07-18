@@ -155,6 +155,7 @@ type Config struct {
 	TemplateBaseDir        string                              // Base directory for template auto-discovery (default: directory of calling code via runtime.Caller)
 	IgnoreTemplateDirs     []string                            // Additional directories to ignore during auto-discovery
 	DevMode                bool                                // Development mode: allows ALL WebSocket origins (disables the same-origin/CSRF check — never in production), exposes {{.lvt.DevMode}} to templates, enables debug logging
+	MaxTemplateDepth       int                                 // Max recursive {{template}} nesting depth during tree generation (0 = built-in default of 128)
 	MaxConnections         int64                               // Maximum total connections (0 = unlimited)
 	MaxConnectionsPerGroup int64                               // Maximum connections per group (0 = unlimited)
 	MessageRateLimit       float64                             // Messages per second per connection (0 = unlimited, default 10)
@@ -420,6 +421,17 @@ func WithLoadingDisabled() Option {
 func WithDevMode(enabled bool) Option {
 	return func(c *Config) {
 		c.DevMode = enabled
+	}
+}
+
+// WithMaxTemplateDepth sets the maximum nesting depth for recursive {{template}}
+// invocations during reactive tree generation. Beyond this depth, tree building
+// fails with a clear error rather than overflowing the stack — a guard against
+// unbounded recursion in the data. A non-positive value keeps the built-in
+// default (128). Raise it only when the data is legitimately deeper.
+func WithMaxTemplateDepth(depth int) Option {
+	return func(c *Config) {
+		c.MaxTemplateDepth = depth
 	}
 }
 
@@ -1606,9 +1618,19 @@ func (t *Template) buildTreeWithCache(data interface{}, ctx *build.Context) (*tr
 // NOTE: This method modifies template state. Caller must hold t.mu write lock.
 // Errors from buildTreeWithCache are absorbed via the HTML structure-based fallback,
 // so this method never propagates failure to the caller.
-func (t *Template) generateInitialTreeWithoutRegistry(data interface{}, extractedContent string) *treeNode {
+// newBuildContext returns a build context seeded from the template's config. Both
+// tree-build entry points use it, so a config field that must reach the build
+// (DevMode, MaxInvocationDepth) is projected in one place and can't drift between
+// the first-render and update paths.
+func (t *Template) newBuildContext() *build.Context {
 	ctx := build.NewContext()
 	ctx.DevMode = t.config.DevMode
+	ctx.MaxInvocationDepth = t.config.MaxTemplateDepth
+	return ctx
+}
+
+func (t *Template) generateInitialTreeWithoutRegistry(data interface{}, extractedContent string) *treeNode {
+	ctx := t.newBuildContext()
 
 	tree, err := t.buildTreeWithCache(data, ctx)
 	if err != nil {
@@ -1640,8 +1662,7 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, newData interf
 		// Note: t.lastHTML is intentionally not updated here — it holds stale data from
 		// the first render. This is safe because lastHTML is only consumed by the fallback
 		// path below, which is unreachable once hasInitialTree is true.
-		ctx := build.NewContext()
-		ctx.DevMode = t.config.DevMode
+		ctx := t.newBuildContext()
 
 		newTree, err := t.buildTreeWithCache(newData, ctx)
 		if err != nil {

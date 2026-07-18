@@ -173,7 +173,7 @@ Stripping uses the HTML tokenizer (not a regex), so it is context-aware:
 |---------|--------|-------|
 | `{{define}}` / `{{template}}` | ✅ | Automatically flattened via `FlattenTemplate()` in `internal/parse/flatten.go` |
 | `{{block}}` | ✅ | Resolved during flattening; equivalent to `{{define}}` + `{{template}}` |
-| Circular template references | ❌ | Not supported, would cause infinite loop |
+| Recursive / circular template references | ❌ | Rejected at parse time with a clear `ParseError` naming the cycle (e.g. `treeNode -> treeNode`). Because `{{template}}` calls are inlined during flattening, a self-referential template cannot be inlined; runtime invocation of recursive templates is a planned feature (see `docs/proposals/recursive-templates-proposal.md`). |
 | Undefined template invocation | ❌ | Returns error from Go template engine |
 
 Template composition is fully supported through automatic AST flattening. `FlattenTemplate()` walks the parsed template tree, identifies the entry point, and inlines all `{{template}}` invocations into a single flat template before tree generation.

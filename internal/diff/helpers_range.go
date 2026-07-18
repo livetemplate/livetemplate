@@ -13,6 +13,26 @@ const (
 	maxInsertionPoints = 3
 )
 
+// nodeContainsNestedRange reports whether any TreeNode reachable through node's
+// dynamics is a range construct. A range whose items contain nested ranges is
+// kept off the stream-mode transition and diffed item-by-item, so a deep edit
+// scopes to a nested ["u", key, …] instead of re-sending the branch.
+func nodeContainsNestedRange(node *TreeNode) bool {
+	if node == nil {
+		return false
+	}
+	for _, d := range node.Dynamics {
+		child, ok := d.(*TreeNode)
+		if !ok {
+			continue
+		}
+		if child.HasRange() || nodeContainsNestedRange(child) {
+			return true
+		}
+	}
+	return false
+}
+
 // HasReordering returns true if the order of keys differs between old and new.
 // Returns false if lengths differ (which indicates insertions/removals).
 func HasReordering(oldKeys, newKeys []string) bool {

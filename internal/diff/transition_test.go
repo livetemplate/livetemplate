@@ -167,9 +167,16 @@ func TestTransitionToStreamMode_NestedRangesNotTransitioned(t *testing.T) {
 
 	TransitionToStreamMode(tree)
 
+	// A range whose items contain nested ranges must stay off the stream transition:
+	// stream mode discards the old item trees the recursive per-item diff needs, so
+	// keeping it on the differential path is what lets a deep edit scope to a nested
+	// ["u", key, …] instead of re-sending the whole enclosing branch.
 	outerRange := tree.Dynamics[0].(*build.TreeNode).Range
-	if outerRange.StreamState == nil {
-		t.Errorf("Outer top-level range should transition")
+	if outerRange.StreamState != nil {
+		t.Errorf("Outer range whose items contain nested ranges MUST NOT transition to stream")
+	}
+	if outerRange.Items == nil {
+		t.Errorf("Outer range Items must remain populated for the differential per-item diff")
 	}
 	if innerRangeNode.Range.StreamState != nil {
 		t.Errorf("Nested range MUST NOT transition (proposal §5a top-level only)")

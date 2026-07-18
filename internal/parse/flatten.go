@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"fmt"
 	"html/template"
+	"maps"
+	"slices"
+	"strconv"
 	"strings"
 	"text/template/parse"
 )
@@ -61,13 +64,97 @@ func FlattenTemplate(tmpl *template.Template) (string, error) {
 		templates[t.Name()] = t
 	}
 
-	// Walk the tree and flatten
+	// Identify templates that participate in a cycle. Their {{template}} calls are
+	// left un-inlined (emitted verbatim) and their bodies are re-emitted once as
+	// {{define}} blocks, so the recursion is resolved at build time rather than by
+	// infinite inlining. Non-recursive composition is unaffected — recursive is
+	// empty and every call inlines as before.
+	recursive := detectRecursiveTemplates(templates)
+
+	// Walk the tree and flatten. The active-path stack is seeded with the entry
+	// point's name so a self-referential entry point is caught on its first
+	// re-invocation and mutual-recursion errors print the cycle as authored.
+	// checkFlattenCycle stays as a backstop: if detection ever under-identifies a
+	// cycle, the un-emitted call re-enters here and is caught with a clean error
+	// instead of overflowing the stack.
 	var buf bytes.Buffer
-	if err := walkAndFlatten(mainTemplate.Tree.Root, templates, &buf); err != nil {
+	if err := walkAndFlatten(mainTemplate.Tree.Root, templates, &buf, []string{mainTemplate.Name()}, recursive); err != nil {
 		return "", err
 	}
 
+	// Append each recursive template's flattened body as a {{define}} block. On
+	// re-parse these become associated templates that parse.Parse collects into
+	// the recursion registry; at build time invokeTemplate walks them per call.
+	// Bodies are flattened with the same recursive set, so their own recursive
+	// calls stay verbatim while any non-recursive {{template}} calls inline.
+	// Sorted for deterministic output (stable fingerprints and caching).
+	// detectRecursiveTemplates only records names whose templates have a non-nil
+	// Tree/Root, so templates[name] is safe to dereference here.
+	for _, name := range slices.Sorted(maps.Keys(recursive)) {
+		body := templates[name].Tree.Root
+		buf.WriteString("{{define ")
+		buf.WriteString(strconv.Quote(name))
+		buf.WriteString("}}")
+		if err := walkAndFlatten(body, templates, &buf, []string{name}, recursive); err != nil {
+			return "", err
+		}
+		buf.WriteString("{{end}}")
+	}
+
 	return buf.String(), nil
+}
+
+// detectRecursiveTemplates returns the set of template names that participate in
+// a cycle in the invocation graph — a name reachable from itself by following
+// {{template}} calls. Direct self-recursion, mutual recursion, and longer cycles
+// are all captured; a template merely on a path *into* a cycle is not.
+func detectRecursiveTemplates(templates map[string]*template.Template) map[string]bool {
+	graph := make(map[string][]string, len(templates))
+	for name, t := range templates {
+		if t.Tree == nil || t.Tree.Root == nil {
+			continue
+		}
+		graph[name] = collectInvokedTemplateNames(t.Tree.Root)
+	}
+
+	recursive := make(map[string]bool)
+	for name := range graph {
+		if reachableFromSelf(name, graph) {
+			recursive[name] = true
+		}
+	}
+	return recursive
+}
+
+// collectInvokedTemplateNames returns the names invoked by {{template}} nodes
+// anywhere within node's subtree (duplicates allowed; callers only test membership).
+func collectInvokedTemplateNames(node parse.Node) []string {
+	var names []string
+	forEachTemplateNode(node, func(tn *parse.TemplateNode) bool {
+		names = append(names, tn.Name)
+		return true
+	})
+	return names
+}
+
+// reachableFromSelf reports whether start can reach itself by following the
+// invocation graph — i.e. start lies on a cycle.
+func reachableFromSelf(start string, graph map[string][]string) bool {
+	visited := make(map[string]bool)
+	stack := append([]string(nil), graph[start]...)
+	for len(stack) > 0 {
+		n := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if n == start {
+			return true
+		}
+		if visited[n] {
+			continue
+		}
+		visited[n] = true
+		stack = append(stack, graph[n]...)
+	}
+	return false
 }
 
 // HasTemplateComposition checks if template uses {{define}}/{{template}}/{{block}}.
@@ -148,61 +235,54 @@ func findTopLevelTemplateInvocation(node *parse.ListNode) string {
 	return ""
 }
 
-// hasTemplateNode recursively checks for {{template}} or {{block}} nodes.
-func hasTemplateNode(node parse.Node) bool {
-	if node == nil {
-		return false
-	}
-
+// forEachTemplateNode walks node's subtree and calls fn for every {{template}}
+// (or {{block}}) invocation found, in source order. fn returns false to stop the
+// walk early; forEachTemplateNode returns false in that case, true if it ran to
+// completion. It descends List/If/Range/With bodies (both branches); a nil node
+// is a no-op, so callers need no nil guards.
+func forEachTemplateNode(node parse.Node, fn func(*parse.TemplateNode) bool) bool {
 	switch n := node.(type) {
 	case *parse.ListNode:
 		if n == nil {
-			return false
+			return true
 		}
 		for _, child := range n.Nodes {
-			if hasTemplateNode(child) {
-				return true
+			if !forEachTemplateNode(child, fn) {
+				return false
 			}
 		}
 	case *parse.IfNode:
-		if n == nil {
-			return false
-		}
-		if hasTemplateNode(n.List) {
-			return true
-		}
-		if n.ElseList != nil && hasTemplateNode(n.ElseList) {
-			return true
-		}
+		return forEachTemplateNode(n.List, fn) && forEachTemplateNode(n.ElseList, fn)
 	case *parse.RangeNode:
-		if n == nil {
-			return false
-		}
-		if hasTemplateNode(n.List) {
-			return true
-		}
-		if n.ElseList != nil && hasTemplateNode(n.ElseList) {
-			return true
-		}
+		return forEachTemplateNode(n.List, fn) && forEachTemplateNode(n.ElseList, fn)
 	case *parse.WithNode:
-		if n == nil {
-			return false
-		}
-		if hasTemplateNode(n.List) {
-			return true
-		}
-		if n.ElseList != nil && hasTemplateNode(n.ElseList) {
-			return true
-		}
+		return forEachTemplateNode(n.List, fn) && forEachTemplateNode(n.ElseList, fn)
 	case *parse.TemplateNode:
-		return true
+		return fn(n)
 	}
+	return true
+}
 
-	return false
+// hasTemplateNode recursively checks for {{template}} or {{block}} nodes.
+func hasTemplateNode(node parse.Node) bool {
+	found := false
+	forEachTemplateNode(node, func(*parse.TemplateNode) bool {
+		found = true
+		return false // stop at the first hit
+	})
+	return found
 }
 
 // walkAndFlatten recursively walks the AST and builds flattened template string.
-func walkAndFlatten(node parse.Node, templates map[string]*template.Template, buf *bytes.Buffer) error {
+//
+// stack holds the names of the templates whose bodies are currently being
+// inlined on the path from the entry point to this node (an active-path set,
+// not a global visited-set). A {{template "X"}} whose name is already on the
+// stack is a self-referential cycle: inlining it would expand forever and
+// stack-overflow at Parse, so it returns a ParseError instead. The same name
+// invoked twice on non-nested paths (a diamond) is not a cycle and still
+// inlines, because each invocation pops off the stack when its body returns.
+func walkAndFlatten(node parse.Node, templates map[string]*template.Template, buf *bytes.Buffer, stack []string, recursive map[string]bool) error {
 	if node == nil {
 		return nil
 	}
@@ -211,7 +291,7 @@ func walkAndFlatten(node parse.Node, templates map[string]*template.Template, bu
 	case *parse.ListNode:
 		// Process all child nodes
 		for _, child := range n.Nodes {
-			if err := walkAndFlatten(child, templates, buf); err != nil {
+			if err := walkAndFlatten(child, templates, buf, stack, recursive); err != nil {
 				return err
 			}
 		}
@@ -232,13 +312,13 @@ func walkAndFlatten(node parse.Node, templates map[string]*template.Template, bu
 		buf.WriteString(formatPipeForFlatten(n.Pipe))
 		buf.WriteString("}}")
 
-		if err := walkAndFlatten(n.List, templates, buf); err != nil {
+		if err := walkAndFlatten(n.List, templates, buf, stack, recursive); err != nil {
 			return err
 		}
 
 		if n.ElseList != nil {
 			buf.WriteString("{{else}}")
-			if err := walkAndFlatten(n.ElseList, templates, buf); err != nil {
+			if err := walkAndFlatten(n.ElseList, templates, buf, stack, recursive); err != nil {
 				return err
 			}
 		}
@@ -251,13 +331,13 @@ func walkAndFlatten(node parse.Node, templates map[string]*template.Template, bu
 		buf.WriteString(formatPipeForFlatten(n.Pipe))
 		buf.WriteString("}}")
 
-		if err := walkAndFlatten(n.List, templates, buf); err != nil {
+		if err := walkAndFlatten(n.List, templates, buf, stack, recursive); err != nil {
 			return err
 		}
 
 		if n.ElseList != nil {
 			buf.WriteString("{{else}}")
-			if err := walkAndFlatten(n.ElseList, templates, buf); err != nil {
+			if err := walkAndFlatten(n.ElseList, templates, buf, stack, recursive); err != nil {
 				return err
 			}
 		}
@@ -270,13 +350,13 @@ func walkAndFlatten(node parse.Node, templates map[string]*template.Template, bu
 		buf.WriteString(formatPipeForFlatten(n.Pipe))
 		buf.WriteString("}}")
 
-		if err := walkAndFlatten(n.List, templates, buf); err != nil {
+		if err := walkAndFlatten(n.List, templates, buf, stack, recursive); err != nil {
 			return err
 		}
 
 		if n.ElseList != nil {
 			buf.WriteString("{{else}}")
-			if err := walkAndFlatten(n.ElseList, templates, buf); err != nil {
+			if err := walkAndFlatten(n.ElseList, templates, buf, stack, recursive); err != nil {
 				return err
 			}
 		}
@@ -284,6 +364,22 @@ func walkAndFlatten(node parse.Node, templates map[string]*template.Template, bu
 		buf.WriteString("{{end}}")
 
 	case *parse.TemplateNode:
+		// A recursive template is left un-inlined: emit the invocation verbatim so
+		// it survives re-parse as a {{template}} node and is evaluated at build
+		// time (see invokeTemplate). Its body is emitted once as a {{define}} block
+		// by FlattenTemplate. This branch is what breaks the infinite inlining that
+		// checkFlattenCycle below can only detect after the fact.
+		if recursive[n.Name] {
+			buf.WriteString("{{template ")
+			buf.WriteString(strconv.Quote(n.Name))
+			if n.Pipe != nil {
+				buf.WriteByte(' ')
+				buf.WriteString(formatPipeForFlatten(n.Pipe))
+			}
+			buf.WriteString("}}")
+			return nil
+		}
+
 		// {{template "name" .}} - inline the template
 		refTemplate, exists := templates[n.Name]
 		if !exists {
@@ -293,6 +389,21 @@ func walkAndFlatten(node parse.Node, templates map[string]*template.Template, bu
 		if refTemplate.Tree == nil || refTemplate.Tree.Root == nil {
 			return fmt.Errorf("template %q has no parse tree", n.Name)
 		}
+
+		// Cycle detection: if this template is already being inlined on the
+		// current path, inlining its body again would recurse forever and
+		// stack-overflow during Parse (livetemplate inlines {{template}} calls
+		// at parse time; it does not yet evaluate recursive invocations at
+		// runtime). Return a structured error naming the cycle instead.
+		if err := checkFlattenCycle(n, stack); err != nil {
+			return err
+		}
+		// Push this name for the body recursion below. Reusing stack's backing
+		// array across sibling {{template}} invocations is safe only because the
+		// walk is strictly sequential (each child fully returns before the next
+		// starts) — a stale tail is never read concurrently. This invariant must
+		// hold if the walk is ever parallelized.
+		stack = append(stack, n.Name)
 
 		// Handle data context changes
 		// If template invocation passes a different context (e.g., {{template "name" .Field}}),
@@ -312,14 +423,14 @@ func walkAndFlatten(node parse.Node, templates map[string]*template.Template, bu
 			buf.WriteString(formatPipeForFlatten(n.Pipe))
 			buf.WriteString("}}")
 
-			if err := walkAndFlatten(refTemplate.Tree.Root, templates, buf); err != nil {
+			if err := walkAndFlatten(refTemplate.Tree.Root, templates, buf, stack, recursive); err != nil {
 				return err
 			}
 
 			buf.WriteString("{{end}}")
 		} else {
 			// No context change needed - inline as-is
-			if err := walkAndFlatten(refTemplate.Tree.Root, templates, buf); err != nil {
+			if err := walkAndFlatten(refTemplate.Tree.Root, templates, buf, stack, recursive); err != nil {
 				return err
 			}
 		}
@@ -331,6 +442,28 @@ func walkAndFlatten(node parse.Node, templates map[string]*template.Template, bu
 	}
 
 	return nil
+}
+
+// checkFlattenCycle reports a self-referential {{template}} invocation. If the
+// invoked name already appears on the active-path stack, inlining it again
+// would expand forever, so it returns a ParseError naming the cycle (the path
+// from the name's first appearance back to itself, e.g. "page -> row -> page").
+// Returns nil when the invocation is acyclic and safe to inline.
+func checkFlattenCycle(n *parse.TemplateNode, stack []string) error {
+	i := slices.Index(stack, n.Name)
+	if i < 0 {
+		return nil
+	}
+	cycle := strings.Join(stack[i:], " -> ") + " -> " + n.Name
+	return &ParseError{
+		Phase:    "parse",
+		NodeType: "template",
+		Expr:     n.Name,
+		Pos:      int(n.Position()),
+		Msg: fmt.Sprintf("recursive template invocation is not supported (cycle: %s); "+
+			"livetemplate inlines {{template}} calls at parse time, so a self-referential "+
+			"template would expand infinitely", cycle),
+	}
 }
 
 // formatPipe converts a pipe to its string representation.

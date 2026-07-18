@@ -17,6 +17,14 @@ var sentinel = &struct{}{}
 // replacing the old "serialize → re-parse → execute" pattern.
 type evaluator struct {
 	builtins map[string]reflect.Value
+
+	// templates holds the ASTs of recursively-invoked templates, keyed by name.
+	// Populated from a Template's registry (see Parse). A {{template "x" .}} node
+	// whose name is present here is evaluated at build time via invokeTemplate,
+	// producing a nested TreeNode. Non-recursive {{template}} calls never reach
+	// the evaluator — they are inlined during flattening — so this is empty for
+	// templates that don't use recursion.
+	templates map[string]*parse.Tree
 }
 
 // cachedBuiltins holds pre-reflected builtin functions, computed once.

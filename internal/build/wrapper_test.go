@@ -362,6 +362,52 @@ func TestNormalizeTemplateSpacing(t *testing.T) {
 }
 
 // TestExtractTemplateBodyContent_WithAttributes tests body tags with attributes.
+// TestExtractTemplateBodyContent_TrailingDefines pins the recursion-registry
+// re-attachment: FlattenTemplate appends the recursive {{define}} cycle members
+// AFTER </body></html>, and body extraction must carry them along or a full-doc
+// recursive template silently degrades to HTML-structure diffing.
+func TestExtractTemplateBodyContent_TrailingDefines(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			"full doc, no trailing define",
+			`<html><body><ul><li>x</li></ul></body></html>`,
+			`<ul><li>x</li></ul>`,
+		},
+		{
+			"full doc, one trailing define re-attached",
+			`<html><body><ul>{{template "n" .}}</ul></body></html>{{define "n"}}<li>{{.}}</li>{{end}}`,
+			`<ul>{{template "n" .}}</ul>{{define "n"}}<li>{{.}}</li>{{end}}`,
+		},
+		{
+			"full doc, multiple trailing defines re-attached",
+			`<html><body><ul>{{template "a" .}}</ul></body></html>{{define "a"}}A{{end}}{{define "b"}}B{{end}}`,
+			`<ul>{{template "a" .}}</ul>{{define "a"}}A{{end}}{{define "b"}}B{{end}}`,
+		},
+		{
+			"trailing whitespace before/after the define is trimmed to the block",
+			"<html><body>X</body></html>\n{{define \"a\"}}A{{end}}\n",
+			`X{{define "a"}}A{{end}}`,
+		},
+		{
+			"fragment (no body) returned as-is, defines and all",
+			`{{define "n"}}<li>{{.}}</li>{{end}}<ul>{{template "n" .}}</ul>`,
+			`{{define "n"}}<li>{{.}}</li>{{end}}<ul>{{template "n" .}}</ul>`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if result := ExtractTemplateBodyContent(tt.input); result != tt.expected {
+				t.Errorf("Expected %q, got: %q", tt.expected, result)
+			}
+		})
+	}
+}
+
 func TestExtractTemplateBodyContent_WithAttributes(t *testing.T) {
 	tests := []struct {
 		name     string

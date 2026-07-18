@@ -1,8 +1,10 @@
 package diff
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/livetemplate/livetemplate/internal/build"
@@ -187,9 +189,10 @@ func TestGenerateRangeDifferentialOperations_Insertion(t *testing.T) {
 
 // TestGenerateRangeDifferentialOperations_Mixed verifies that a render combining
 // structural changes (id1/id3 removed, id4 added) with a kept-item content change
-// (id2: "Old Name" → "New Name") signals nil-return so the caller emits a full-tree
-// replacement. Kept-item content changes cannot be encoded as differential ops
-// (spec §5d).
+// (id2: "Old Name" → "New Name") is encoded as differential ops: removes for the
+// dropped items, a per-item ["u"] for the kept-but-changed one, and an append for
+// the new one. Kept-item content changes are diffed in place (they no longer force
+// a full-tree fallback).
 func TestGenerateRangeDifferentialOperations_Mixed(t *testing.T) {
 	item1 := &TreeNode{Dynamics: []interface{}{"id1", "Name 1"}}
 	item2Old := &TreeNode{Dynamics: []interface{}{"id2", "Old Name"}}
@@ -209,9 +212,48 @@ func TestGenerateRangeDifferentialOperations_Mixed(t *testing.T) {
 	}
 
 	ops := GenerateRangeDifferentialOperations(oldValue, newValue, false)
-	if ops != nil {
-		t.Errorf("Expected nil-return (full-tree fallback signal), got ops: %v", ops)
+	if ops == nil {
+		t.Fatal("Expected differential ops, got nil-return")
 	}
+	got := opTypeCounts(ops)
+	if got["r"] != 2 {
+		t.Errorf("Expected 2 remove ops (id1, id3), got %d: %v", got["r"], ops)
+	}
+	if got["a"] != 1 {
+		t.Errorf("Expected 1 append op (id4), got %d: %v", got["a"], ops)
+	}
+	if !hasUpdateOp(ops, "id2", "New Name") {
+		t.Errorf("Expected ['u','id2',{'1':'New Name'}], got: %v", ops)
+	}
+}
+
+// opTypeCounts tallies operations by their op-type string ("r","u","a","i","o","p").
+func opTypeCounts(ops []interface{}) map[string]int {
+	counts := map[string]int{}
+	for _, op := range ops {
+		if arr, ok := op.([]interface{}); ok && len(arr) >= 1 {
+			if t, ok := arr[0].(string); ok {
+				counts[t]++
+			}
+		}
+	}
+	return counts
+}
+
+// hasUpdateOp reports whether ops contains ["u", key, {"1": value}] — position 1
+// is the name/title dynamic in every test item ([id, name]).
+func hasUpdateOp(ops []interface{}, key, value string) bool {
+	for _, op := range ops {
+		arr, ok := op.([]interface{})
+		if !ok || len(arr) < 3 || arr[0] != "u" || arr[1] != key {
+			continue
+		}
+		payload, ok := arr[2].(map[string]interface{})
+		if ok && payload["1"] == value {
+			return true
+		}
+	}
+	return false
 }
 
 // TestGenerateRangeDifferentialOperations_EmptyToItems tests transition from empty to items.
@@ -642,10 +684,11 @@ func TestHasKeptItemChanged_NonTreeNodeReturnsTrue(t *testing.T) {
 	}
 }
 
-// TestGenerateRangeDifferentialOperations_KeptItemContentChange_FallsBack
-// covers a single item present on both renders whose Dynamics changed. The
-// diff engine signals nil-return so the caller emits a full-tree replacement.
-func TestGenerateRangeDifferentialOperations_KeptItemContentChange_FallsBack(t *testing.T) {
+// TestGenerateRangeDifferentialOperations_KeptItemContentChange_EmitsUpdateOp
+// covers a single item present on both renders whose Dynamics changed. The diff
+// engine encodes it in place as ["u", key, {changed dynamics}] rather than
+// falling back to a full-tree replacement.
+func TestGenerateRangeDifferentialOperations_KeptItemContentChange_EmitsUpdateOp(t *testing.T) {
 	statics := []string{`<li data-key="`, `">`, `</li>`}
 	oldValue := &TreeNode{
 		Statics: statics,
@@ -656,15 +699,17 @@ func TestGenerateRangeDifferentialOperations_KeptItemContentChange_FallsBack(t *
 		Range:   &RangeData{Items: []interface{}{&TreeNode{Dynamics: []interface{}{"id1", "New"}}}},
 	}
 
-	if ops := GenerateRangeDifferentialOperations(oldValue, newValue, false); ops != nil {
-		t.Errorf("Expected nil-return for kept-item content change, got: %v", ops)
+	ops := GenerateRangeDifferentialOperations(oldValue, newValue, false)
+	if len(ops) != 1 || !hasUpdateOp(ops, "id1", "New") {
+		t.Errorf("Expected [['u','id1',{'1':'New'}]], got: %v", ops)
 	}
 }
 
-// TestGenerateRangeDifferentialOperations_StructuralAndContent_FallsBack covers
-// a render that adds an item AND mutates an existing item's content. The
-// content-change signal wins — full-tree replacement carries both correctly.
-func TestGenerateRangeDifferentialOperations_StructuralAndContent_FallsBack(t *testing.T) {
+// TestGenerateRangeDifferentialOperations_StructuralAndContent_EmitsOps covers a
+// render that adds an item AND mutates an existing item's content: both are
+// encoded differentially — a per-item ["u"] for the kept item plus an append for
+// the new one.
+func TestGenerateRangeDifferentialOperations_StructuralAndContent_EmitsOps(t *testing.T) {
 	statics := []string{`<li data-key="`, `">`, `</li>`}
 	oldValue := &TreeNode{
 		Statics: statics,
@@ -678,8 +723,84 @@ func TestGenerateRangeDifferentialOperations_StructuralAndContent_FallsBack(t *t
 		}},
 	}
 
+	ops := GenerateRangeDifferentialOperations(oldValue, newValue, false)
+	if !hasUpdateOp(ops, "id1", "New") {
+		t.Errorf("Expected a ['u','id1',{'1':'New'}] op, got: %v", ops)
+	}
+	if opTypeCounts(ops)["a"] != 1 {
+		t.Errorf("Expected 1 append op (id2), got: %v", ops)
+	}
+}
+
+// TestGenerateRangeDifferentialOperations_NestedRangeKeptItem_EmitsNestedUpdate is
+// the headline nested case (the flat-scalar tests above don't exercise it): an
+// outer range item that itself contains a nested range, where one nested leaf's
+// content changes. The outer range must emit a single ["u", outerKey, payload]
+// whose payload carries a nested ["u", innerKey, …] scoped to the changed leaf —
+// not re-send the whole outer item or its unchanged nested sibling.
+func TestGenerateRangeDifferentialOperations_NestedRangeKeptItem_EmitsNestedUpdate(t *testing.T) {
+	inner := []string{`<li data-key="`, `">`, `</li>`}
+	outer := []string{`<div data-key="`, `">`, `</div>`}
+	mkItem := func(innerTitle string) *TreeNode {
+		return &TreeNode{
+			Statics: outer,
+			Dynamics: []interface{}{"cat1", &TreeNode{
+				Statics: inner,
+				Range: &RangeData{
+					Statics: inner,
+					Items: []interface{}{
+						&TreeNode{Statics: inner, Dynamics: []interface{}{"i1", "A"}},
+						&TreeNode{Statics: inner, Dynamics: []interface{}{"i2", innerTitle}},
+					},
+				},
+			}},
+		}
+	}
+	oldValue := &TreeNode{Statics: outer, Range: &RangeData{Statics: outer, Items: []interface{}{mkItem("B")}}}
+	newValue := &TreeNode{Statics: outer, Range: &RangeData{Statics: outer, Items: []interface{}{mkItem("RENAMED")}}}
+
+	ops := GenerateRangeDifferentialOperations(oldValue, newValue, true)
+	if len(ops) != 1 {
+		t.Fatalf("expected a single outer ['u'] op, got: %v", ops)
+	}
+	op, _ := ops[0].([]interface{})
+	if len(op) < 3 || op[0] != "u" || op[1] != "cat1" {
+		t.Fatalf("expected ['u','cat1',payload], got: %v", ops[0])
+	}
+	js, _ := json.Marshal(op[2])
+	s := string(js)
+	if !strings.Contains(s, "RENAMED") {
+		t.Errorf("nested ['u'] payload must carry the changed leaf 'RENAMED', got: %s", s)
+	}
+	if strings.Contains(s, `"s":[`) {
+		t.Errorf("nested ['u'] payload must be statics-free (client has them cached), got: %s", s)
+	}
+	if !strings.Contains(s, `"u"`) || !strings.Contains(s, "i2") {
+		t.Errorf("outer payload must carry a nested ['u','i2',…] op, got: %s", s)
+	}
+}
+
+// TestGenerateRangeDifferentialOperations_ItemStructureChange_FallsBack covers a
+// kept item whose STATICS changed (a conditional branch flipped in/out) — the
+// per-item ["u"] payload would need statics the client lacks, which an update op
+// must not carry, so the range falls back to a full-tree replacement.
+func TestGenerateRangeDifferentialOperations_ItemStructureChange_FallsBack(t *testing.T) {
+	oldValue := &TreeNode{
+		Statics: []string{`<li data-key="`, `">`, `</li>`},
+		Range: &RangeData{Items: []interface{}{
+			&TreeNode{Statics: []string{`<li data-key="`, `">`, `</li>`}, Dynamics: []interface{}{"id1", "A"}},
+		}},
+	}
+	newValue := &TreeNode{
+		Statics: []string{`<li data-key="`, `">`, `</li>`},
+		Range: &RangeData{Items: []interface{}{
+			// Same key, but the item's statics changed (extra slot / different shape).
+			&TreeNode{Statics: []string{`<li data-key="`, `"><b>`, `</b></li>`}, Dynamics: []interface{}{"id1", "A"}},
+		}},
+	}
+
 	if ops := GenerateRangeDifferentialOperations(oldValue, newValue, false); ops != nil {
-		t.Errorf("Expected nil-return for combined structural+content change, got: %v", ops)
+		t.Errorf("Expected nil-return (full-tree fallback) for item structure change, got: %v", ops)
 	}
 }
 
@@ -1114,10 +1235,10 @@ func TestSameKeySet(t *testing.T) {
 // This was the core bug discovered during Phase 2 fuzz testing.
 // =============================================================================
 
-// TestGenerateRangeDifferentialOperations_UpdateAndReorder verifies content+reorder
-// renders take the full-tree fallback. Phase 4 removed the per-item ["u"] producer,
-// so the reorder cannot be emitted in isolation when kept items also changed content
-// — full-tree replacement carries both correctly.
+// TestGenerateRangeDifferentialOperations_UpdateAndReorder verifies that a
+// combined content change + reorder is encoded differentially: a per-item ["u"]
+// for the changed item plus a trailing ["o"] carrying the new key order. (Earlier
+// this took the full-tree fallback; the per-item ["u"] producer is back.)
 func TestGenerateRangeDifferentialOperations_UpdateAndReorder(t *testing.T) {
 	statics := []string{`<li data-key="`, `">`, `</li>`}
 
@@ -1138,14 +1259,43 @@ func TestGenerateRangeDifferentialOperations_UpdateAndReorder(t *testing.T) {
 		}},
 	}
 
-	if ops := GenerateRangeDifferentialOperations(oldValue, newValue, false); ops != nil {
-		t.Errorf("Expected nil-return for content+reorder change, got: %v", ops)
+	ops := GenerateRangeDifferentialOperations(oldValue, newValue, false)
+	if !hasUpdateOp(ops, "id1", "Alpha Updated") {
+		t.Errorf("Expected a ['u','id1',{'1':'Alpha Updated'}] op, got: %v", ops)
+	}
+	if !hasReorderOp(ops, []string{"id2", "id1", "id3"}) {
+		t.Errorf("Expected a trailing ['o',['id2','id1','id3']] op, got: %v", ops)
 	}
 }
 
+// hasReorderOp reports whether ops contains ["o", wantKeys].
+func hasReorderOp(ops []interface{}, wantKeys []string) bool {
+	for _, op := range ops {
+		arr, ok := op.([]interface{})
+		if !ok || len(arr) < 2 || arr[0] != "o" {
+			continue
+		}
+		gotKeys, ok := arr[1].([]string)
+		if !ok || len(gotKeys) != len(wantKeys) {
+			continue
+		}
+		match := true
+		for i := range wantKeys {
+			if gotKeys[i] != wantKeys[i] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
+}
+
 // TestGenerateRangeDifferentialOperations_MultipleUpdatesAndReorder same shape as
-// _UpdateAndReorder but with multiple kept-item content changes — also takes the
-// full-tree fallback per Phase 4.
+// _UpdateAndReorder but with multiple kept-item content changes — each emits its
+// own ["u"] alongside the trailing ["o"].
 func TestGenerateRangeDifferentialOperations_MultipleUpdatesAndReorder(t *testing.T) {
 	statics := []string{`<li data-key="`, `">`, `</li>`}
 
@@ -1166,8 +1316,12 @@ func TestGenerateRangeDifferentialOperations_MultipleUpdatesAndReorder(t *testin
 		}},
 	}
 
-	if ops := GenerateRangeDifferentialOperations(oldValue, newValue, false); ops != nil {
-		t.Errorf("Expected nil-return for multi-content+reorder change, got: %v", ops)
+	ops := GenerateRangeDifferentialOperations(oldValue, newValue, false)
+	if !hasUpdateOp(ops, "id1", "One Updated") || !hasUpdateOp(ops, "id2", "Two Updated") {
+		t.Errorf("Expected ['u'] ops for id1 and id2, got: %v", ops)
+	}
+	if !hasReorderOp(ops, []string{"id3", "id2", "id1"}) {
+		t.Errorf("Expected a trailing ['o',['id3','id2','id1']] op, got: %v", ops)
 	}
 }
 

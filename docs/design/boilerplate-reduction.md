@@ -352,7 +352,7 @@ example would return to its documented ~10 lines; checklistkit's 5 builders coll
   → **Resolution: document the view-helper pattern (guide + example), keep a regression anchor.
   No core API change.**
 - **C8. Recursive `{{template}}` support (direct consumer: prereview; latent: tinkerdown).**
-  📝 **DESIGN APPROVED (2026-07-15) — Phase 1 next.** livetemplate flattens `{{template}}` calls at
+  🔨 **DESIGN APPROVED (2026-07-15); Phase 1 SHIPPED (2026-07-16).** livetemplate flattens `{{template}}` calls at
   parse time with no cycle guard, so a self-referential template stack-overflows during `Parse`; a
   recursive file tree drops to a standalone `html/template` injected as opaque `template.HTML`
   (prereview `internal/review/filetree.go`), which removes the whole subtree from reactive diffing.
@@ -364,8 +364,10 @@ example would return to its documented ~10 lines; checklistkit's 5 builders coll
   Recommended approach: route recursive invocations through the runtime nested-`TreeNode` path
   `{{range}}` already uses (bounded by data depth, not parse-time expansion). Approach A
   (selective), a max-depth guard erroring uniformly, and content-hash `data-key` fallback are all
-  decided (see the proposal's § Decisions); Phase 1 (crash → `ParseError`) is independently
-  shippable and up next.
+  decided (see the proposal's § Decisions). **Phase 1 (crash → `ParseError`)** landed: an
+  active-path cycle guard in `internal/parse/flatten.go` rejects self-referential templates at
+  parse time with a `ParseError` naming the cycle, instead of stack-overflowing; the support matrix
+  row is corrected. Phases 2–5 (runtime nested-`TreeNode` invocation) remain.
 - **C9. Static-asset passthrough alongside the `/` LiveHandler.** ✅ **RESOLVED (docs, no new
   API).** The original pitch was a framework static-passthrough wrapper. On audit the common
   case — assets under a **known prefix** — is already handled by plain `net/http`:

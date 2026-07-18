@@ -40,11 +40,7 @@ func walkAST(node parse.Node, eval *evaluator, data interface{}, varCtx *varCont
 		return NewTreeNode(), nil
 
 	case *parse.TemplateNode:
-		return nil, &ParseError{
-			Phase: "build", NodeType: "template",
-			Expr: n.Name,
-			Msg:  "template invocation found - should be flattened",
-		}
+		return invokeTemplate(n, eval, data, varCtx, ctx)
 
 	default:
 		return nil, &ParseError{

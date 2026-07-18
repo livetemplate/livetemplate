@@ -31,6 +31,23 @@ jobs:
         repository: livetemplate/lvt
         path: lvt
 
+    # Mirror of the "Use matching docs branch" step below: a core change that
+    # alters the wire format also changes lvt's exact-format golden files, which
+    # can only be regenerated on a matching lvt branch (lvt's own CI runs against
+    # the published core). If a lvt branch of the same name exists, use it.
+    - name: Use matching LVT branch if available
+      working-directory: lvt
+      env:
+        LVT_REF: ${{ github.head_ref || github.ref_name }}
+      run: |
+        if git ls-remote --exit-code --heads origin "$LVT_REF" >/dev/null 2>&1; then
+          echo "Using livetemplate/lvt branch: $LVT_REF"
+          git fetch origin "$LVT_REF" --depth=1
+          git checkout FETCH_HEAD
+        else
+          echo "No matching livetemplate/lvt branch for $LVT_REF; using default branch"
+        fi
+
     - name: Checkout client library
       uses: actions/checkout@v4
       with:
