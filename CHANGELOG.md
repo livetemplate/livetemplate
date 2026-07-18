@@ -7,10 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.19.1] - 2026-07-18
 
-### Changes
+Documentation-only. No library behavior changes; released so the docs site,
+which mirrors this repo's markdown per release tag, stops describing v0.19.0's
+headline feature as unsupported.
 
-- docs: correct recursive-template support, stale since v0.19.0 shipped it (#498) (3136b026)
-- docs(changelog): curate v0.19.0 release notes (2fbf4696)
+### Fixed
+
+- **The template support matrix said recursive templates were rejected**, in the
+  release that shipped them. The row had been updated to the parse-time-rejection
+  wording during C8's first phase and never revised once runtime invocation
+  landed. It now records what is actually supported — direct self-recursion,
+  mutual recursion, longer cycles, and a self-referential entry point — along
+  with a **Recursion depth** section covering the cap and two behaviors that
+  differ from a plain error: a finite tree deeper than the cap degrades silently
+  on first render, and a build error on first render drops that region to
+  HTML-string diffing for the life of the template. (#498)
+- `LVT_MAX_TEMPLATE_DEPTH` / `WithMaxTemplateDepth` had no entry in the
+  configuration reference at all. (#498)
+- `checkFlattenCycle` reported "recursive template invocation is not supported"
+  and its comment claimed livetemplate "does not yet evaluate recursive
+  invocations at runtime". Neither holds since v0.19.0, and the check is no
+  longer reachable through `FlattenTemplate` — `detectRecursiveTemplates` runs
+  first over the same invocation edges, so a cycle member is emitted verbatim
+  rather than pushed onto the inlining stack. Reworded as the internal backstop
+  it now is. (#498)
 
 
 
