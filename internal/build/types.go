@@ -29,6 +29,32 @@ func PositionKey(index int) string {
 	return strconv.Itoa(index)
 }
 
+// WrapperKind identifies a node the parser created purely to give a child tree
+// its own dynamic slot. The kinds are structurally identical — telling them
+// apart, or telling them from an ordinary field node, is only possible because
+// the constructor records which one it made.
+type WrapperKind uint8
+
+const (
+	// WrapperNone is the zero value: not a parser-created wrapper. Every node
+	// built anywhere else keeps it, so the marker cannot be acquired by accident.
+	WrapperNone WrapperKind = iota
+
+	// WrapperConditional wraps an {{if}}/{{with}} branch to keep the branch
+	// structure stable for diffing.
+	WrapperConditional
+
+	// WrapperInvocation wraps a {{template}} invocation body. A recursive
+	// subtree's depth varies with the data, so it occupies one slot to keep
+	// those changes from restructuring the parent's statics.
+	WrapperInvocation
+)
+
+// IsWrapper reports whether the parser created this node as a wrapper, of any
+// kind. Consumers that only care "is there a child tree hidden one level down
+// because we put it there" should use this rather than testing a specific kind.
+func (k WrapperKind) IsWrapper() bool { return k != WrapperNone }
+
 // TreeNode represents a node in the template tree structure with type safety.
 // It replaces the old map[string]interface{} representation while maintaining
 // wire format compatibility through custom JSON marshaling.
@@ -56,6 +82,19 @@ type TreeNode struct {
 
 	// Metadata contains additional information like ID key mappings (key: "m")
 	Metadata *TreeMetadata
+
+	// Wrapper records that the parser created this node as a single-dynamic-slot
+	// wrapper around a child tree, and which construct asked for it. Wrappers are
+	// structurally indistinguishable from each other and from a plain field node
+	// — all carry `["", ""]` statics and one nested child — so consumers that
+	// need to know "the parser wrapped this" must be told, not left to infer it
+	// from shape (issue #497).
+	//
+	// Internal only: MarshalJSON and ToMap build the wire map by naming the
+	// fields they emit, and the structure fingerprint hashes statics and dynamic
+	// shape, so this reaches neither. Two nodes differing only in Wrapper render
+	// identically and share a fingerprint, which is correct.
+	Wrapper WrapperKind
 
 	// dynamicCount tracks the number of non-nil entries in Dynamics for fast HasDynamics.
 	dynamicCount int
@@ -697,6 +736,11 @@ func (tn *TreeNode) Clone() *TreeNode {
 		Fingerprint:  tn.Fingerprint,
 		AutoKey:      tn.AutoKey,
 		dynamicCount: tn.dynamicCount,
+		// Carried deliberately: Clone builds from named fields, so a new field
+		// is dropped unless listed. Losing the kind would make a cloned wrapper
+		// indistinguishable from an ordinary node again — the precise failure
+		// this tag exists to prevent (issue #497).
+		Wrapper: tn.Wrapper,
 	}
 
 	// Clone statics

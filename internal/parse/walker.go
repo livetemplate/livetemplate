@@ -66,6 +66,26 @@ func walkList(node *parse.ListNode, eval *evaluator, data interface{}, varCtx *v
 	dynamicIndex := 0
 	statics = append(statics, "")
 
+	// A wrapper does not survive this loop as a node: its statics and dynamics
+	// are merged into tree below, so what a caller finally sees is a fresh node
+	// that merely has the wrapper's shape. Carry the kind across the merge when
+	// exactly one child was a wrapper. Without this the tag set by createWrapper
+	// would never reach wrappedItemKey (issue #497).
+	//
+	// Count wrappers, not children that contributed statics. A TextNode yields
+	// one static even when it is only the whitespace around an indented
+	// construct, so counting contributors makes the tag depend on how the
+	// template happens to be formatted:
+	//
+	//	{{range .Items}}{{if .X}}<li data-key=…>{{end}}{{end}}      one child
+	//	{{range .Items}}\n  {{if .X}}<li data-key=…>{{end}}\n{{end}}  three
+	//
+	// The second is how range bodies are normally written, and an earlier
+	// revision of this dropped it to content hashing. Wrapper count is the
+	// property that actually matters and is unaffected by neighbouring text.
+	wrapperChildren := 0
+	var soleChildWrapper WrapperKind
+
 	for i, child := range node.Nodes {
 		// Handle variable declarations
 		if varCtx != nil {
@@ -89,6 +109,11 @@ func walkList(node *parse.ListNode, eval *evaluator, data interface{}, varCtx *v
 				Msg: fmt.Sprintf("child node %d (%T)", i, child),
 				Err: err,
 			}
+		}
+
+		if childTree.Wrapper.IsWrapper() {
+			wrapperChildren++
+			soleChildWrapper = childTree.Wrapper
 		}
 
 		// Range comprehension: embed as nested structure
@@ -128,6 +153,10 @@ func walkList(node *parse.ListNode, eval *evaluator, data interface{}, varCtx *v
 
 	for len(statics) <= dynamicIndex {
 		statics = append(statics, "")
+	}
+
+	if wrapperChildren == 1 {
+		tree.Wrapper = soleChildWrapper
 	}
 
 	if ctx.ShouldIncludeStatics() {

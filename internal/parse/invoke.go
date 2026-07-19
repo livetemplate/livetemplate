@@ -74,11 +74,12 @@ func invokeTemplate(n *parse.TemplateNode, eval *evaluator, data interface{}, va
 	if err != nil {
 		return nil, err
 	}
-	// Wrap the invoked body in its own dynamic slot (createConditionalWrapper is a
-	// generic single-dynamic-slot wrapper, despite the conditional-flavored name).
+	// Wrap the invoked body in its own dynamic slot. The WrapperInvocation tag is
+	// what lets range keying recognise this later: the node is otherwise
+	// indistinguishable from a conditional wrapper or a field node (issue #497).
 	// This isolation is why an invocation wraps where {{with}} does not: a
 	// recursive subtree's depth/shape varies with the data, so it must occupy one
 	// slot to keep those changes from restructuring the parent's statics — the
 	// same diffing rationale {{if}} wraps for.
-	return createConditionalWrapper(childTree, ctx), nil
+	return createWrapper(childTree, ctx, WrapperInvocation), nil
 }

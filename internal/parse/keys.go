@@ -83,17 +83,31 @@ func generateItemHash(item *TreeNode) string {
 }
 
 // wrappedItemKey returns the explicit data-key of a range item whose real keyed
-// element is hidden one level down inside an invocation wrapper (the shape a
-// recursive {{template}} range produces: createConditionalWrapper wraps the
-// invoked body, so the item's own statics are empty and the <li data-key> lives
-// in the single nested child). It reads the key value *through* the wrapper
-// without restructuring the item, so the item keeps a stable identity across
-// deep edits (the key is the item's path, not a content hash of its subtree).
+// element is hidden one level down inside a parser-created wrapper — the shape
+// both a recursive {{template}} range and an {{if}}-wrapped keyed range produce,
+// where the item's own statics are empty and the <li data-key> lives in the
+// nested child. ({{with}} does not wrap: handleWith delegates straight to
+// walkAST, so it only shows this shape when its body independently contains an
+// {{if}} or {{template}}.) It reads the key value *through* the wrapper without
+// restructuring the item, so the item keeps a stable identity across deep edits
+// (the key is the item's path, not a content hash of its subtree).
 //
-// Returns ("", false) when the item is not this simple single-child wrapper or
-// the child carries no key attribute — callers then fall back to content hashing.
+// The wrapper is identified by the tag createWrapper set, not by its shape.
+// Shape cannot decide it: `["", ""]` statics plus one nested child describes a
+// conditional wrapper, an invocation wrapper and a plain field node holding a
+// tree alike, so the old structural test also matched nodes the parser never
+// wrapped and keyed them off a descendant's data-key by coincidence (issue #497).
+//
+// Any wrapper kind qualifies, deliberately. The child's real data-key is the
+// right identity for a conditional-wrapped item just as much as an invocation-
+// wrapped one, and narrowing this to WrapperInvocation would drop {{if}}-wrapped
+// keyed ranges back to content hashing — a keying regression, not a fix.
+//
+// Returns ("", false) when the item is not a wrapper, holds more than one nested
+// child, or the child carries no key attribute — callers then fall back to
+// content hashing.
 func wrappedItemKey(item *TreeNode) (string, bool) {
-	if item == nil || hasExplicitKeyAttribute(item.Statics) {
+	if item == nil || !item.Wrapper.IsWrapper() || hasExplicitKeyAttribute(item.Statics) {
 		return "", false
 	}
 	var child *TreeNode
