@@ -84,9 +84,11 @@ func generateItemHash(item *TreeNode) string {
 
 // wrappedItemKey returns the explicit data-key of a range item whose real keyed
 // element is hidden one level down inside a parser-created wrapper — the shape
-// both a recursive {{template}} range and an {{if}}/{{with}}-wrapped keyed range
-// produce, where the item's own statics are empty and the <li data-key> lives in
-// the nested child. It reads the key value *through* the wrapper without
+// both a recursive {{template}} range and an {{if}}-wrapped keyed range produce,
+// where the item's own statics are empty and the <li data-key> lives in the
+// nested child. ({{with}} does not wrap: handleWith delegates straight to
+// walkAST, so it only shows this shape when its body independently contains an
+// {{if}} or {{template}}.) It reads the key value *through* the wrapper without
 // restructuring the item, so the item keeps a stable identity across deep edits
 // (the key is the item's path, not a content hash of its subtree).
 //

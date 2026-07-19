@@ -50,9 +50,9 @@ func TestWrappedItemKey_RequiresTheMarker(t *testing.T) {
 // TestWrappedItemKey_AcceptsEveryWrapperKind pins the deliberate choice not to
 // narrow this to WrapperInvocation. The child's real data-key is the right
 // identity for a conditional-wrapped item too, and requiring WrapperInvocation
-// would drop {{if}}/{{with}}-wrapped keyed ranges to content hashing — a keying
-// regression rather than a fix. Verified against main: if_wrapped_keyed_range
-// keys by data-key there.
+// would drop {{if}}-wrapped keyed ranges to content hashing — a keying
+// regression rather than a fix. Verified against main, where an {{if}}-wrapped
+// keyed range keys by data-key.
 func TestWrappedItemKey_AcceptsEveryWrapperKind(t *testing.T) {
 	for _, kind := range []build.WrapperKind{build.WrapperConditional, build.WrapperInvocation} {
 		item := NewTreeNode()
@@ -103,5 +103,56 @@ func TestWalkList_CarriesWrapperAcrossTheMerge(t *testing.T) {
 		t.Errorf("expected the item keyed by its child's data-key, got %q — "+
 			"the wrapper kind did not survive walkList's merge, so through-wrapper "+
 			"keying fell back to content hashing", itemTree.AutoKey)
+	}
+}
+
+// TestWalkList_WrapperSurvivesSurroundingText is the regression guard for the
+// bug an earlier revision of this change shipped.
+//
+// walkList propagated the kind when exactly one child *contributed statics*.
+// A TextNode yields one static even when it is only the whitespace around an
+// indented construct, so that count rose with formatting: the minified body
+// below has one child, the indented one has three (text, if, text), and the
+// container-wrapped one has the <li> text as well. The tag stopped propagating
+// for every shape but the minified one, dropping realistic keyed ranges to
+// content hashing — the exact regression this change exists to avoid, arriving
+// through formatting rather than through wrapper kind.
+//
+// Counting wrappers instead of contributors is what makes keying independent of
+// how the template happens to be laid out. All three cases below key by
+// data-key on main; they must keep doing so.
+func TestWalkList_WrapperSurvivesSurroundingText(t *testing.T) {
+	type item struct{ Name, Path string }
+	data := struct{ Items []item }{Items: []item{{Name: "a.go", Path: "/a.go"}}}
+
+	cases := []struct{ name, src string }{
+		{"minified", `{{range .Items}}{{if .Name}}<li data-key="{{.Path}}">{{.Name}}</li>{{end}}{{end}}`},
+		{"indented", "{{range .Items}}\n  {{if .Name}}<li data-key=\"{{.Path}}\">{{.Name}}</li>{{end}}\n{{end}}"},
+		{"container wrapped", `{{range .Items}}<li>{{if .Name}}<span data-key="{{.Path}}">{{.Name}}</span>{{end}}</li>{{end}}`},
+		{"text sibling", `{{range .Items}}x{{if .Name}}<li data-key="{{.Path}}">{{.Name}}</li>{{end}}{{end}}`},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tmpl, err := Parse(c.src, nil)
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			tree, err := BuildTree(tmpl, data, build.NewContext())
+			if err != nil {
+				t.Fatalf("build: %v", err)
+			}
+			if tree.Range == nil || len(tree.Range.Items) != 1 {
+				t.Fatalf("expected a one-item range, got %#v", tree.Range)
+			}
+			itemTree, ok := tree.Range.Items[0].(*TreeNode)
+			if !ok {
+				t.Fatalf("range item is %T, want *TreeNode", tree.Range.Items[0])
+			}
+			if itemTree.AutoKey != "/a.go" {
+				t.Errorf("keyed by %q, want the child's data-key %q — surrounding text "+
+					"changed whether the wrapper tag propagated", itemTree.AutoKey, "/a.go")
+			}
+		})
 	}
 }

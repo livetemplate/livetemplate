@@ -69,10 +69,21 @@ func walkList(node *parse.ListNode, eval *evaluator, data interface{}, varCtx *v
 	// A wrapper does not survive this loop as a node: its statics and dynamics
 	// are merged into tree below, so what a caller finally sees is a fresh node
 	// that merely has the wrapper's shape. Carry the kind across the merge when
-	// exactly one child contributed, which is the only case where tree still
-	// represents that single wrapper. Without this the tag set by createWrapper
+	// exactly one child was a wrapper. Without this the tag set by createWrapper
 	// would never reach wrappedItemKey (issue #497).
-	contributingChildren := 0
+	//
+	// Count wrappers, not children that contributed statics. A TextNode yields
+	// one static even when it is only the whitespace around an indented
+	// construct, so counting contributors makes the tag depend on how the
+	// template happens to be formatted:
+	//
+	//	{{range .Items}}{{if .X}}<li data-key=…>{{end}}{{end}}      one child
+	//	{{range .Items}}\n  {{if .X}}<li data-key=…>{{end}}\n{{end}}  three
+	//
+	// The second is how range bodies are normally written, and an earlier
+	// revision of this dropped it to content hashing. Wrapper count is the
+	// property that actually matters and is unaffected by neighbouring text.
+	wrapperChildren := 0
 	var soleChildWrapper WrapperKind
 
 	for i, child := range node.Nodes {
@@ -100,6 +111,11 @@ func walkList(node *parse.ListNode, eval *evaluator, data interface{}, varCtx *v
 			}
 		}
 
+		if childTree.Wrapper.IsWrapper() {
+			wrapperChildren++
+			soleChildWrapper = childTree.Wrapper
+		}
+
 		// Range comprehension: embed as nested structure
 		if childTree.HasRange() {
 			if len(node.Nodes) == 1 {
@@ -116,8 +132,6 @@ func walkList(node *parse.ListNode, eval *evaluator, data interface{}, varCtx *v
 		if len(childStatics) == 0 {
 			continue
 		}
-		contributingChildren++
-		soleChildWrapper = childTree.Wrapper
 
 		// First static of child appends to last static of parent
 		if len(statics) > 0 && len(childStatics) > 0 {
@@ -141,7 +155,7 @@ func walkList(node *parse.ListNode, eval *evaluator, data interface{}, varCtx *v
 		statics = append(statics, "")
 	}
 
-	if contributingChildren == 1 {
+	if wrapperChildren == 1 {
 		tree.Wrapper = soleChildWrapper
 	}
 
