@@ -29,12 +29,6 @@ func PositionKey(index int) string {
 	return strconv.Itoa(index)
 }
 
-// TreeNode represents a node in the template tree structure with type safety.
-// It replaces the old map[string]interface{} representation while maintaining
-// wire format compatibility through custom JSON marshaling.
-//
-// TreeNode should not be value-copied after first use of GetStructureFingerprint,
-// as it contains an atomic.Value for fingerprint caching. Always use *TreeNode.
 // WrapperKind identifies a node the parser created purely to give a child tree
 // its own dynamic slot. The kinds are structurally identical — telling them
 // apart, or telling them from an ordinary field node, is only possible because
@@ -61,6 +55,12 @@ const (
 // because we put it there" should use this rather than testing a specific kind.
 func (k WrapperKind) IsWrapper() bool { return k != WrapperNone }
 
+// TreeNode represents a node in the template tree structure with type safety.
+// It replaces the old map[string]interface{} representation while maintaining
+// wire format compatibility through custom JSON marshaling.
+//
+// TreeNode should not be value-copied after first use of GetStructureFingerprint,
+// as it contains an atomic.Value for fingerprint caching. Always use *TreeNode.
 type TreeNode struct {
 	// Statics are the static HTML parts of the template (key: "s")
 	Statics []string
@@ -736,6 +736,11 @@ func (tn *TreeNode) Clone() *TreeNode {
 		Fingerprint:  tn.Fingerprint,
 		AutoKey:      tn.AutoKey,
 		dynamicCount: tn.dynamicCount,
+		// Carried deliberately: Clone builds from named fields, so a new field
+		// is dropped unless listed. Losing the kind would make a cloned wrapper
+		// indistinguishable from an ordinary node again — the precise failure
+		// this tag exists to prevent (issue #497).
+		Wrapper: tn.Wrapper,
 	}
 
 	// Clone statics

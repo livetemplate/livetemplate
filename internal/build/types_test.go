@@ -756,3 +756,28 @@ func TestTreeNode_ToMap_EmitsEmptyD_LegacyEmptyMode(t *testing.T) {
 		t.Errorf("Legacy-empty ToMap 'd' should be empty slice, got len=%d", len(items))
 	}
 }
+
+// TestTreeNode_Clone_CarriesWrapper guards the field against Clone's
+// named-field construction.
+//
+// Clone builds the copy from an explicit field list, so anything added to
+// TreeNode is dropped unless someone remembers to list it. A cloned wrapper
+// silently reverting to WrapperNone is the exact failure the kind exists to
+// prevent: it becomes indistinguishable from an ordinary node again, and
+// through-wrapper range keying falls back to content hashing.
+//
+// No caller in internal/parse clones a tagged node before wrappedItemKey reads
+// it, so this is latent rather than live — but Clone is exported and documented
+// as a deep copy, so "deep copy" should mean it.
+func TestTreeNode_Clone_CarriesWrapper(t *testing.T) {
+	for _, kind := range []WrapperKind{WrapperNone, WrapperConditional, WrapperInvocation} {
+		original := NewTreeNode()
+		original.Statics = []string{"", ""}
+		original.Wrapper = kind
+		original.SetDynamic(0, "x")
+
+		if got := original.Clone().Wrapper; got != kind {
+			t.Errorf("Clone dropped the wrapper kind: got %v, want %v", got, kind)
+		}
+	}
+}
