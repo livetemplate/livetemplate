@@ -362,47 +362,55 @@ func TestNormalizeTemplateSpacing(t *testing.T) {
 }
 
 // TestExtractTemplateBodyContent_WithAttributes tests body tags with attributes.
-// TestExtractTemplateBodyContent_TrailingDefines pins the recursion-registry
-// re-attachment: FlattenTemplate appends the recursive {{define}} cycle members
-// AFTER </body></html>, and body extraction must carry them along or a full-doc
-// recursive template silently degrades to HTML-structure diffing.
-func TestExtractTemplateBodyContent_TrailingDefines(t *testing.T) {
+// TestExtractTemplateBodyContentSliced pins the pure-slicer contract and the
+// sliced flag. Extraction no longer knows anything about recursion {{define}}
+// blocks — it reports whether a <body> region was cut out, and the caller uses
+// that to decide whether the tail it owns needs re-attaching (issue #496).
+// The re-attachment itself is pinned a layer up by
+// TestRecursiveTemplate_BodyContentCarriesDefines.
+func TestExtractTemplateBodyContentSliced(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    string
-		expected string
+		name       string
+		input      string
+		expected   string
+		wantSliced bool
 	}{
 		{
-			"full doc, no trailing define",
+			"full doc slices the body and reports it",
 			`<html><body><ul><li>x</li></ul></body></html>`,
 			`<ul><li>x</li></ul>`,
+			true,
 		},
 		{
-			"full doc, one trailing define re-attached",
+			"content after </html> is dropped, not rescued",
 			`<html><body><ul>{{template "n" .}}</ul></body></html>{{define "n"}}<li>{{.}}</li>{{end}}`,
-			`<ul>{{template "n" .}}</ul>{{define "n"}}<li>{{.}}</li>{{end}}`,
-		},
-		{
-			"full doc, multiple trailing defines re-attached",
-			`<html><body><ul>{{template "a" .}}</ul></body></html>{{define "a"}}A{{end}}{{define "b"}}B{{end}}`,
-			`<ul>{{template "a" .}}</ul>{{define "a"}}A{{end}}{{define "b"}}B{{end}}`,
-		},
-		{
-			"trailing whitespace before/after the define is trimmed to the block",
-			"<html><body>X</body></html>\n{{define \"a\"}}A{{end}}\n",
-			`X{{define "a"}}A{{end}}`,
+			`<ul>{{template "n" .}}</ul>`,
+			true,
 		},
 		{
 			"fragment (no body) returned as-is, defines and all",
 			`{{define "n"}}<li>{{.}}</li>{{end}}<ul>{{template "n" .}}</ul>`,
 			`{{define "n"}}<li>{{.}}</li>{{end}}<ul>{{template "n" .}}</ul>`,
+			false,
+		},
+		{
+			// Nothing was cut, so the caller must not append a tail the result
+			// already contains.
+			"no </body> keeps everything from the body open onward",
+			`<html><body>X{{define "a"}}A{{end}}`,
+			`X{{define "a"}}A{{end}}`,
+			false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if result := ExtractTemplateBodyContent(tt.input); result != tt.expected {
-				t.Errorf("Expected %q, got: %q", tt.expected, result)
+			result, sliced := ExtractTemplateBodyContentSliced(tt.input)
+			if result != tt.expected {
+				t.Errorf("body: expected %q, got %q", tt.expected, result)
+			}
+			if sliced != tt.wantSliced {
+				t.Errorf("sliced: expected %v, got %v", tt.wantSliced, sliced)
 			}
 		})
 	}

@@ -243,6 +243,7 @@ type Template struct {
 	cachedParseTemplate    *parse.Template     // Cached AST to avoid re-parsing on every render
 	cachedBodyContent      string              // Cached result of ExtractTemplateBodyContent(t.templateStr)
 	cachedBodyContentValid bool                // Whether cachedBodyContent has been computed (empty string is valid)
+	recursionDefines       string              // FlattenTemplate's {{define}} blocks for templates on an invocation cycle. They sit past </html> in templateStr, so extracting the body drops them; the reactive parse needs them to populate the recursion registry. Held here rather than rescanned out of templateStr (issue #496). Empty for every non-recursive template. MUST be copied in Clone — production renders through per-session clones, so a clone that loses it silently degrades recursion to HTML-string diffing.
 	formSchema             *FormSchema         // Cached schema extracted from templateStr; nil if no rules
 	wiredActions           map[string]struct{} // Cached set of client-wired action names (form/button name=, lvt-on:) extracted from templateStr; immutable after parse; drives the Publish symmetry-collision warning
 	wiredCollisionWarned   *sync.Map           // action -> struct{}: dedups the Publish symmetry-collision slog.Warn to once per action name; shared by pointer across per-session clones so the warning is app-global, not per-connection
@@ -1126,6 +1127,7 @@ func (t *Template) Clone() (*Template, error) {
 	cachedParse := t.cachedParseTemplate
 	bodyContent := t.cachedBodyContent
 	bodyContentValid := t.cachedBodyContentValid
+	recursionDefines := t.recursionDefines
 	formSchema := t.formSchema
 	wiredActions := t.wiredActions
 	wiredCollisionWarned := t.wiredCollisionWarned
@@ -1146,10 +1148,15 @@ func (t *Template) Clone() (*Template, error) {
 		cachedParseTemplate:    cachedParse, // Share parsed AST + builtins
 		cachedBodyContent:      bodyContent, // Share extracted body content
 		cachedBodyContentValid: bodyContentValid,
-		formSchema:             formSchema,           // Share extracted form schema (immutable)
-		wiredActions:           wiredActions,         // Share extracted wired-action set (immutable)
-		wiredCollisionWarned:   wiredCollisionWarned, // Share dedup store by pointer (app-global once-per-action warn)
-		precomputeAllow:        precomputeAllow,      // Share referenced-identifier set (immutable after parse)
+		// Without this the clone recomputes body content with no recursion
+		// defines, silently degrading recursive templates to HTML-string
+		// diffing — and production renders through clones, so a master-only
+		// test would not notice.
+		recursionDefines:     recursionDefines,
+		formSchema:           formSchema,           // Share extracted form schema (immutable)
+		wiredActions:         wiredActions,         // Share extracted wired-action set (immutable)
+		wiredCollisionWarned: wiredCollisionWarned, // Share dedup store by pointer (app-global once-per-action warn)
+		precomputeAllow:      precomputeAllow,      // Share referenced-identifier set (immutable after parse)
 		// Don't copy lastData, lastHTML, lastTree, etc. - start fresh per session
 	}
 
@@ -1205,17 +1212,26 @@ func (t *Template) Parse(text string) (*Template, error) {
 // parseInternal handles the common logic for parsing templates:
 // flattening, wrapper injection, final parsing, and validation.
 func (t *Template) parseInternal(text string, baseTemplate *template.Template) (*Template, error) {
+	// recursionDefines holds the {{define}} blocks FlattenTemplate emits for
+	// templates on an invocation cycle, which cannot be inlined. They are needed
+	// in two places — appended to the document below so html/template can resolve
+	// the recursive calls, and appended to the extracted <body> content so the
+	// reactive parse populates the recursion registry — so keep them addressable
+	// rather than re-deriving them from the assembled string later (issue #496).
+	var recursionDefines string
+
 	// Check if template uses composition features and flatten if needed
 	if parse.HasTemplateComposition(baseTemplate) {
 		// Flatten the template to resolve all {{define}}/{{template}}/{{block}}
-		flattenedStr, err := parse.FlattenTemplate(baseTemplate)
+		flattenedStr, defines, err := parse.FlattenTemplate(baseTemplate)
 		if err != nil {
 			return nil, fmt.Errorf("template flattening failed: %w", err)
 		}
 
 		// Store flattened version for tree generation (WITHOUT wrapper)
 		// This ensures updates use the flattened template
-		text = flattenedStr
+		text = flattenedStr + defines
+		recursionDefines = defines
 	}
 
 	// Determine if this is a full HTML document. Computed here (after any
@@ -1265,8 +1281,10 @@ func (t *Template) parseInternal(text string, baseTemplate *template.Template) (
 	t.templateStr = text
 	t.tmpl = tmpl
 	t.cachedParseTemplate = nil // Invalidate cached AST when template source changes
-	t.cachedBodyContent = ""    // Invalidate cached body content
+
+	t.cachedBodyContent = "" // Invalidate cached body content
 	t.cachedBodyContentValid = false
+	t.recursionDefines = recursionDefines
 	t.formSchema = extractFormSchemaFromTemplateStr(text)
 	t.precomputeAllow = parse.CollectReferencedIdentsFromTemplate(tmpl)
 	t.wiredActions = extractWiredActionNames(text)
@@ -1588,7 +1606,16 @@ func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}, messages ...ma
 func (t *Template) getOrComputeBodyContent() string {
 	if !t.cachedBodyContentValid {
 		if t.wrapperID != "" {
-			t.cachedBodyContent = compat.ExtractTemplateBodyContent(t.templateStr)
+			// Re-attach the recursion {{define}} blocks only when a body region
+			// was actually sliced out, because that is exactly when the tail
+			// they live in got dropped. templateStr still ends with them, so the
+			// paths returning it unchanged (a fragment has no <body>) would
+			// otherwise carry every block twice.
+			body, sliced := compat.ExtractTemplateBodyContentSliced(t.templateStr)
+			if sliced {
+				body += t.recursionDefines
+			}
+			t.cachedBodyContent = body
 		} else {
 			t.cachedBodyContent = t.templateStr
 		}

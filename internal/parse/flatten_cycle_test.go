@@ -32,9 +32,14 @@ func TestFlattenTemplate_Diamond(t *testing.T) {
 		`{{define "page"}}{{template "row" .}}{{template "leaf" .C}}{{end}}` +
 		`{{template "page" .}}`
 
-	out, err := FlattenTemplate(mustParse(t, src))
+	out, defines, err := FlattenTemplate(mustParse(t, src))
 	if err != nil {
 		t.Fatalf("diamond composition must flatten without error, got: %v", err)
+	}
+	// A diamond is acyclic, so nothing is left un-inlined and no registry
+	// {{define}} blocks are emitted.
+	if defines != "" {
+		t.Errorf("acyclic composition must emit no recursion defines, got:\n%s", defines)
 	}
 	// leaf's statics appear once per invocation (3×): proves each was inlined.
 	if got := strings.Count(out, "<span>"); got != 3 {
@@ -83,24 +88,37 @@ func TestFlattenTemplate_RecursionEmittedForRuntime(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, err := FlattenTemplate(mustParse(t, tt.src))
+			out, defines, err := FlattenTemplate(mustParse(t, tt.src))
 			if err != nil {
 				t.Fatalf("recursive template must flatten for runtime invocation, got: %v", err)
 			}
+			// "Left un-inlined" is a property of the flattened result as a whole,
+			// so assert against the assembly. Under mutual recursion the call to
+			// "b" lives inside {{define "a"}} — i.e. in defines, not the
+			// document — and pinning it to either half alone would encode which
+			// cycle member happens to be the entry point.
+			assembled := out + defines
 			for _, want := range tt.wantVerbatim {
-				if !strings.Contains(out, want) {
-					t.Errorf("expected verbatim invocation %q (recursion left un-inlined) in:\n%s", want, out)
+				if !strings.Contains(assembled, want) {
+					t.Errorf("expected verbatim invocation %q (recursion left un-inlined) in:\n%s", want, assembled)
 				}
 			}
+			// Registry blocks belong to the SECOND return, not the document —
+			// asserting against defines is what keeps the split honest. Checking
+			// out+defines instead would still pass if the two were re-merged.
 			for _, want := range tt.wantDefines {
-				if !strings.Contains(out, want) {
-					t.Errorf("expected registry define %q appended in:\n%s", want, out)
+				if !strings.Contains(defines, want) {
+					t.Errorf("expected registry define %q in the defines return, got:\n%s", want, defines)
+				}
+				if strings.Contains(out, want) {
+					t.Errorf("registry define %q leaked into the document return:\n%s", want, out)
 				}
 			}
-			// The flattened string must re-parse (it feeds parse.Parse), which
-			// also confirms the appended defines are well-formed.
-			if _, err := template.New("verify").Parse(out); err != nil {
-				t.Errorf("flattened output must re-parse, got: %v\n%s", err, out)
+			// The assembled string must re-parse (callers concatenate the two and
+			// feed that to parse.Parse), which also confirms the defines are
+			// well-formed and that concatenation is a valid template.
+			if _, err := template.New("verify").Parse(out + defines); err != nil {
+				t.Errorf("document+defines must re-parse, got: %v\n%s", err, out+defines)
 			}
 		})
 	}
@@ -143,9 +161,12 @@ func TestFlattenTemplate_NonRecursiveUnaffected(t *testing.T) {
 		`{{define "footer"}}<footer>{{.Year}}</footer>{{end}}` +
 		`{{template "header" .}}<main>{{.Body}}</main>{{template "footer" .}}`
 
-	out, err := FlattenTemplate(mustParse(t, src))
+	out, defines, err := FlattenTemplate(mustParse(t, src))
 	if err != nil {
 		t.Fatalf("non-recursive composition must flatten cleanly, got: %v", err)
+	}
+	if defines != "" {
+		t.Errorf("non-recursive composition must emit no recursion defines, got:\n%s", defines)
 	}
 	for _, want := range []string{"<h1>", "<main>", "<footer>"} {
 		if !strings.Contains(out, want) {

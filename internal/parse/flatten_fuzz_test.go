@@ -40,6 +40,6 @@ func FuzzFlattenTemplate(f *testing.F) {
 		}
 		// The contract under test: returns, never panics/overflows. The result
 		// (string or error) is deliberately unused — the guard is what matters.
-		_, _ = FlattenTemplate(tmpl)
+		_, _, _ = FlattenTemplate(tmpl)
 	})
 }
