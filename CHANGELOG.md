@@ -19,6 +19,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   still errors, since that means the caller pointed at somewhere that does not
   exist, and non-ENOENT failures such as permissions still surface. `.uploads` is
   also skipped outright, being uploaded files rather than templates. (#502)
+- **Range items whose keyed element sits under more than one wrapper keep their
+  stable identity.** Nested constructs stack wrappers, so
+  `{{if}}{{if}}<li data-key="…">` puts the keyed element two levels below the
+  range item; key lookup only looked one level down and fell back to hashing the
+  item's content. Because a content hash changes when the content does, editing
+  such an item changed its key and the client removed and re-inserted the row
+  instead of patching it — the churn `data-key` exists to avoid. Lookup now
+  descends through nested wrappers, bounded at four levels. Items with no key at
+  any depth still use content hashes, as before. (#505)
 
 ## [v0.19.1] - 2026-07-18
 

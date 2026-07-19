@@ -1,6 +1,7 @@
 package parse
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/livetemplate/livetemplate/internal/build"
@@ -154,5 +155,109 @@ func TestWalkList_WrapperSurvivesSurroundingText(t *testing.T) {
 					"changed whether the wrapper tag propagated", itemTree.AutoKey, "/a.go")
 			}
 		})
+	}
+}
+
+// TestWrappedItemKey_DescendsNestedWrappers covers issue #505: nested constructs
+// stack wrappers, so {{if}}{{if}}<li data-key=…> puts the keyed element two
+// levels below the range item. Looking only one level down meant those items
+// fell back to content hashing despite carrying a perfectly good explicit key —
+// losing stable identity, so a change to one item made the client rebuild the
+// row instead of patching it.
+//
+// Descending is safe only because wrappers are tagged (#497): each step tests a
+// node the parser marked, never a shape that happens to resemble one.
+func TestWrappedItemKey_DescendsNestedWrappers(t *testing.T) {
+	type item struct{ Name, Path string }
+	data := struct{ Items []item }{Items: []item{{Name: "a.go", Path: "/a.go"}}}
+
+	keyed := func(depth int) string {
+		var b strings.Builder
+		b.WriteString("{{range .Items}}")
+		for i := 0; i < depth; i++ {
+			b.WriteString("{{if .Name}}")
+		}
+		b.WriteString(`<li data-key="{{.Path}}">{{.Name}}</li>`)
+		for i := 0; i < depth; i++ {
+			b.WriteString("{{end}}")
+		}
+		b.WriteString("{{end}}")
+		return b.String()
+	}
+
+	tests := []struct {
+		name    string
+		src     string
+		wantKey string // "" means content-hash fallback
+	}{
+		{"one wrapper", keyed(1), "/a.go"},
+		{"two wrappers", keyed(2), "/a.go"},
+		{"three wrappers", keyed(3), "/a.go"},
+		{"at the descent limit", keyed(maxWrapperDescent), "/a.go"},
+		{
+			// Bounded deliberately: allWrappedItemKeys is all-or-nothing, so an
+			// item that never yields a key makes the whole range pay the full
+			// descent on every render. Falling back here is correct, not a gap.
+			name: "beyond the descent limit falls back", src: keyed(maxWrapperDescent + 1), wantKey: "",
+		},
+		{
+			// Nothing to find however deep we look.
+			name: "nested but unkeyed falls back",
+			src:  `{{range .Items}}{{if .Name}}{{if .Path}}<li>{{.Name}}</li>{{end}}{{end}}{{end}}`, wantKey: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpl, err := Parse(tt.src, nil)
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			tree, err := BuildTree(tmpl, data, build.NewContext())
+			if err != nil {
+				t.Fatalf("build: %v", err)
+			}
+			if tree.Range == nil || len(tree.Range.Items) != 1 {
+				t.Fatalf("expected a one-item range, got %#v", tree.Range)
+			}
+			itemTree, ok := tree.Range.Items[0].(*TreeNode)
+			if !ok {
+				t.Fatalf("range item is %T, want *TreeNode", tree.Range.Items[0])
+			}
+
+			if tt.wantKey != "" {
+				if itemTree.AutoKey != tt.wantKey {
+					t.Errorf("keyed by %q, want the child's data-key %q", itemTree.AutoKey, tt.wantKey)
+				}
+				return
+			}
+			if itemTree.AutoKey == "/a.go" {
+				t.Errorf("expected a content hash, got the data-key %q", itemTree.AutoKey)
+			}
+		})
+	}
+}
+
+// TestSoleNestedChild pins the "exactly one" rule the descent relies on. A node
+// holding two nested trees is real content, not a wrapper around a single
+// element, so there is no one child for the item's identity to come from.
+func TestSoleNestedChild(t *testing.T) {
+	one := NewTreeNode()
+	one.SetDynamic(0, NewTreeNode())
+	if soleNestedChild(one) == nil {
+		t.Error("a node with exactly one nested child must yield it")
+	}
+
+	two := NewTreeNode()
+	two.SetDynamic(0, NewTreeNode())
+	two.SetDynamic(1, NewTreeNode())
+	if soleNestedChild(two) != nil {
+		t.Error("a node with two nested children must yield none")
+	}
+
+	none := NewTreeNode()
+	none.SetDynamic(0, "text")
+	if soleNestedChild(none) != nil {
+		t.Error("a node whose dynamics are all strings must yield none")
 	}
 }
