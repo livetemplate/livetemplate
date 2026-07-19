@@ -95,8 +95,8 @@ func generateItemHash(item *TreeNode) string {
 // The wrapper is identified by the tag createWrapper set, not by its shape.
 // Shape cannot decide it: `["", ""]` statics plus one nested child describes a
 // conditional wrapper, an invocation wrapper and a plain field node holding a
-// tree alike, so the old structural test also matched nodes the parser never
-// wrapped and keyed them off a descendant's data-key by coincidence (issue #497).
+// tree alike, so a structural test also matches nodes the parser never wrapped
+// and would key them off a descendant's data-key by coincidence.
 //
 // Any wrapper kind qualifies, deliberately. The child's real data-key is the
 // right identity for a conditional-wrapped item just as much as an invocation-
@@ -113,12 +113,12 @@ func wrappedItemKey(item *TreeNode) (string, bool) {
 	// Descend while the node is a wrapper we created, stopping at the first
 	// child that carries a key attribute. Nested constructs stack wrappers —
 	// {{if}}{{if}}<li data-key=…> puts the keyed element two levels down — and
-	// looking only one level meant those items fell back to content hashing
-	// despite having a perfectly good explicit key (issue #505).
+	// looking only one level down leaves those items on content hashes despite
+	// their having a perfectly good explicit key.
 	//
-	// Descending is only safe because wrappers are tagged: each step checks the
+	// Descending is safe only because wrappers are tagged: each step checks a
 	// node the parser marked, never a shape that merely resembles one, so this
-	// cannot re-introduce the guessing removed in #497.
+	// does not reintroduce guessing.
 	node := item
 	for depth := 0; depth < maxWrapperDescent; depth++ {
 		if !node.Wrapper.IsWrapper() {
