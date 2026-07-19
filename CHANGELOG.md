@@ -5,6 +5,21 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Template auto-discovery no longer fails when a directory disappears while it
+  is being searched.** `livetemplate.New()` walks the template directory, and any
+  error from that walk aborted it — including a transient directory being removed
+  by something else at that moment, which surfaced as
+  `template auto-discovery failed: readdirent …: no such file or directory` from
+  an unrelated part of the app. A path vanishing underneath the walk is now
+  skipped rather than fatal. Deliberately narrow: a missing *base* directory
+  still errors, since that means the caller pointed at somewhere that does not
+  exist, and non-ENOENT failures such as permissions still surface. `.uploads` is
+  also skipped outright, being uploaded files rather than templates. (#502)
+
 ## [v0.19.1] - 2026-07-18
 
 Documentation-only. No library behavior changes; released so the docs site,
