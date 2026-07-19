@@ -241,7 +241,7 @@ type Template struct {
 	config                 Config              // Template configuration
 	uploadRegistry         interface{}         // Upload registry for this connection (*upload.Registry)
 	cachedParseTemplate    *parse.Template     // Cached AST to avoid re-parsing on every render
-	cachedBodyContent      string              // Cached result of ExtractTemplateBodyContent(t.templateStr)
+	cachedBodyContent      string              // Cached body content for the reactive parse: the <body> slice of templateStr, plus recursionDefines when a body region was actually sliced out (see getOrComputeBodyContent)
 	cachedBodyContentValid bool                // Whether cachedBodyContent has been computed (empty string is valid)
 	recursionDefines       string              // FlattenTemplate's {{define}} blocks for templates on an invocation cycle. They sit past </html> in templateStr, so extracting the body drops them; the reactive parse needs them to populate the recursion registry. Held here rather than rescanned out of templateStr (issue #496). Empty for every non-recursive template. MUST be copied in Clone — production renders through per-session clones, so a clone that loses it silently degrades recursion to HTML-string diffing.
 	formSchema             *FormSchema         // Cached schema extracted from templateStr; nil if no rules
