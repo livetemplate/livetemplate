@@ -66,6 +66,15 @@ func walkList(node *parse.ListNode, eval *evaluator, data interface{}, varCtx *v
 	dynamicIndex := 0
 	statics = append(statics, "")
 
+	// A wrapper does not survive this loop as a node: its statics and dynamics
+	// are merged into tree below, so what a caller finally sees is a fresh node
+	// that merely has the wrapper's shape. Carry the kind across the merge when
+	// exactly one child contributed, which is the only case where tree still
+	// represents that single wrapper. Without this the tag set by createWrapper
+	// would never reach wrappedItemKey (issue #497).
+	contributingChildren := 0
+	var soleChildWrapper WrapperKind
+
 	for i, child := range node.Nodes {
 		// Handle variable declarations
 		if varCtx != nil {
@@ -107,6 +116,8 @@ func walkList(node *parse.ListNode, eval *evaluator, data interface{}, varCtx *v
 		if len(childStatics) == 0 {
 			continue
 		}
+		contributingChildren++
+		soleChildWrapper = childTree.Wrapper
 
 		// First static of child appends to last static of parent
 		if len(statics) > 0 && len(childStatics) > 0 {
@@ -128,6 +139,10 @@ func walkList(node *parse.ListNode, eval *evaluator, data interface{}, varCtx *v
 
 	for len(statics) <= dynamicIndex {
 		statics = append(statics, "")
+	}
+
+	if contributingChildren == 1 {
+		tree.Wrapper = soleChildWrapper
 	}
 
 	if ctx.ShouldIncludeStatics() {
