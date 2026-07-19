@@ -103,9 +103,10 @@ func generateItemHash(item *TreeNode) string {
 // wrapped one, and narrowing this to WrapperInvocation would drop {{if}}-wrapped
 // keyed ranges back to content hashing — a keying regression, not a fix.
 //
-// Returns ("", false) when the item is not a wrapper, holds more than one nested
-// child, or the child carries no key attribute — callers then fall back to
-// content hashing.
+// Returns ("", false) when the item carries a key attribute itself (the ordinary
+// keyed-range path handles that), is not a wrapper, holds more than one nested
+// child, or has no keyed child within the descent limit — callers then fall back
+// to content hashing.
 func wrappedItemKey(item *TreeNode) (string, bool) {
 	if item == nil || hasExplicitKeyAttribute(item.Statics) {
 		return "", false
