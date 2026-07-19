@@ -13,38 +13,35 @@ var ignoredTemplateDirs = map[string]struct{}{
 	"node_modules": {},
 	"vendor":       {},
 	".git":         {},
-	// Uploaded files, never templates. Skipping it also avoids walking a tree
-	// that is being written and torn down concurrently — the upload temp dirs
-	// are the observed source of the vanishing-path race walkErrAction handles.
-	// That race is why this entry is a complement and not the fix: the upload
-	// directory is configurable, so only walkErrAction covers the general case.
+	// Uploaded files, never templates, and a tree that is written and removed
+	// while the app runs — so skipping it also keeps discovery out of the way of
+	// the churn walkErrAction tolerates. A complement rather than the fix: the
+	// upload directory is configurable, so only walkErrAction covers the general
+	// case. Note this shadows a real template directory literally named
+	// .uploads, which is why the general fix carries the weight.
 	".uploads": {},
 }
 
 // walkErrAction decides what a WalkDir error means for template discovery.
 //
-// A path disappearing mid-walk is not a discovery failure. Anything may be
-// writing and removing directories under the tree being searched while it is
-// searched — in this repo it is the upload tests tearing down .uploads, which
-// intermittently failed unrelated tests with
-// "template auto-discovery failed: readdirent .../.uploads/...: no such file or
-// directory" (issue #502). The old callback returned every error, so one
-// vanished temp directory aborted the whole walk and livetemplate.New() failed.
+// A path disappearing mid-walk is not a discovery failure: anything may be
+// writing and removing directories under the tree while it is searched, and
+// aborting the walk over one of them fails template construction outright.
 //
-// The root is the exception. WalkDir reports a missing root through this same
-// callback, and that one means the caller asked to search a directory that does
-// not exist — a real error worth surfacing rather than reporting as "no
-// templates found". Errors that are not ErrNotExist (a permissions problem, say)
-// always surface too: this widens tolerance to exactly the concurrent-removal
-// case and nothing else.
+// The root is the exception — WalkDir reports a missing root through this same
+// callback, and that means the caller asked to search a directory that does not
+// exist, which is worth surfacing rather than reporting as "no templates found".
+// Errors that are not ErrNotExist, a permissions problem say, always surface
+// too, so tolerance widens to the concurrent-removal case and nothing else.
 func walkErrAction(root, path string, d fs.DirEntry, err error) error {
 	if !errors.Is(err, fs.ErrNotExist) || path == root {
 		return err
 	}
 	// SkipDir on a non-directory would skip the rest of the containing
-	// directory, silently dropping sibling templates; it is only correct for a
-	// directory. d is nil when the failure is on the root, which is already
-	// handled above.
+	// directory, silently dropping sibling templates, so it is only correct for
+	// a directory. The non-directory path is defensive: WalkDir currently pairs
+	// a non-nil error only with a directory entry or with a nil entry at the
+	// root, so nothing reaches it today.
 	if d != nil && d.IsDir() {
 		return fs.SkipDir
 	}
