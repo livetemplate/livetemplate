@@ -333,18 +333,6 @@ channel names (`livetemplate:broadcast:*`) are unchanged.
 
 
 
-## [Unreleased]
-
-### Breaking changes
-
-- **Retroactive breaking-change notice for v0.8.5: `TreeNode` internal API changed in [#220](https://github.com/livefir/livetemplate/pull/220)** (commit `3fe784ca`, shipped in `v0.8.5`). The `Dynamics` field type and the helper signatures changed when the internal map was replaced with a slice for ~20% speedup:
-  - `Dynamics` field: `map[string]interface{}` → `[]interface{}`
-  - `SetDynamic(position string, value interface{})` → `SetDynamic(index int, value interface{})`
-  - `GetDynamic(position string)` → `GetDynamic(index int)`
-  - New `AutoKey string` Go field replaces the previous `"_k"` map key. The `"_k"` *wire-format* key is unchanged — only the in-memory Go field name moved.
-
-  `TreeNode` lives in `internal/build` and is not part of the public `livetemplate` API surface; the breaking surface is therefore limited to **library forks and downstream modules that vendor or replace `internal/build`**, plus internal test fixtures. Application code that consumes `livetemplate` through its exported API is unaffected. The on-the-wire tree format (numeric string keys: `"0"`, `"1"`, ...) is unchanged; only the in-memory Go API moved.
-
 ## [v0.8.23] - 2026-05-02
 
 ### Changes
@@ -582,6 +570,18 @@ Key changes:
 
 <a name="v0.8.5"></a>
 ## [v0.8.5] - 2026-03-25
+
+### Breaking changes
+
+> Added retroactively — this change shipped in v0.8.5 but was not recorded at the time.
+
+- **`TreeNode` internal API changed in [#220](https://github.com/livefir/livetemplate/pull/220)** (commit `3fe784ca`). The `Dynamics` field type and the helper signatures changed when the internal map was replaced with a slice for ~20% speedup:
+  - `Dynamics` field: `map[string]interface{}` → `[]interface{}`
+  - `SetDynamic(position string, value interface{})` → `SetDynamic(index int, value interface{})`
+  - `GetDynamic(position string)` → `GetDynamic(index int)`
+  - New `AutoKey string` Go field replaces the previous `"_k"` map key. The `"_k"` *wire-format* key is unchanged — only the in-memory Go field name moved.
+
+  `TreeNode` lives in `internal/build` and is not part of the public `livetemplate` API surface; the breaking surface is therefore limited to **library forks and downstream modules that vendor or replace `internal/build`**, plus internal test fixtures. Application code that consumes `livetemplate` through its exported API is unaffected. The on-the-wire tree format (numeric string keys: `"0"`, `"1"`, ...) is unchanged; only the in-memory Go API moved.
 
 ### Bug Fixes
 
