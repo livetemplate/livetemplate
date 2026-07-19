@@ -15,10 +15,24 @@ import (
 // This allows tree generation to work with templates that use Go's template composition features.
 //
 // The function:
-// 1. Identifies the main executable template (entry point)
-// 2. Walks the AST and inlines all {{template}} invocations
-// 3. Returns a single flattened template string
-func FlattenTemplate(tmpl *template.Template) (string, error) {
+//  1. Identifies the main executable template (entry point)
+//  2. Walks the AST and inlines all {{template}} invocations
+//  3. Returns the flattened document, plus any recursion {{define}} blocks separately
+//
+// The two returns are deliberately not concatenated here. Templates on an
+// invocation cycle cannot be inlined, so their bodies are re-emitted as
+// {{define}} blocks for the build-time registry to pick up. Callers need those
+// blocks in two different places — appended to the document for html/template,
+// and appended to the extracted <body> content for the reactive parse — and
+// handing them back separately lets each caller assemble what it needs. The
+// alternative, concatenating them onto the document and having the body
+// extractor scan them back out, made a pure HTML slicer encode this function's
+// private output layout: appending anything after them would silently sweep it
+// into the template and degrade recursion with no error (issue #496).
+//
+// defines is "" when nothing recursive was found, which is every
+// non-recursive template.
+func FlattenTemplate(tmpl *template.Template) (document string, defines string, err error) {
 	// The main template is the one that was explicitly named when calling New()
 	// This is the entry point for execution
 	mainTemplate := tmpl
@@ -55,7 +69,7 @@ func FlattenTemplate(tmpl *template.Template) (string, error) {
 	}
 
 	if mainTemplate.Tree == nil || mainTemplate.Tree.Root == nil {
-		return "", fmt.Errorf("template has no parse tree")
+		return "", "", fmt.Errorf("template has no parse tree")
 	}
 
 	// Build map of all template definitions
@@ -79,29 +93,33 @@ func FlattenTemplate(tmpl *template.Template) (string, error) {
 	// instead of overflowing the stack.
 	var buf bytes.Buffer
 	if err := walkAndFlatten(mainTemplate.Tree.Root, templates, &buf, []string{mainTemplate.Name()}, recursive); err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	// Append each recursive template's flattened body as a {{define}} block. On
-	// re-parse these become associated templates that parse.Parse collects into
-	// the recursion registry; at build time invokeTemplate walks them per call.
-	// Bodies are flattened with the same recursive set, so their own recursive
-	// calls stay verbatim while any non-recursive {{template}} calls inline.
+	// Emit each recursive template's flattened body as a {{define}} block, into a
+	// buffer of its own. On re-parse these become associated templates that
+	// parse.Parse collects into the recursion registry; at build time
+	// invokeTemplate walks them per call. Bodies are flattened with the same
+	// recursive set, so their own recursive calls stay verbatim while any
+	// non-recursive {{template}} calls inline.
 	// Sorted for deterministic output (stable fingerprints and caching).
 	// detectRecursiveTemplates only records names whose templates have a non-nil
 	// Tree/Root, so templates[name] is safe to dereference here.
+	var defBuf bytes.Buffer
 	for _, name := range slices.Sorted(maps.Keys(recursive)) {
 		body := templates[name].Tree.Root
-		buf.WriteString("{{define ")
-		buf.WriteString(strconv.Quote(name))
-		buf.WriteString("}}")
-		if err := walkAndFlatten(body, templates, &buf, []string{name}, recursive); err != nil {
-			return "", err
+		defBuf.WriteString("{{define ")
+		defBuf.WriteString(strconv.Quote(name))
+		defBuf.WriteString("}}")
+		if err := walkAndFlatten(body, templates, &defBuf, []string{name}, recursive); err != nil {
+			return "", "", err
 		}
-		buf.WriteString("{{end}}")
+		defBuf.WriteString("{{end}}")
 	}
 
-	return buf.String(), nil
+	// document + defines reproduces exactly what this function used to return as
+	// a single string; callers that need both simply concatenate.
+	return buf.String(), defBuf.String(), nil
 }
 
 // detectRecursiveTemplates returns the set of template names that participate in

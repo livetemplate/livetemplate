@@ -436,10 +436,15 @@ Three categories, each a hard gate — no phase merges with a category left as "
         them for full HTML documents — leaving the recursion registry empty at serve time, so the whole
         template silently degraded to HTML-string diffing (none of the reactive tree / per-leaf path
         ran). `ExtractTemplateBodyContent` now re-attaches trailing `{{define}}` blocks; pinned by
-        `TestRecursiveTemplate_FullDocument_Reactive`.
-      - [ ] **Release-gated docs:** flip the `template-support-matrix.md` "Recursive / circular template
-        references" row from ❌ to ✅, update `current-limitations.md`, add a recipe. Matrix reflects
-        *released* behavior, so this lands with the release, not before.
+        `TestRecursiveTemplate_FullDocument_Reactive`. **Superseded by #496:** that re-attachment was a
+        `strings.Index("{{define")` rescan inside a pure HTML slicer, so `FlattenTemplate` now returns
+        `(document, defines)` and the caller re-attaches. The guarantee is unchanged; only where it
+        lives moved.
+      - [x] **Release-gated docs:** landed with v0.19.0/v0.19.1 — `template-support-matrix.md`'s
+        "Recursive / circular template references" row is ✅ with a **Recursion depth** section,
+        `CONFIGURATION.md` documents `LVT_MAX_TEMPLATE_DEPTH` (#498), and the `file-tree` recipe ships
+        in the docs site (livetemplate/docs#114). `current-limitations.md` needed no change — it never
+        claimed recursion was unsupported.
 
 ### Companion migrations (dependent repos — land per the lockstep convention once a release ships)
 

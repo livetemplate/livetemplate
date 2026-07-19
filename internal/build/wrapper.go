@@ -193,40 +193,46 @@ func injectWrapperDivStringBased(htmlDoc string, wrapperID string, loadingDisabl
 // <body class="dark">). Uses html.Tokenizer (see locateBodyAndFirstScript)
 // to avoid being fooled by '<body' substrings in head content.
 //
-// It also re-attaches any trailing {{define}} blocks that FlattenTemplate appends
-// AFTER the document (past </body></html>) for recursive {{template}} support: the
-// body's {{template}} calls reference those defines, and the extracted content is
-// parsed on its own for reactive tree generation, so dropping them would leave the
-// recursion registry empty and silently degrade recursive templates to HTML-string
-// diffing.
+// This is purely a slice between the body tags and knows nothing about what
+// produced the template. Recursive {{template}} support needs FlattenTemplate's
+// {{define}} blocks, which sit after </html> and so fall outside this slice —
+// the caller appends them, having received them from FlattenTemplate directly.
+// This function used to rescan for them, which quietly made an HTML slicer
+// depend on FlattenTemplate's output layout (issue #496).
 func ExtractTemplateBodyContent(templateStr string) string {
+	body, _ := ExtractTemplateBodyContentSliced(templateStr)
+	return body
+}
+
+// ExtractTemplateBodyContentSliced is ExtractTemplateBodyContent plus whether a
+// <body>…</body> region was actually sliced out — meaning anything after the
+// body close was dropped from the result.
+//
+// Callers holding template source that belongs after the document need this to
+// know whether to re-attach it. FlattenTemplate's recursion {{define}} blocks
+// are the case in point: they sit past </html>, so a real slice drops them and
+// they must be appended back, while the paths that return the input unchanged
+// still contain them and must not have them appended twice.
+//
+// Reporting the fact is the point — a caller inferring it by comparing strings
+// or rescanning for "{{define" is how this function ended up encoding
+// FlattenTemplate's output layout in the first place (issue #496).
+func ExtractTemplateBodyContentSliced(templateStr string) (body string, sliced bool) {
 	bodyOpenStart, bodyOpenEnd, bodyCloseStart, _ := locateBodyAndFirstScript(templateStr)
 	if bodyOpenStart < 0 {
-		return templateStr
+		return templateStr, false
 	}
 	// bodyCloseStart < 0 covers "no </body> at all".
 	// bodyOpenEnd > bodyCloseStart covers pathological input like
 	// "</body><body>x" where the only </body> precedes the body open
 	// tag — slicing [open:close] would panic. Treat both as "no usable
-	// close" and fall through to TrimSpace from body open onward.
+	// close" and fall through to TrimSpace from body open onward. That keeps
+	// everything from the body open to the end, tail included, so nothing was
+	// dropped and sliced stays false.
 	if bodyCloseStart < 0 || bodyOpenEnd > bodyCloseStart {
-		return strings.TrimSpace(templateStr[bodyOpenEnd:])
+		return strings.TrimSpace(templateStr[bodyOpenEnd:]), false
 	}
-	body := strings.TrimSpace(templateStr[bodyOpenEnd:bodyCloseStart])
-	return body + trailingDefineBlocks(templateStr[bodyCloseStart:])
-}
-
-// trailingDefineBlocks returns the {{define}} blocks (from the first {{define
-// onward) found in the content after the body close, or "" if there are none.
-// FlattenTemplate appends recursion cycle members there; Go templates collect
-// {{define}} regardless of position, so appending them to the body content keeps
-// the extracted template self-contained.
-func trailingDefineBlocks(afterBody string) string {
-	idx := strings.Index(afterBody, "{{define")
-	if idx < 0 {
-		return ""
-	}
-	return strings.TrimRight(afterBody[idx:], " \t\r\n")
+	return strings.TrimSpace(templateStr[bodyOpenEnd:bodyCloseStart]), true
 }
 
 // ExtractTemplateContent extracts template content using wrapper ID with proper HTML parsing.
