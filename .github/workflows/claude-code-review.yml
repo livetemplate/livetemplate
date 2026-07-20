@@ -54,5 +54,12 @@ jobs:
 
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://docs.claude.com/en/docs/claude-code/cli-reference for available options
-          claude_args: '--allowed-tools "Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"'
+          #
+          # Read/Grep/Glob are read-only over the checked-out tree. Without them the
+          # review can see the diff but not the file around it, and CLAUDE.md asks it
+          # to verify paths, function names and call-site counts cited in doc changes
+          # — none of which is answerable from a diff alone. Reaching for a tool that
+          # is not listed is a denial, and a denial ends the run as a failure, so the
+          # omission cost whole reviews rather than degrading them.
+          claude_args: '--allowed-tools "Read,Grep,Glob,Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"'
 
