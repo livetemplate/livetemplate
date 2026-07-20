@@ -107,6 +107,95 @@ get_current_version() {
     cat VERSION | tr -d '\n'
 }
 
+# The @livetemplate/client version this release will point browsers at.
+read_client_pin() {
+    grep -oE '^const ClientVersion = "[0-9]+\.[0-9]+\.[0-9]+"' client_assets.go 2>/dev/null \
+        | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true
+}
+
+# "same" | "older" | "newer", describing $1 relative to $2.
+version_order() {
+    if [ "$1" = "$2" ]; then
+        echo same
+    elif [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)" = "$1" ]; then
+        echo older
+    else
+        echo newer
+    fi
+}
+
+# Refuse to release while ClientVersion trails the client's latest release.
+#
+# ClientScriptURL is built from that constant, so it decides which bundle every
+# application on the documented <script src="{{ .ClientScriptURL }}"> path
+# loads. A stale pin means a published client fix reaches nobody — which is what
+# happened between client 0.19.1 and core v0.20.1: the upload field-serialization
+# fix sat on npm for two core releases while the pin stayed at 0.18.2 (#452, #515).
+#
+# Nothing else catches this. The unit tests assert the pin is well-formed semver
+# and that the URL is HTTPS; a stale-but-valid pin passes both.
+check_client_pin() {
+    local pinned latest
+    pinned=$(read_client_pin)
+
+    if [ -z "$pinned" ]; then
+        log_error "Could not read ClientVersion from client_assets.go"
+        echo "Expected a line like: const ClientVersion = \"1.2.3\""
+        exit 1
+    fi
+
+    latest=$(gh release list --repo livetemplate/client --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || true)
+    latest=${latest#v}
+
+    # A failed lookup is no evidence either way, and blocking a release on a
+    # GitHub API hiccup is worse than proceeding. Say the check was SKIPPED
+    # rather than letting silence read as a pass.
+    if [ -z "$latest" ]; then
+        log_warn "SKIPPED the client-pin check — could not reach the client repo"
+        log_warn "ClientVersion is $pinned; confirm by hand that it is current"
+        return 0
+    fi
+
+    case "$(version_order "$pinned" "$latest")" in
+        same)
+            log_info "Client pin is current ($pinned)"
+            ;;
+        older)
+            # Overridable, because staying behind is occasionally correct — a
+            # client release carrying a wire change this server cannot serve yet
+            # should not be adopted. Not overridable for "newer": an unpublished
+            # pin 404s for everyone, and no intent makes that right.
+            if [ -n "${LVT_ALLOW_CLIENT_PIN_DRIFT:-}" ]; then
+                log_warn "ClientVersion $pinned trails the released $latest — proceeding (LVT_ALLOW_CLIENT_PIN_DRIFT set)"
+                return 0
+            fi
+            log_error "ClientVersion is behind the released client"
+            echo ""
+            echo "  Pinned in client_assets.go: $pinned"
+            echo "  Latest @livetemplate/client: $latest"
+            echo ""
+            echo "ClientScriptURL is built from this constant, so releasing now ships"
+            echo "$pinned to every application using the documented <script> path — any"
+            echo "client fix released since then reaches nobody."
+            echo ""
+            echo "Bump ClientVersion to $latest and re-run. If this release is meant to"
+            echo "stay on $pinned (e.g. $latest carries a wire change this server cannot"
+            echo "serve yet), re-run with LVT_ALLOW_CLIENT_PIN_DRIFT=1."
+            exit 1
+            ;;
+        newer)
+            log_error "ClientVersion is ahead of the released client"
+            echo ""
+            echo "  Pinned in client_assets.go: $pinned"
+            echo "  Latest @livetemplate/client: $latest"
+            echo ""
+            echo "$pinned is not published, so ClientScriptURL would 404 for every"
+            echo "application. Release the client first, or correct the pin."
+            exit 1
+            ;;
+    esac
+}
+
 # Bump version
 bump_version() {
     local current_version=$1
@@ -444,6 +533,7 @@ main() {
     echo ""
 
     check_prerequisites
+    check_client_pin
 
     # Check git status
     if [ -n "$(git status --porcelain)" ]; then
