@@ -84,7 +84,15 @@ fi
 # Which branch generate_changelog took. Asserted on the decision rather than the
 # resulting file: the fallback's output differs per repo (and with whether any
 # tag exists), but the choice between promoting and regenerating does not.
-took_fallback() { generate_changelog "9.9.9" 2>&1 | grep -q "falling back"; }
+# Captured into a variable rather than piped into `grep -q`: release.sh brings
+# `set -o pipefail` in with it, and grep -q exits on first match, so the closed
+# pipe can make generate_changelog exit non-zero and fail the whole pipeline —
+# intermittently, depending on which finishes first.
+took_fallback() {
+    local out
+    out=$(generate_changelog "9.9.9" 2>&1)
+    [[ "$out" == *"falling back"* ]]
+}
 
 echo ""
 echo "2️⃣  Empty [Unreleased] falls through to the commit-subject fallback"

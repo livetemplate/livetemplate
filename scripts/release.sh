@@ -52,6 +52,10 @@ check_prerequisites() {
         echo ""
         echo "Merge them into the topmost one, or retitle the stale section with the"
         echo "version it actually shipped in, then re-run."
+        echo ""
+        echo "Most likely cause: a release took the commit-subject fallback, which"
+        echo "leaves an empty [Unreleased] in place, and a later curated one was added"
+        echo "above it. The empty section is the one to drop."
         exit 1
     fi
 }
