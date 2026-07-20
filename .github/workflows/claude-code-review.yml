@@ -69,7 +69,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: claude-review-execution-log
-          path: ${{ steps.claude-review.outputs.execution_file }}
+          # Falls back to the action's documented temp path: a step that FAILED
+          # never sets its outputs, so execution_file is empty in exactly the
+          # case this upload exists for.
+          path: ${{ steps.claude-review.outputs.execution_file || format('{0}/claude-execution-output.json', runner.temp) }}
           if-no-files-found: warn
           retention-days: 14
 
