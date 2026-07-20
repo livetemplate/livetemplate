@@ -1043,6 +1043,7 @@ Directives use CSS custom properties for configuration: `--lvt-scroll-behavior`,
 | Attribute | Description | Example |
 |-----------|-------------|---------|
 | `lvt-upload` | File upload identifier | `lvt-upload="avatar"` |
+| `lvt-upload-with` | Send this field along with an upload fired from the same form. Opt-in — unmarked fields never reach the upload endpoint. Multipart path only; see [Upload Reference](uploads.md) | `<input type="hidden" name="id" lvt-upload-with>` |
 
 ### Preservation Attributes
 
