@@ -39,6 +39,25 @@ check_prerequisites() {
     if ! command -v git-chglog >/dev/null 2>&1; then
         log_warn "git-chglog not installed (optional). Install with: brew install git-chglog"
     fi
+
+    # Refuse to guess which [Unreleased] section is the real one. A duplicate
+    # went unnoticed in this file from v0.8.5 until #509 because release-note
+    # extraction stops at the first heading, so the second could never ship.
+    local unreleased_headings
+    unreleased_headings=$(grep -c '^## \[Unreleased\]' CHANGELOG.md 2>/dev/null || true)
+    if [ "${unreleased_headings:-0}" -gt 1 ]; then
+        log_error "CHANGELOG.md has $unreleased_headings '## [Unreleased]' headings; there must be at most one"
+        echo ""
+        grep -n '^## \[Unreleased\]' CHANGELOG.md
+        echo ""
+        echo "Merge them into the topmost one, or retitle the stale section with the"
+        echo "version it actually shipped in, then re-run."
+        echo ""
+        echo "Most likely cause: a release took the commit-subject fallback, which"
+        echo "leaves an empty [Unreleased] in place, and a later curated one was added"
+        echo "above it. The empty section is the one to drop."
+        exit 1
+    fi
 }
 
 # Detect a release that was committed locally but never reached origin — a push
@@ -172,11 +191,43 @@ update_versions() {
 }
 
 # Generate changelog
+# Print the body of the "## [Unreleased]" section — everything between that
+# heading and the next "## [" heading.
+unreleased_body() {
+    awk '/^## \[Unreleased\]/ { inside = 1; next }
+         inside && /^## \[/    { inside = 0 }
+         inside                { print }' CHANGELOG.md 2>/dev/null || true
+}
+
+# Retitle "## [Unreleased]" as the release heading, leaving its content alone.
+# Only the first match is rewritten; main() has already refused to proceed if
+# there is more than one.
+promote_unreleased() {
+    local heading=$1
+
+    awk -v heading="$heading" '
+        /^## \[Unreleased\]/ && !promoted { print heading; promoted = 1; next }
+        { print }' CHANGELOG.md > CHANGELOG.md.tmp
+    mv CHANGELOG.md.tmp CHANGELOG.md
+}
+
 generate_changelog() {
     local new_version=$1
     local prev_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
 
     log_step "Generating changelog for v$new_version"
+
+    # Prefer what a human wrote. The file declares Keep a Changelog, whose whole
+    # workflow is to maintain [Unreleased] and promote it on release — so a
+    # curated section is the release notes, and regenerating over it throws away
+    # the only description of the change anyone will read (#511).
+    if [ -n "$(unreleased_body | tr -d '[:space:]')" ]; then
+        log_info "Promoting the curated [Unreleased] section to v$new_version"
+        promote_unreleased "## [v$new_version] - $(date +%Y-%m-%d)"
+        return
+    fi
+
+    log_warn "No curated [Unreleased] content; falling back to a commit-subject list"
 
     if command -v git-chglog >/dev/null 2>&1; then
         # Use git-chglog if available
@@ -544,4 +595,8 @@ main() {
     echo "  • Announce the release"
 }
 
-main "$@"
+# Sourced with RELEASE_SH_LIB=1 by scripts/test_release_changelog.sh, which
+# exercises the changelog functions without running a release.
+if [ -z "${RELEASE_SH_LIB:-}" ]; then
+    main "$@"
+fi
