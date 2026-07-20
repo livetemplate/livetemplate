@@ -54,25 +54,12 @@ jobs:
 
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://docs.claude.com/en/docs/claude-code/cli-reference for available options
-          claude_args: '--allowed-tools "Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"'
-
-      # The run's turn-by-turn log, kept whatever the outcome. When the review
-      # fails, the job log reports only the aggregate — `is_error: true` with a
-      # `permission_denials_count` — and never names the tool that was denied,
-      # which is the one fact needed to fix it. That detail lives in this file,
-      # written to the runner's temp dir and otherwise discarded with the runner.
-      # Runs are cheap to re-trigger but not to reproduce: which tool the model
-      # reaches for varies per PR, so a failure not captured when it happens may
-      # not recur on demand.
-      - name: Upload review execution log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: claude-review-execution-log
-          # Falls back to the action's documented temp path: a step that FAILED
-          # never sets its outputs, so execution_file is empty in exactly the
-          # case this upload exists for.
-          path: ${{ steps.claude-review.outputs.execution_file || format('{0}/claude-execution-output.json', runner.temp) }}
-          if-no-files-found: warn
-          retention-days: 14
+          #
+          # Read/Grep/Glob are read-only over the checked-out tree. Without them the
+          # review can see the diff but not the file around it, and CLAUDE.md asks it
+          # to verify paths, function names and call-site counts cited in doc changes
+          # — none of which is answerable from a diff alone. Reaching for a tool that
+          # is not listed is a denial, and a denial ends the run as a failure, so the
+          # omission cost whole reviews rather than degrading them.
+          claude_args: '--allowed-tools "Read,Grep,Glob,Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"'
 
