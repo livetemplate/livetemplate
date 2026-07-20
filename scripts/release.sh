@@ -113,6 +113,29 @@ read_client_pin() {
         | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true
 }
 
+# Whether LVT_ALLOW_CLIENT_PIN_DRIFT opts out of the stale-pin refusal.
+#
+# Deliberately not a bare -n test. That treats every non-empty value as true,
+# so LVT_ALLOW_CLIENT_PIN_DRIFT=false — a natural way to write "disabled" in a
+# CI config — would silently enable the bypass and ship the stale pin this guard
+# exists to catch. Accepts the same vocabulary as parseBool in config.go, and
+# refuses to guess at anything else rather than defaulting either way.
+pin_drift_allowed() {
+    local raw
+    raw=$(printf '%s' "${LVT_ALLOW_CLIENT_PIN_DRIFT:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+
+    case "$raw" in
+        "")                return 1 ;;
+        true|1|yes|on)     return 0 ;;
+        false|0|no|off)    return 1 ;;
+        *)
+            log_error "LVT_ALLOW_CLIENT_PIN_DRIFT is set to '$LVT_ALLOW_CLIENT_PIN_DRIFT', which is neither true nor false"
+            echo "Use true/false or 1/0. Refusing to guess whether you meant to bypass the client-pin check."
+            exit 1
+            ;;
+    esac
+}
+
 # "same" | "older" | "newer", describing $1 relative to $2.
 version_order() {
     if [ "$1" = "$2" ]; then
@@ -177,7 +200,7 @@ check_client_pin() {
             # client release carrying a wire change this server cannot serve yet
             # should not be adopted. Not overridable for "newer": an unpublished
             # pin 404s for everyone, and no intent makes that right.
-            if [ -n "${LVT_ALLOW_CLIENT_PIN_DRIFT:-}" ]; then
+            if pin_drift_allowed; then
                 log_warn "ClientVersion $pinned trails the released $latest — proceeding (LVT_ALLOW_CLIENT_PIN_DRIFT set)"
                 return 0
             fi

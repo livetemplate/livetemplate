@@ -169,13 +169,66 @@ fi
 # Without a working `sort -V`, sort still succeeds and returns a lexicographic
 # order — silently wrong, and inside a [ ] test that `set -e` does not trap. The
 # probe must notice. Simulated by stripping -V from the arguments.
-sort() { command sort "${@/-V/}"; }
+# Drop -V entirely rather than "${@/-V/}", which substitutes an empty string but
+# leaves it as an argument — GNU sort then reads "" as a filename and errors,
+# which happens to satisfy the probe for the wrong reason and leaks stderr into
+# the captured output. Filtering gives a real lexicographic sort of stdin.
+sort() {
+    local a args=()
+    for a in "$@"; do [ "$a" = "-V" ] || args+=("$a"); done
+    command sort "${args[@]}"
+}
 out=$(run_guard "0.9.0" "0.10.0")
 unset -f sort
 if [[ "$out" == *"EXIT:0"* && "$out" == *"SKIPPED"* && "$out" == *"-V"* ]]; then
     pass "a sort(1) without -V skips instead of comparing wrongly"
 else
     fail "missing sort -V must skip, not silently misorder" "$out"
+fi
+
+# An unreadable pin must stop the release outright: without a version there is
+# nothing to compare, and proceeding would ship whatever the constant now says.
+cat > client_assets.go <<'EOF'
+package livetemplate
+
+const (
+    ClientVersion = "0.20.0"
+)
+EOF
+out=$(guard_result)
+if [[ "$out" == *"EXIT:1"* && "$out" == *"Could not read ClientVersion"* ]]; then
+    pass "a reformatted const block stops the release rather than passing"
+else
+    fail "unreadable pin must exit 1" "$out"
+fi
+
+# The dangerous direction: a value meaning "off" must not enable the bypass.
+out=$(LVT_ALLOW_CLIENT_PIN_DRIFT=false run_guard "0.18.2" "0.20.0")
+if [[ "$out" == *"EXIT:1"* && "$out" == *"behind"* ]]; then
+    pass "LVT_ALLOW_CLIENT_PIN_DRIFT=false does NOT bypass the guard"
+else
+    fail "a 'false' override must not let a stale pin through" "$out"
+fi
+
+out=$(LVT_ALLOW_CLIENT_PIN_DRIFT=0 run_guard "0.18.2" "0.20.0")
+if [[ "$out" == *"EXIT:1"* && "$out" == *"behind"* ]]; then
+    pass "LVT_ALLOW_CLIENT_PIN_DRIFT=0 does NOT bypass the guard"
+else
+    fail "a '0' override must not let a stale pin through" "$out"
+fi
+
+out=$(LVT_ALLOW_CLIENT_PIN_DRIFT=true run_guard "0.18.2" "0.20.0")
+if [[ "$out" == *"EXIT:0"* && "$out" == *"proceeding"* ]]; then
+    pass "LVT_ALLOW_CLIENT_PIN_DRIFT=true is honoured, not silently ignored"
+else
+    fail "'true' should work as an override" "$out"
+fi
+
+out=$(LVT_ALLOW_CLIENT_PIN_DRIFT=banana run_guard "0.18.2" "0.20.0")
+if [[ "$out" == *"EXIT:1"* && "$out" == *"neither true nor false"* ]]; then
+    pass "an unparseable override errors rather than guessing"
+else
+    fail "unparseable override must not be assumed either way" "$out"
 fi
 
 # A lookup failure is not a pass. Blocking on a GitHub hiccup would be worse
