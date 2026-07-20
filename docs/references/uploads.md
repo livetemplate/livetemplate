@@ -48,7 +48,8 @@ controller implements `UploadStreamer`:
 
 ```go
 func (c *Controller) OnUpload(part *livetemplate.UploadPart, ctx *livetemplate.Context) error {
-    // "id" must be ordered before the file input in the form (see below).
+    // "id" must be marked lvt-upload-with and ordered before the file input
+    // in the form (see below).
     ref, err := myBackend.Put(ctx, ctx.GetString("id"), part.Filename, part)
     if err != nil {
         return err
