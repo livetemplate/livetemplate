@@ -48,7 +48,8 @@ controller implements `UploadStreamer`:
 
 ```go
 func (c *Controller) OnUpload(part *livetemplate.UploadPart, ctx *livetemplate.Context) error {
-    // "id" must be ordered before the file input in the form (see below).
+    // "id" must be marked lvt-upload-with and ordered before the file input
+    // in the form (see below).
     ref, err := myBackend.Put(ctx, ctx.GetString("id"), part.Filename, part)
     if err != nil {
         return err
@@ -59,11 +60,72 @@ func (c *Controller) OnUpload(part *livetemplate.UploadPart, ctx *livetemplate.C
 ```
 
 Inside `OnUpload`, `ctx` carries the request identity (`ctx.UserID()`,
-`ctx.GroupID()`) **and** the form fields parsed *before* this file part, read via
-`ctx.GetString(...)`. Because parts stream in body order, a field is visible only
-if its input precedes the file input — so order any field you need mid-stream
-(e.g. the record id to route the bytes to the right destination) ahead of the
-file input. Fields after the file part reach only the follow-on action.
+`ctx.GroupID()`) **and** the form fields the upload was told to carry, read via
+`ctx.GetString(...)`.
+
+#### Sending form fields with an upload
+
+A Proxied upload auto-fires the moment a file is selected — there is no submit
+for the user to review — so nothing from the enclosing form travels unless you
+mark it with `lvt-upload-with`:
+
+```html
+<form>
+  <input type="hidden" name="id" value="{{.Record.ID}}" lvt-upload-with />
+  <input type="hidden" name="csrf" value="{{.CSRFToken}}" />
+  <input type="file" lvt-upload="scan" />
+</form>
+```
+
+Here `id` reaches `OnUpload` and `csrf` does not. Mark only what the handler
+needs: unmarked fields — session tokens, co-located credentials, anything else
+that happens to share the form — never reach the upload endpoint. Forgetting to
+mark a field you *do* need surfaces as a missing value in `OnUpload`, which is
+why the default is off.
+
+Three rules apply on top of the marking:
+
+- **Order matters.** Parts stream in body order, so a marked field is readable
+  mid-stream only if its input precedes the file input. Fields after the file
+  part reach only the follow-on action.
+- **Marking is by name, and form-scoped.** A marked field travels with every
+  upload fired from its form, and marking any one member of a radio or checkbox
+  group opts in the whole group. Which values actually send is still the
+  browser's usual successful-control behaviour — an unchecked box sends nothing.
+- **The file wins a name collision.** If a marked field shares the upload
+  field's name, the file part replaces it.
+
+When one selection carries several files, each is POSTed as its own request and
+the marked fields ride along with every one, so each reaches `OnUpload`
+self-describing.
+
+#### Marked fields are multipart-only
+
+Marked fields travel on the **multipart** upload path, and only there. Which mode
+you use decides whether that path is taken:
+
+| Mode | Transport | Marked fields arrive? |
+| --- | --- | --- |
+| **Proxied** | always multipart | **Yes**, always — `OnUpload` included |
+| **Volume** | chunked over the WebSocket; multipart when the socket is down | Only on the multipart fallback |
+| **Direct** | presigned PUT to storage, then a metadata-only completion | **No**, on any path |
+
+The chunked WebSocket transport sends bytes and entry ids, and Direct completes
+with a metadata-only message — neither carries form fields, so the server builds
+the `upload_<name>_complete` action's context from an empty map.
+
+The client logs a console warning when an upload leaves by one of those
+transports from a form that marks fields, so this surfaces as a diagnosable
+message rather than a silently empty value.
+
+Note the asymmetry between the two: a Volume upload *does* deliver marked fields
+when it falls back to multipart, so a handler can see them intermittently
+depending on socket state — don't depend on that. Direct never delivers them at
+all. For either, read the context from the state your controller already holds
+rather than from the upload's form. Tracked as
+[#508](https://github.com/livetemplate/livetemplate/issues/508).
+
+Requires `@livetemplate/client` v0.20.0 or newer.
 
 The reader enforces `MaxFileSize` mid-stream, returning `ErrUploadTooLarge` (a
 distinct sentinel, not `io.EOF`) so a truncated stream aborts instead of

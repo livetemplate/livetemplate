@@ -915,8 +915,12 @@ Handle file uploads with progress tracking.
 | Attribute | Description |
 |-----------|-------------|
 | `lvt-upload` | Upload identifier for tracking |
+| `lvt-upload-with` | Send this field along with an upload fired from the same form. Opt-in — unmarked fields never reach the upload endpoint |
 
-Files are automatically uploaded when the form is submitted, with progress events emitted.
+Uploads fire on file selection, not on form submit, and progress events are
+emitted as the bytes move. Because there is no submit for the user to review,
+nothing else in the form travels with the upload unless it is marked
+`lvt-upload-with` — see [Sending form fields with an upload](uploads.md#sending-form-fields-with-an-upload).
 
 ---
 
@@ -1043,6 +1047,7 @@ Directives use CSS custom properties for configuration: `--lvt-scroll-behavior`,
 | Attribute | Description | Example |
 |-----------|-------------|---------|
 | `lvt-upload` | File upload identifier | `lvt-upload="avatar"` |
+| `lvt-upload-with` | Send this field along with an upload fired from the same form. Opt-in — unmarked fields never reach the upload endpoint. Multipart path only; see [Upload Reference](uploads.md) | `<input type="hidden" name="id" lvt-upload-with>` |
 
 ### Preservation Attributes
 
