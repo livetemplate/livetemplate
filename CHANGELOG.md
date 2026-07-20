@@ -5,6 +5,31 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **The pinned browser client is no longer three releases behind, so the upload
+  field-serialization fix actually reaches applications.** `ClientVersion` — the
+  constant `ClientScriptURL` is built from, and therefore what every app using
+  the documented `<script src="{{ .ClientScriptURL }}">` integration loads —
+  still pointed at client 0.18.2 while the client had shipped 0.19.1 and 0.20.0.
+  0.18.2 predates the opt-in change to upload form fields, so an application on
+  the documented path was still serializing its entire enclosing form into every
+  Proxied upload (everything except `type="password"`), including CSRF tokens and
+  hidden secrets. Pinned to 0.20.0. Applications that self-host or pin the client
+  themselves were unaffected; those following the default were not.
+  ([client#150](https://github.com/livetemplate/client/pull/150), #452)
+
+### Documentation
+
+- **`lvt-upload-with` is documented where the docs site actually reads from.**
+  The upload reference and the client-attribute tables live here and are mirrored
+  into the docs site on release; the opt-in marking contract had been written
+  into the mirror instead, where the next sync would have deleted it. The
+  `UploadStreamer` godoc also still described the pre-opt-in behaviour, which is
+  the copy an `OnUpload` implementer is likeliest to read. (#452, #508)
+
 ## [v0.20.0] - 2026-07-20
 
 ### Fixed
