@@ -7,22 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.20.0] - 2026-07-20
 
-### Changes
-
-- ci(review): let the reviewer read the files it reviews (#510) (27266e21)
-- docs(changelog): file the v0.8.5 breaking notice under v0.8.5 (#509) (370261f0)
-- feat(parse): key through nested wrappers, not just one level (#507) (985a8412)
-- fix(discovery): survive a path vanishing mid-walk (#506) (0b014184)
-- refactor(parse): tag wrappers instead of inferring them from shape (#504) (ad11219d)
-- refactor(parse): hand recursion defines back from FlattenTemplate (#503) (b3fc40dc)
-- fix(release): refuse to bump on top of an unpublished release (#501) (ad83dc58)
-- fix(release,ci): survive an aborted release, and stop interpolating the tag into shell (#499) (39d41444)
-- docs(changelog): curate v0.19.1 release notes (e4358269)
-
-
-
-## [Unreleased]
-
 ### Fixed
 
 - **Template auto-discovery no longer fails when a directory disappears while it
@@ -44,6 +28,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of patching it — the churn `data-key` exists to avoid. Lookup now
   descends through nested wrappers, bounded at four levels. Items with no key at
   any depth still use content hashes, as before. (#505)
+
+### Internal
+
+No behaviour change from these, but they are where the two fixes above came from:
+`FlattenTemplate` now hands recursion defines back to its caller rather than
+appending them itself (#503), and wrappers carry an explicit kind instead of
+being inferred from tree shape (#504) — the inference was whitespace-sensitive,
+which is what let #505 through. Release tooling also refuses to bump on top of an
+unpublished release (#501) and restores its files when a run aborts (#499).
 
 ## [v0.19.1] - 2026-07-18
 
