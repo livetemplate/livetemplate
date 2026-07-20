@@ -148,6 +148,36 @@ else
     fail "override must not bypass the 'newer' case — that URL 404s for everyone" "$out"
 fi
 
+# An empty release list makes `gh ... --jq '.[0].tagName'` emit the literal
+# string "null". It is non-empty, survives the "v" strip, and sorts BELOW any
+# real version — so a bare -z check would treat it as a valid answer and refuse
+# the release citing "Latest: null". Blocking on garbage is worse than skipping.
+out=$(run_guard "0.20.0" "null")
+if [[ "$out" == *"EXIT:0"* && "$out" == *"SKIPPED"* ]]; then
+    pass "a 'null' version is treated as no answer, not as a stale pin"
+else
+    fail "'null' must skip, not block" "$out"
+fi
+
+out=$(run_guard "0.20.0" "not-a-version")
+if [[ "$out" == *"EXIT:0"* && "$out" == *"SKIPPED"* ]]; then
+    pass "unparseable version skips rather than comparing"
+else
+    fail "garbage version must skip" "$out"
+fi
+
+# Without a working `sort -V`, sort still succeeds and returns a lexicographic
+# order — silently wrong, and inside a [ ] test that `set -e` does not trap. The
+# probe must notice. Simulated by stripping -V from the arguments.
+sort() { command sort "${@/-V/}"; }
+out=$(run_guard "0.9.0" "0.10.0")
+unset -f sort
+if [[ "$out" == *"EXIT:0"* && "$out" == *"SKIPPED"* && "$out" == *"-V"* ]]; then
+    pass "a sort(1) without -V skips instead of comparing wrongly"
+else
+    fail "missing sort -V must skip, not silently misorder" "$out"
+fi
+
 # A lookup failure is not a pass. Blocking on a GitHub hiccup would be worse
 # than proceeding, but the output has to say the check did not run.
 cat > client_assets.go <<'EOF'

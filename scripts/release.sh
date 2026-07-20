@@ -147,12 +147,24 @@ check_client_pin() {
     latest=$(gh release list --repo livetemplate/client --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || true)
     latest=${latest#v}
 
-    # A failed lookup is no evidence either way, and blocking a release on a
-    # GitHub API hiccup is worse than proceeding. Say the check was SKIPPED
-    # rather than letting silence read as a pass.
-    if [ -z "$latest" ]; then
-        log_warn "SKIPPED the client-pin check — could not reach the client repo"
+    # Require a semver-shaped answer rather than merely a non-empty one. jq
+    # yields the literal string "null" when the release list is empty, which is
+    # non-empty, survives the "v" strip, and sorts *below* any real version — so
+    # a bare -z check would let it through and refuse the release citing
+    # "Latest: null". Anything unparseable is treated as no answer at all.
+    if ! printf '%s' "$latest" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+        log_warn "SKIPPED the client-pin check — no usable version from the client repo"
         log_warn "ClientVersion is $pinned; confirm by hand that it is current"
+        return 0
+    fi
+
+    # version_order leans on `sort -V`. Absent it, sort still succeeds and
+    # returns a lexicographic order — silently wrong, and inside a [ ] test that
+    # `set -e` does not trap. Probe with a pair whose lexicographic and numeric
+    # orders disagree, and skip rather than trust a bad comparison.
+    if [ "$(printf '0.10.0\n0.9.0\n' | sort -V | head -1)" != "0.9.0" ]; then
+        log_warn "SKIPPED the client-pin check — this sort(1) lacks working -V"
+        log_warn "ClientVersion is $pinned, client released $latest; compare by hand"
         return 0
     fi
 
