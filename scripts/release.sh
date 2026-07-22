@@ -157,6 +157,28 @@ version_order() {
 #
 # Nothing else catches this. The unit tests assert the pin is well-formed semver
 # and that the URL is HTTPS; a stale-but-valid pin passes both.
+# The highest published, non-pre-release @livetemplate/client version, bare
+# (no leading "v"), or empty if none can be determined.
+#
+# Takes the true semver max rather than trusting list order: `gh release list`
+# is ordered by creation time, so a patch to an older line published after a
+# newer minor would otherwise be read as "latest". --exclude-drafts /
+# --exclude-pre-releases drop those at the source; the end-anchored filter is
+# the belt to that suspenders, dropping any -rc/-beta tag (and any non-semver
+# junk, including the literal "null" an empty list can produce) that reaches us
+# regardless. Callers get a clean bare semver or nothing — no "null", no
+# pre-release, no v-prefix to strip.
+latest_client_release() {
+    gh release list --repo livetemplate/client \
+        --exclude-drafts --exclude-pre-releases \
+        --limit 30 --json tagName --jq '.[].tagName' 2>/dev/null \
+        | sed 's/^v//' \
+        | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
+        | sort -V \
+        | tail -n1 \
+        || true
+}
+
 check_client_pin() {
     local pinned latest
     pinned=$(read_client_pin)
@@ -167,27 +189,26 @@ check_client_pin() {
         exit 1
     fi
 
-    latest=$(gh release list --repo livetemplate/client --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || true)
-    latest=${latest#v}
-
-    # Require a semver-shaped answer rather than merely a non-empty one. jq
-    # yields the literal string "null" when the release list is empty, which is
-    # non-empty, survives the "v" strip, and sorts *below* any real version — so
-    # a bare -z check would let it through and refuse the release citing
-    # "Latest: null". Anything unparseable is treated as no answer at all.
-    if ! printf '%s' "$latest" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
-        log_warn "SKIPPED the client-pin check — no usable version from the client repo"
-        log_warn "ClientVersion is $pinned; confirm by hand that it is current"
+    # version_order and latest_client_release both lean on `sort -V`. Absent it,
+    # sort still succeeds and returns a lexicographic order — silently wrong, and
+    # inside a [ ] test that `set -e` does not trap. Probe with a pair whose
+    # lexicographic and numeric orders disagree, and skip before making the
+    # lookup rather than trust a bad comparison.
+    if [ "$(printf '0.10.0\n0.9.0\n' | sort -V | head -1)" != "0.9.0" ]; then
+        log_warn "SKIPPED the client-pin check — this sort(1) lacks working -V"
+        log_warn "ClientVersion is $pinned; confirm it is current by hand"
         return 0
     fi
 
-    # version_order leans on `sort -V`. Absent it, sort still succeeds and
-    # returns a lexicographic order — silently wrong, and inside a [ ] test that
-    # `set -e` does not trap. Probe with a pair whose lexicographic and numeric
-    # orders disagree, and skip rather than trust a bad comparison.
-    if [ "$(printf '0.10.0\n0.9.0\n' | sort -V | head -1)" != "0.9.0" ]; then
-        log_warn "SKIPPED the client-pin check — this sort(1) lacks working -V"
-        log_warn "ClientVersion is $pinned, client released $latest; compare by hand"
+    latest=$(latest_client_release)
+
+    # Empty means the lookup found nothing usable: a network hiccup, no releases,
+    # or only drafts/pre-releases. None of that is evidence the pin is wrong, and
+    # blocking a release on a GitHub hiccup is worse than proceeding — but say
+    # SKIPPED rather than letting silence read as a pass.
+    if [ -z "$latest" ]; then
+        log_warn "SKIPPED the client-pin check — no published client release found"
+        log_warn "ClientVersion is $pinned; confirm it is current by hand"
         return 0
     fi
 

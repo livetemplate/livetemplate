@@ -75,7 +75,53 @@ else
 fi
 
 echo ""
-echo "3️⃣  check_client_pin decisions"
+echo "3️⃣  latest_client_release selection"
+# gh is stubbed to emit tag lines; the flags it would pass to filter drafts and
+# pre-releases are bypassed by the stub, so these assert the shell-side safety
+# net (end-anchored bare-semver filter + true semver max), which is what runs
+# regardless of whether the flags took effect.
+
+# Ordered by creation time, gh could return an older line last; the max must win
+# over list order.
+gh() { printf 'v0.19.1\nv0.20.0\nv0.18.2\n'; }
+got=$(latest_client_release)
+if [ "$got" = "0.20.0" ]; then
+    pass "picks the semver max, not the list order"
+else
+    fail "latest_client_release → '$got' (want 0.20.0)" ""
+fi
+
+# 0.10.0 must outrank 0.9.0 — the case a lexicographic max gets wrong.
+gh() { printf 'v0.9.0\nv0.10.0\n'; }
+got=$(latest_client_release)
+if [ "$got" = "0.10.0" ]; then
+    pass "0.10.0 outranks 0.9.0 (numeric, not lexicographic)"
+else
+    fail "latest_client_release → '$got' (want 0.10.0)" ""
+fi
+
+# A pre-release-suffixed tag that slips past the --exclude flag is dropped by the
+# end-anchored filter rather than fed into the comparison.
+gh() { printf 'v0.21.0-rc.1\nv0.20.0\n'; }
+got=$(latest_client_release)
+if [ "$got" = "0.20.0" ]; then
+    pass "a -rc pre-release is excluded, not treated as newest"
+else
+    fail "latest_client_release → '$got' (want 0.20.0)" ""
+fi
+
+# Nothing usable → empty, which check_client_pin turns into a SKIP.
+gh() { printf ''; }
+got=$(latest_client_release)
+if [ -z "$got" ]; then
+    pass "no usable tags → empty"
+else
+    fail "latest_client_release → '$got' (want empty)" ""
+fi
+unset -f gh
+
+echo ""
+echo "4️⃣  check_client_pin decisions"
 # Stub the lookup rather than hitting the network. Redefining gh keeps
 # check_client_pin itself under test, including its ${latest#v} handling.
 run_guard() {
