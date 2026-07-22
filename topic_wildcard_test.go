@@ -326,32 +326,17 @@ func TestTopic_V17_CrossInstance_PSubscribeDelivery(t *testing.T) {
 }
 
 // awaitWSContainsRejecting is awaitWSContains plus a forbidden-substring guard:
-// succeed when a frame contains want, FAIL if one contains reject first. Same
-// reliability profile as awaitWSContains; the 400ms per-read deadline (vs
-// awaitWSContains's 150ms) narrows the stale-frame window since the retry
-// republishes both want and reject. The retry is a propagation guard, not a
-// load driver — normally one iteration.
+// succeed when a frame contains want, FAIL if one contains reject first. It
+// re-triggers less often than awaitWSContains (400ms vs 150ms): each retry
+// republishes both want and reject, so a slower cadence narrows the window in
+// which a stale reject frame could arrive. The retry is a propagation guard,
+// not a load driver — normally one iteration.
+//
+// Call at most once per connection — it dedicates a reader goroutine to ws (see
+// wsFrameReader).
 func awaitWSContainsRejecting(t *testing.T, ws *websocket.Conn, want, reject string, trigger func()) {
 	t.Helper()
-	deadline := time.Now().Add(8 * time.Second)
-	for time.Now().Before(deadline) {
-		trigger()
-		if err := ws.SetReadDeadline(time.Now().Add(400 * time.Millisecond)); err != nil {
-			t.Fatalf("SetReadDeadline failed: %v", err)
-		}
-		_, msg, err := ws.ReadMessage()
-		if err != nil {
-			continue
-		}
-		body := string(msg)
-		if strings.Contains(body, reject) {
-			t.Fatalf("forbidden frame containing %q arrived: %s", reject, body)
-		}
-		if strings.Contains(body, want) {
-			return
-		}
-	}
-	t.Fatalf("timed out waiting for WS frame containing %q", want)
+	awaitWSFrame(t, ws, want, reject, 400*time.Millisecond, trigger)
 }
 
 // TestTopic_V17_CrossInstance_OverDeliveryRejected: B subscribes room/* →
