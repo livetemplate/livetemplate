@@ -107,6 +107,151 @@ get_current_version() {
     cat VERSION | tr -d '\n'
 }
 
+# The @livetemplate/client version this release will point browsers at.
+read_client_pin() {
+    grep -oE '^const ClientVersion = "[0-9]+\.[0-9]+\.[0-9]+"' client_assets.go 2>/dev/null \
+        | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true
+}
+
+# Whether LVT_ALLOW_CLIENT_PIN_DRIFT opts out of the stale-pin refusal.
+#
+# Deliberately not a bare -n test. That treats every non-empty value as true,
+# so LVT_ALLOW_CLIENT_PIN_DRIFT=false — a natural way to write "disabled" in a
+# CI config — would silently enable the bypass and ship the stale pin this guard
+# exists to catch. Accepts the same vocabulary as parseBool in config.go, and
+# refuses to guess at anything else rather than defaulting either way.
+pin_drift_allowed() {
+    local raw
+    raw=$(printf '%s' "${LVT_ALLOW_CLIENT_PIN_DRIFT:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+
+    case "$raw" in
+        "")                return 1 ;;
+        true|1|yes|on)     return 0 ;;
+        false|0|no|off)    return 1 ;;
+        *)
+            log_error "LVT_ALLOW_CLIENT_PIN_DRIFT is set to '$LVT_ALLOW_CLIENT_PIN_DRIFT', which is neither true nor false"
+            echo "Use true/false or 1/0. Refusing to guess whether you meant to bypass the client-pin check."
+            exit 1
+            ;;
+    esac
+}
+
+# "same" | "older" | "newer", describing $1 relative to $2.
+version_order() {
+    if [ "$1" = "$2" ]; then
+        echo same
+    elif [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)" = "$1" ]; then
+        echo older
+    else
+        echo newer
+    fi
+}
+
+# Refuse to release while ClientVersion trails the client's latest release.
+#
+# ClientScriptURL is built from that constant, so it decides which bundle every
+# application on the documented <script src="{{ .ClientScriptURL }}"> path
+# loads. A stale pin means a published client fix reaches nobody — which is what
+# happened between client 0.19.1 and core v0.20.1: the upload field-serialization
+# fix sat on npm for two core releases while the pin stayed at 0.18.2 (#452, #515).
+#
+# Nothing else catches this. The unit tests assert the pin is well-formed semver
+# and that the URL is HTTPS; a stale-but-valid pin passes both.
+# The highest published, non-pre-release @livetemplate/client version, bare
+# (no leading "v"), or empty if none can be determined.
+#
+# Takes the true semver max rather than trusting list order: `gh release list`
+# is ordered by creation time, so a patch to an older line published after a
+# newer minor would otherwise be read as "latest". --exclude-drafts /
+# --exclude-pre-releases drop those at the source; the end-anchored filter is
+# the belt to that suspenders, dropping any -rc/-beta tag (and any non-semver
+# junk, including the literal "null" an empty list can produce) that reaches us
+# regardless. Callers get a clean bare semver or nothing — no "null", no
+# pre-release, no v-prefix to strip.
+latest_client_release() {
+    gh release list --repo livetemplate/client \
+        --exclude-drafts --exclude-pre-releases \
+        --limit 30 --json tagName --jq '.[].tagName' 2>/dev/null \
+        | sed 's/^v//' \
+        | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
+        | sort -V \
+        | tail -n1 \
+        || true
+}
+
+check_client_pin() {
+    local pinned latest
+    pinned=$(read_client_pin)
+
+    if [ -z "$pinned" ]; then
+        log_error "Could not read ClientVersion from client_assets.go"
+        echo "Expected a line like: const ClientVersion = \"1.2.3\""
+        exit 1
+    fi
+
+    # version_order and latest_client_release both lean on `sort -V`. Absent it,
+    # sort still succeeds and returns a lexicographic order — silently wrong, and
+    # inside a [ ] test that `set -e` does not trap. Probe with a pair whose
+    # lexicographic and numeric orders disagree, and skip before making the
+    # lookup rather than trust a bad comparison.
+    if [ "$(printf '0.10.0\n0.9.0\n' | sort -V | head -1)" != "0.9.0" ]; then
+        log_warn "SKIPPED the client-pin check — this sort(1) lacks working -V"
+        log_warn "ClientVersion is $pinned; confirm it is current by hand"
+        return 0
+    fi
+
+    latest=$(latest_client_release)
+
+    # Empty means the lookup found nothing usable: a network hiccup, no releases,
+    # or only drafts/pre-releases. None of that is evidence the pin is wrong, and
+    # blocking a release on a GitHub hiccup is worse than proceeding — but say
+    # SKIPPED rather than letting silence read as a pass.
+    if [ -z "$latest" ]; then
+        log_warn "SKIPPED the client-pin check — no published client release found"
+        log_warn "ClientVersion is $pinned; confirm it is current by hand"
+        return 0
+    fi
+
+    case "$(version_order "$pinned" "$latest")" in
+        same)
+            log_info "Client pin is current ($pinned)"
+            ;;
+        older)
+            # Overridable, because staying behind is occasionally correct — a
+            # client release carrying a wire change this server cannot serve yet
+            # should not be adopted. Not overridable for "newer": an unpublished
+            # pin 404s for everyone, and no intent makes that right.
+            if pin_drift_allowed; then
+                log_warn "ClientVersion $pinned trails the released $latest — proceeding (LVT_ALLOW_CLIENT_PIN_DRIFT set)"
+                return 0
+            fi
+            log_error "ClientVersion is behind the released client"
+            echo ""
+            echo "  Pinned in client_assets.go: $pinned"
+            echo "  Latest @livetemplate/client: $latest"
+            echo ""
+            echo "ClientScriptURL is built from this constant, so releasing now ships"
+            echo "$pinned to every application using the documented <script> path — any"
+            echo "client fix released since then reaches nobody."
+            echo ""
+            echo "Bump ClientVersion to $latest and re-run. If this release is meant to"
+            echo "stay on $pinned (e.g. $latest carries a wire change this server cannot"
+            echo "serve yet), re-run with LVT_ALLOW_CLIENT_PIN_DRIFT=1."
+            exit 1
+            ;;
+        newer)
+            log_error "ClientVersion is ahead of the released client"
+            echo ""
+            echo "  Pinned in client_assets.go: $pinned"
+            echo "  Latest @livetemplate/client: $latest"
+            echo ""
+            echo "$pinned is not published, so ClientScriptURL would 404 for every"
+            echo "application. Release the client first, or correct the pin."
+            exit 1
+            ;;
+    esac
+}
+
 # Bump version
 bump_version() {
     local current_version=$1
@@ -444,6 +589,7 @@ main() {
     echo ""
 
     check_prerequisites
+    check_client_pin
 
     # Check git status
     if [ -n "$(git status --porcelain)" ]; then
