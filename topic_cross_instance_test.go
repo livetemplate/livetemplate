@@ -50,32 +50,13 @@ func setupTopicServerH(t *testing.T, ctrl interface{}, st State, tmplStr string,
 	return server, wsURL, h
 }
 
-// awaitWSContains retries trigger every ~150ms until ws yields a frame whose
+// awaitWSContains re-drives trigger every ~150ms until ws yields a frame whose
 // raw body contains want, or the deadline elapses. The retry absorbs Redis
 // SUBSCRIBE-propagation latency without a brittle fixed sleep (the publish is
 // re-sent, so a delivery lost before the SUBSCRIBE landed is simply re-driven).
-//
-// It substring-matches the raw frame rather than asserting tree[slot]==want on
-// purpose: a tree update carries only the CHANGED dynamics and the value may be
-// nested, so a raw-body contains check is the robust signal that the value
-// landed end-to-end (which is all these cross-instance tests need to assert).
 func awaitWSContains(t *testing.T, ws *websocket.Conn, want string, trigger func()) {
 	t.Helper()
-	deadline := time.Now().Add(8 * time.Second)
-	for time.Now().Before(deadline) {
-		trigger()
-		if err := ws.SetReadDeadline(time.Now().Add(150 * time.Millisecond)); err != nil {
-			t.Fatalf("SetReadDeadline failed: %v", err)
-		}
-		_, msg, err := ws.ReadMessage()
-		if err != nil {
-			continue // no delivery yet — re-trigger
-		}
-		if strings.Contains(string(msg), want) {
-			return
-		}
-	}
-	t.Fatalf("timed out waiting for WS frame containing %q", want)
+	awaitWSFrame(t, ws, want, "", 150*time.Millisecond, trigger)
 }
 
 // --- shared cross-instance fixtures ---
