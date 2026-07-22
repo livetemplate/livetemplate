@@ -54,6 +54,9 @@ func setupTopicServerH(t *testing.T, ctrl interface{}, st State, tmplStr string,
 // raw body contains want, or the deadline elapses. The retry absorbs Redis
 // SUBSCRIBE-propagation latency without a brittle fixed sleep (the publish is
 // re-sent, so a delivery lost before the SUBSCRIBE landed is simply re-driven).
+//
+// Call at most once per connection — it dedicates a reader goroutine to ws (see
+// wsFrameReader).
 func awaitWSContains(t *testing.T, ws *websocket.Conn, want string, trigger func()) {
 	t.Helper()
 	awaitWSFrame(t, ws, want, "", 150*time.Millisecond, trigger)

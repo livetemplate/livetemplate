@@ -29,6 +29,12 @@ import (
 // It also clears any deadline connectWS left set for the initial-render read so
 // the blocking read below does not inherit a stale one. t.Cleanup closes ws so
 // the goroutine always unblocks by test end.
+//
+// Call at most once per connection: the goroutine owns ws.ReadMessage for the
+// connection's lifetime, and gorilla/websocket forbids concurrent reads — a
+// second reader on the same conn is a data race. Every current caller awaits a
+// given conn once; a test needing two sequential frames should keep reading the
+// single returned channel rather than starting another reader.
 func wsFrameReader(t *testing.T, ws *websocket.Conn) <-chan string {
 	t.Helper()
 	if err := ws.SetReadDeadline(time.Time{}); err != nil {

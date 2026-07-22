@@ -331,6 +331,9 @@ func TestTopic_V17_CrossInstance_PSubscribeDelivery(t *testing.T) {
 // republishes both want and reject, so a slower cadence narrows the window in
 // which a stale reject frame could arrive. The retry is a propagation guard,
 // not a load driver — normally one iteration.
+//
+// Call at most once per connection — it dedicates a reader goroutine to ws (see
+// wsFrameReader).
 func awaitWSContainsRejecting(t *testing.T, ws *websocket.Conn, want, reject string, trigger func()) {
 	t.Helper()
 	awaitWSFrame(t, ws, want, reject, 400*time.Millisecond, trigger)
