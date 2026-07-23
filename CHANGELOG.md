@@ -5,6 +5,31 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`Validate(templateText)` reports template problems as structured
+  diagnostics — including the parse and composition errors the live-render path
+  silently swallows.** `Execute`/`ExecuteUpdates` catch a first-render failure
+  and fall back to an HTML-structure tree, so a malformed template (an unclosed
+  `{{range}}`, an unknown function, an unresolved `{{template}}`) renders
+  degraded with no error returned — a tool that wants to reject a bad template
+  *before* serving had nothing to call. `Validate(templateText string, opts
+  ...ValidateOption) ([]Diagnostic, error)` parses the text through the real
+  framework function set and any component templates supplied via
+  `WithValidateComponents` — the same `ParseFS` path serve uses, so component
+  definitions resolve rather than false-positive — and returns a
+  `Diagnostic{Line, Severity, Message}` per problem (at most one today — the
+  parser stops at the first error). The returned
+  `error` is reserved for infrastructure failures (a component set that itself
+  fails to parse); a template that does not parse is always a diagnostic, not an
+  error, mirroring the shape of a linter. Because unknown functions are checked
+  against the framework's own builtins — which a downstream consumer cannot
+  enumerate — this check cannot be reproduced outside the module. Data-dependent
+  checks (render behaviour against a sample value) are out of scope for now, and
+  `SeverityWarning` is reserved for them.
+
 ## [v0.20.1] - 2026-07-20
 
 ### Fixed
