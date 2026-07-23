@@ -20,7 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   framework function set and any component templates supplied via
   `WithValidateComponents` — the same `ParseFS` path serve uses, so component
   definitions resolve rather than false-positive — and returns a
-  `Diagnostic{Line, Col, Severity, Message, Hint}` per problem. The returned
+  `Diagnostic{Line, Severity, Message}` per problem (at most one today — the
+  parser stops at the first error). The returned
   `error` is reserved for infrastructure failures (a component set that itself
   fails to parse); a template that does not parse is always a diagnostic, not an
   error, mirroring the shape of a linter. Because unknown functions are checked
