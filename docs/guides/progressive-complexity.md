@@ -229,7 +229,7 @@ LiveTemplate offers three loading models. Pick the simplest one that fits your u
 | Grey out the form | N/A | **7.1 — Auto** (`<fieldset>` + CSS) | 0 lines, 0 attrs |
 | Custom loading UX (spinner, text) | Yes | **7.2 — Client-owned pending** (`lvt-el:*:on:pending`) | 0 lines, 2 attrs |
 | Custom loading UX (spinner, text) | **No** | **7.3 — Server-owned loading** with `Async` + `{{.lvt.Pending}}` | ~5 lines, 0 attrs |
-| Loading fans out to peers / survives reconnect | Either | **7.3 — Server-owned loading** with `Async` | ~7 lines, 0 attrs |
+| Loading fans out to peers / survives reconnect | Either | **7.3 — Server-owned loading** with manual `Loading` field + `ctx.Publish()` | ~15 lines, 0 attrs |
 
 **Rule of thumb:** start with 7.1. Move to 7.2 or 7.3 only when you need custom UX (spinners, text changes, progress indicators) or loading that is real application state.
 

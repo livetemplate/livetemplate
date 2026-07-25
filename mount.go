@@ -930,6 +930,11 @@ eventLoop:
 			if msg.Action == actionNavigate {
 				actionCtx = actionCtx.WithAction("") // ctx.Action()=="" matches connect-time Mount
 				newState, actionErr = callMount(h.config.Controller, connSt.state, actionCtx)
+				if dropped := actionCtx.pendingAsyncOps(); len(dropped) > 0 {
+					slog.Warn("Async() calls in Mount (via navigate) are ignored (Async is only supported inside action handlers)",
+						slog.String("component", "live_handler"),
+						slog.Int("dropped", len(dropped)))
+				}
 			} else {
 				newState, actionErr = DispatchWithState(h.config.Controller, connSt.state, actionCtx)
 			}
