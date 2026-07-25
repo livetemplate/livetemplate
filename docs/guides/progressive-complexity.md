@@ -228,8 +228,8 @@ LiveTemplate offers three loading models. Pick the simplest one that fits your u
 |---|---|---|---|
 | Grey out the form | N/A | **7.1 — Auto** (`<fieldset>` + CSS) | 0 lines, 0 attrs |
 | Custom loading UX (spinner, text) | Yes | **7.2 — Client-owned pending** (`lvt-el:*:on:pending`) | 0 lines, 2 attrs |
-| Custom loading UX (spinner, text) | **No** | **7.3 — Server-owned loading** (`{{if .Loading}}`) | ~15 lines, 0 attrs |
-| Loading fans out to peers / survives reconnect | Either | **7.3 — Server-owned loading** | ~15 lines, 0 attrs |
+| Custom loading UX (spinner, text) | **No** | **7.3 — Server-owned loading** with `Async` | ~7 lines, 0 attrs |
+| Loading fans out to peers / survives reconnect | Either | **7.3 — Server-owned loading** with `Async` | ~7 lines, 0 attrs |
 
 **Rule of thumb:** start with 7.1. Move to 7.2 or 7.3 only when you need custom UX (spinners, text changes, progress indicators) or loading that is real application state.
 
@@ -339,6 +339,37 @@ func (c *Controller) FinishGreet(state State, ctx *livetemplate.Context) (State,
 4. **Second action name**: the `FinishGreet` method name must match the string passed to `TriggerAction`. A typo silently fails (the action dispatches but no method handles it).
 
 **Trade-offs vs 7.2:** more verbose (~15 lines across 2 methods), but the loading state is real server state — it fans out to peers via `ctx.Publish()`, survives reconnect (it's in the state struct), and can drive server-side logic (e.g., preventing concurrent operations).
+
+#### Simplified with `Async`
+
+`livetemplate.Async` collapses the two-method pattern to one method (~7 lines) by handling the goroutine, dispatch channel, and re-entry automatically:
+
+```go
+func (c *Controller) Greet(state State, ctx *livetemplate.Context) (State, error) {
+    state.Loading = true
+    name := strings.TrimSpace(ctx.GetString("name"))
+    livetemplate.Async(ctx,
+        func(ctx context.Context) (string, error) {
+            time.Sleep(700 * time.Millisecond) // simulate slow work
+            return name, nil
+        },
+        func(s State, name string, err error) (State, error) {
+            s.Name = name
+            s.Loading = false
+            return s, nil
+        },
+    )
+    return state, nil // render #1: Loading=true
+    // render #2 happens when work completes: Loading=false
+}
+```
+
+The template is identical — `{{if .Loading}}` works the same way. The key guarantees:
+- **`apply` sees the current state**, not a snapshot — any actions that ran during the async window are visible
+- **Connection-scoped** — only the originating connection gets the completion render
+- **Lifetime-bound** — if the connection closes, the goroutine is cancelled and `apply` is skipped
+
+See the [Async API reference](../references/api-reference.md#async) for the full contract.
 
 ---
 

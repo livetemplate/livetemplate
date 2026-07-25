@@ -288,6 +288,65 @@ can be captured and used from background goroutines. See
 
 ---
 
+## Async
+
+```go
+func Async[S any, R any](
+    ctx *Context,
+    work  func(context.Context) (R, error),
+    apply func(s S, result R, err error) (S, error),
+)
+```
+
+Runs `work` off the connection event loop, then re-enters the loop to apply
+its result to the **current** session state and re-render the originating
+connection. Reduces the [manual two-action loading pattern](../guides/progressive-complexity.md#73-server-owned-loading-tier-1)
+from ~15 lines / 2 methods to ~7 lines / 1 method.
+
+- **`work`** runs in a supervised goroutine. It receives a `context.Context`
+  tied to the connection's lifetime (cancelled on disconnect). It must not
+  touch session state — only its own inputs.
+- **`apply`** runs **on the event loop** against the latest state at
+  completion time, not a snapshot from when `work` started. Any state
+  changes from other actions during the async window are visible. Mutate
+  only the fields you own.
+- If the connection closes before `work` completes, the goroutine is
+  cancelled and `apply` never runs.
+- Render scope is **per-connection** — only the connection that called
+  `Async` gets the completion render. For group-wide fan-out, call
+  `ctx.Session().TriggerAction()` inside `apply`.
+
+**Example:**
+
+```go
+func (c *Controller) Greet(state State, ctx *livetemplate.Context) (State, error) {
+    state.Loading = true
+    name := strings.TrimSpace(ctx.GetString("name"))
+    livetemplate.Async(ctx,
+        func(ctx context.Context) (string, error) {
+            time.Sleep(700 * time.Millisecond) // simulate slow work
+            return name, nil
+        },
+        func(s State, name string, err error) (State, error) {
+            s.Name = name
+            s.Loading = false
+            return s, nil
+        },
+    )
+    return state, nil // render #1: Loading=true (spinner on)
+    // render #2 happens automatically when work completes: Loading=false
+}
+```
+
+**Transport:** `Async` requires a WebSocket connection. On HTTP/fetch
+(no persistent connection), pending async operations are silently dropped —
+the action returns synchronously with its state changes.
+
+See [Loading States §7.3](../guides/progressive-complexity.md#73-server-owned-loading-tier-1)
+for the full comparison of loading approaches.
+
+---
+
 ## LiveHandler
 
 ```go

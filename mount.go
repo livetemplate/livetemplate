@@ -992,7 +992,16 @@ eventLoop:
 				break eventLoop
 			}
 
+			// Spawn async continuations after render #1 reaches the client.
+			for _, cont := range actionCtx.pendingAsyncOps() {
+				spawnAsyncWork(connection, cont)
+			}
+
 		case req := <-connection.DispatchChan:
+			if req.Kind == session.KindAsyncCompletion {
+				h.handleAsyncCompletion(connSt, connection, req)
+				continue
+			}
 			h.handleDispatchedAction(connSt, connection, req, userID)
 		}
 	}
@@ -1948,6 +1957,63 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 		slog.Warn("sendUpdate failed during dispatched action",
 			slog.String("component", "live_handler"),
 			slog.String("action", req.Action),
+			slog.Any("error", err))
+	}
+}
+
+// spawnAsyncWork launches a goroutine for an Async continuation. The goroutine
+// runs work under a context tied to the connection's lifetime; on completion it
+// enqueues the result onto DispatchChan as KindAsyncCompletion.
+func spawnAsyncWork(connection *session.Connection, cont asyncContinuation) {
+	go func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		go func() {
+			select {
+			case <-connection.Done():
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+		defer cancel()
+
+		result, err := cont.work(ctx)
+
+		// Skip apply if the connection closed during work.
+		select {
+		case <-connection.Done():
+			return
+		default:
+		}
+
+		connection.EnqueueDispatch(&session.DispatchRequest{
+			Kind:        session.KindAsyncCompletion,
+			AsyncResult: result,
+			AsyncError:  err,
+			AsyncApply:  cont.apply,
+		})
+	}()
+}
+
+// handleAsyncCompletion processes a KindAsyncCompletion dispatch request.
+// Runs apply against the current connState (not a snapshot), persists, and
+// re-renders the originating connection only.
+func (h *liveHandler) handleAsyncCompletion(connSt *connState, connection *session.Connection, req *session.DispatchRequest) {
+	newState, err := req.AsyncApply(connSt.state, req.AsyncResult, req.AsyncError)
+	if err != nil {
+		slog.Warn("Async apply failed",
+			slog.String("component", "live_handler"),
+			slog.String("group_id", connSt.groupID),
+			slog.Any("error", err))
+		return
+	}
+
+	connSt.state = newState
+	connection.State = connSt.state
+	h.persistState(context.Background(), connSt.groupID, connSt.state)
+
+	if err := h.sendUpdate(connection, connSt.state, connSt.getMessages()); err != nil {
+		slog.Warn("sendUpdate failed during async completion",
+			slog.String("component", "live_handler"),
 			slog.Any("error", err))
 	}
 }

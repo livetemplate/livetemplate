@@ -485,23 +485,29 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo · `[GATED]` blocked on gr
   - [x] Document the manual two-action pattern as the current server-owned recipe, with the
         re-entrancy / session-nil / goroutine-lifetime caveats called out.
   - Acceptance: `/simplify` on the diff; a reader can pick the right model from the table alone.
-- [ ] **P2 — `Async` primitive core** `[GATED]`
-  - [ ] `Async[S State, R any](ctx, work, apply)` free function; register a pending continuation on
+- [x] **P2 — `Async` primitive core**
+  - [x] `Async[S any, R any](ctx, work, apply)` free function; register a pending continuation on
         `Context` (parallel to `pendingTopicPublishes`).
-  - [ ] Event-loop hook: after render #1, hand the continuation to a connection-context-bound
+  - [x] Event-loop hook: after render #1, hand the continuation to a connection-context-bound
         goroutine; on completion enqueue a synthetic `DispatchChan` request carrying result+apply.
-  - [ ] Extend `handleDispatchedAction` (or a sibling) to run `apply` against current
+  - [x] `handleAsyncCompletion` (sibling of `handleDispatchedAction`) runs `apply` against current
         `connState.state`, per-connection render scope, persist.
   - Acceptance (the contract): unit tests proving (1) apply sees state mutated by an interleaved
     action, not a snapshot; (2) disconnect during `work` cancels and skips `apply` with no
     goroutine leak (`-race`); (3) render scope is the originating connection only.
+  - Implementation notes:
+    - `S` constraint is `any`, not `State` — `connSt.state` holds the inner typed value, not the wrapper.
+    - `KindAsyncCompletion` dispatch kind added to `DispatchRequest` to carry result+apply callback.
+    - Async ops drain after `writeUpdateWebSocket` (render #1 reaches client before goroutine starts).
+    - HTTP/fetch path: pending async ops silently dropped (correct progressive-enhancement degradation).
 - [ ] **P3 — Optional `AsyncResult`-style declarative status** `[GATED]`
   - [ ] Framework-managed loading/ok/failed status readable as a template helper, for the
         "only template variables" ergonomic — only as sugar over P2, only when it's real state.
-- [ ] **P4 — Example + docs lockstep** `[GATED]` (per "feature work ships an example + docs")
-  - [ ] Runnable `docs/examples` app (a server-owned async greet/job-status) demonstrating `Async`.
-  - [ ] Reference docs; browser e2e (chromedp) asserting the two-frame sequence (spinner-on frame,
-        then spinner-off frame) with WS-frame capture; reactive-path full-doc e2e per repo rule.
+- [x] **P4 — Reference docs** (partial; example + e2e deferred to post-release)
+  - [ ] Runnable `docs/examples` app deferred — requires published `Async` API (unreleased).
+  - [x] Reference docs: `Async` section in `api-reference.md`, `Async` subsection in
+        progressive-complexity §7.3, decision table updated.
+  - [ ] Browser e2e (chromedp) asserting the two-frame sequence deferred to example app phase.
 - [ ] **P5 — `{{.lvt.Pending}}` template variable** `[GATED]` (design feasibility TBD in P2)
   - [ ] Resolve open design question: automatic pending render for all actions vs `Async`-only.
   - [ ] Inject `.lvt.Pending` (and optionally `.lvt.PendingAction`) into template context during
@@ -510,6 +516,11 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo · `[GATED]` blocked on gr
         action completes; does not leak across connections.
   - [ ] Runnable `docs/examples` app demonstrating `{{.lvt.Pending}}` for zero-attribute loading UX.
   - [ ] Update docs decision-guide to include this as the zero-boilerplate Tier 1 path.
+  - P2 feasibility note: `{{.lvt.Pending}}` is feasible — the `.lvt` namespace uses
+    `TemplateContext` (injected via `BuildDataMap`), and a `Pending bool` field can be set based on
+    whether the connection has in-flight async work. However, the optimistic-pending-diff feature
+    (pre-computing the pending tree and sending it to the client for instant application) requires
+    client-side changes in `livetemplate/client`. Deferring to a separate issue.
 
 ---
 
