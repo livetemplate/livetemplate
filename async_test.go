@@ -408,6 +408,68 @@ func TestAsync_WorkPanicRecoveredAsError(t *testing.T) {
 	}
 }
 
+// --- Contract test: apply panic is recovered and client still gets an update ---
+
+type asyncApplyPanicController struct{}
+type asyncApplyPanicState struct {
+	Status string
+}
+
+func (c *asyncApplyPanicController) Mount(state asyncApplyPanicState, ctx *Context) (asyncApplyPanicState, error) {
+	return state, nil
+}
+
+func (c *asyncApplyPanicController) Crash(state asyncApplyPanicState, ctx *Context) (asyncApplyPanicState, error) {
+	state.Status = "loading"
+	Async(ctx,
+		func(ctx context.Context) (string, error) {
+			return "done", nil
+		},
+		func(s asyncApplyPanicState, result string, err error) (asyncApplyPanicState, error) {
+			panic("apply kaboom")
+		},
+	)
+	return state, nil
+}
+
+func TestAsync_ApplyPanicRecoveredAndReRenders(t *testing.T) {
+	tmpl, err := New("test")
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse(`<div>{{.lvt.Pending}} {{.Status}}</div>`)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+	handler := tmpl.Handle(&asyncApplyPanicController{}, AsState(&asyncApplyPanicState{}))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+
+	ws, _ := connectWSRaw(t, wsURL)
+	defer func() {
+		if err := ws.Close(); err != nil {
+			t.Logf("ws close: %v", err)
+		}
+	}()
+
+	sendWSAction(t, ws, "crash", nil)
+
+	// Render #1: Pending=true, Status=loading
+	resp1 := readWSUpdate(t, ws, 3*time.Second)
+	tree1 := resp1["tree"].(map[string]any)
+	if got := fmt.Sprintf("%v", tree1["0"]); got != "true" {
+		t.Fatalf("render #1: Pending = %q, want \"true\"", got)
+	}
+
+	// Render #2: apply panicked, but the client must still get an update with
+	// Pending=false (state unchanged since apply panic prevented mutation).
+	got := wsHasUpdate(t, ws, 3*time.Second)
+	if !got {
+		t.Fatal("no re-render after apply panic — client would be stuck on Loading")
+	}
+}
+
 // --- P5: {{.lvt.Pending}} template variable ---
 
 // pendingTemplateController uses {{.lvt.Pending}} in its template for zero-Go-code loading UX.

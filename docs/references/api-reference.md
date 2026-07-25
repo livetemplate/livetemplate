@@ -340,9 +340,12 @@ func (c *Controller) Greet(state State, ctx *livetemplate.Context) (State, error
 }
 ```
 
-**Transport:** `Async` requires a WebSocket connection. On HTTP/fetch
-(no persistent connection), pending async operations are silently dropped —
-the action returns synchronously with its state changes.
+**Scope:** `Async` is supported only inside **action handlers** (e.g.
+`Greet`, `Save`) that run on the per-connection WebSocket event loop.
+Calling `Async` in `Mount()`, `OnConnect()`, dispatched actions, server-
+initiated actions, upload handlers, or HTTP POST handlers logs a warning
+and drops the operation — there is no persistent connection or event loop
+to re-enter.
 
 **`{{.lvt.Pending}}`:** A framework-provided template variable that is `true`
 on the render that registered async work and `false` on all other renders.

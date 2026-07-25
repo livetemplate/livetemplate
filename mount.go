@@ -733,6 +733,12 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// callers guard with ctx.IsInitialMount() / ctx.IsReconnect().
 	h.processTopicPublishes(connection, lifecycleCtx.pendingTopicPublishes())
 
+	if dropped := lifecycleCtx.pendingAsyncOps(); len(dropped) > 0 {
+		slog.Warn("Async() calls in Mount/OnConnect are ignored (Async is only supported inside action handlers)",
+			slog.String("component", "live_handler"),
+			slog.Int("dropped", len(dropped)))
+	}
+
 	// Schedule OnDisconnect call when WebSocket closes
 	defer callOnDisconnect(h.config.Controller)
 
@@ -1249,6 +1255,12 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		// transport-agnostic and fans out to existing subscribers on every
 		// GET/POST (excludeConn nil: the HTTP responder is not a WS subscriber).
 		h.processTopicPublishes(nil, lifecycleCtx.pendingTopicPublishes())
+
+		if dropped := lifecycleCtx.pendingAsyncOps(); len(dropped) > 0 {
+			slog.Warn("Async() calls in Mount are ignored on HTTP requests (Async requires a WebSocket connection)",
+				slog.String("component", "live_handler"),
+				slog.Int("dropped", len(dropped)))
+		}
 		// Commit path after successful Mount (not before, to allow retries).
 		// Skip when no persist fields — pathChanged is never checked.
 		if isHTTPGet && h.persistable != nil {
@@ -1635,6 +1647,13 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		h.processTopicPublishes(nil, actionCtx.pendingTopicPublishes())
 	}
 
+	if dropped := actionCtx.pendingAsyncOps(); len(dropped) > 0 {
+		slog.Warn("Async() calls are ignored on HTTP POST (Async requires a WebSocket connection)",
+			slog.String("component", "live_handler"),
+			slog.String("action", actionCtx.action),
+			slog.Int("dropped", len(dropped)))
+	}
+
 	// Check if we should return HTML for progressive enhancement
 	// Progressive enhancement is enabled AND client does not want JSON
 	if h.config.ProgressiveEnhancement && !wantsJSON(r) {
@@ -1956,6 +1975,13 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 			slog.Int("dropped_count", len(dropped)))
 	}
 
+	if dropped := ctx.pendingAsyncOps(); len(dropped) > 0 {
+		slog.Warn("Async() calls inside a dispatched action are ignored (Async is only supported inside action handlers)",
+			slog.String("component", "live_handler"),
+			slog.String("action", req.Action),
+			slog.Int("dropped", len(dropped)))
+	}
+
 	if err := h.sendUpdate(connection, connSt.state, connSt.getMessages()); err != nil {
 		slog.Warn("sendUpdate failed during dispatched action",
 			slog.String("component", "live_handler"),
@@ -2012,7 +2038,16 @@ func spawnAsyncWork(connection *session.Connection, cont asyncContinuation) {
 // Runs apply against the current connState (not a snapshot), persists, and
 // re-renders the originating connection only.
 func (h *liveHandler) handleAsyncCompletion(connSt *connState, connection *session.Connection, req *session.DispatchRequest) {
-	newState, applyErr := req.Async.Apply(connSt.state, req.Async.Result, req.Async.Err)
+	var newState any
+	var applyErr error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				applyErr = fmt.Errorf("Async apply panicked: %v", r)
+			}
+		}()
+		newState, applyErr = req.Async.Apply(connSt.state, req.Async.Result, req.Async.Err)
+	}()
 
 	// Clear .lvt.Pending and re-render regardless of apply outcome so the
 	// client never gets stuck on a "Loading…" frame.
@@ -2449,6 +2484,13 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 				slog.String("action", msg.Action),
 				slog.String("user_id", msg.UserID),
 				slog.Int("dropped_count", len(dropped)))
+		}
+
+		if dropped := actionCtx.pendingAsyncOps(); len(dropped) > 0 {
+			slog.Warn("Async() calls inside a server-initiated action are ignored (Async is only supported inside action handlers)",
+				slog.String("component", "pubsub_handler"),
+				slog.String("action", msg.Action),
+				slog.Int("dropped", len(dropped)))
 		}
 
 		// Send update to this connection (with flash messages)
@@ -3227,6 +3269,12 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, rawData []byte, 
 			// Drain ctx.Publish from an upload-complete handler — consistent
 			// with the WS-action and HTTP-POST action paths.
 			h.processTopicPublishes(connection, actionCtx.pendingTopicPublishes())
+
+			if dropped := actionCtx.pendingAsyncOps(); len(dropped) > 0 {
+				slog.Warn("Async() calls inside an upload handler are ignored (Async is only supported inside action handlers)",
+					slog.String("component", "upload_handler"),
+					slog.Int("dropped", len(dropped)))
+			}
 		}
 	}
 
