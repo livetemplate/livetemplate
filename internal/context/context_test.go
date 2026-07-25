@@ -1210,7 +1210,7 @@ func BenchmarkPrecompute(b *testing.B) {
 		b.Run(tc.name, func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				_ = BuildDataMap(state, nil, false, nil, tc.allow)
+				_ = BuildDataMap(state, nil, false, nil, tc.allow, false)
 			}
 		})
 	}

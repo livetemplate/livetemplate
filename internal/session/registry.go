@@ -81,6 +81,11 @@ const (
 	// KindAction is a named-action dispatch resolved to a controller method by
 	// name (the only kind in v1; the zero value, so it is backward-compatible).
 	KindAction DispatchKind = iota
+
+	// KindAsyncCompletion carries the result of an Async work function.
+	// The event loop runs AsyncApply against the current state instead of
+	// routing through DispatchWithState.
+	KindAsyncCompletion
 )
 
 // DispatchRequest represents an action to dispatch on a connection's event loop.
@@ -90,6 +95,17 @@ type DispatchRequest struct {
 	Action string
 	Data   map[string]interface{}
 	Kind   DispatchKind
+
+	// Non-nil for KindAsyncCompletion; nil for KindAction.
+	Async *AsyncCompletion
+}
+
+// AsyncCompletion carries the result of an Async work function.
+// Apply runs on the event loop against the current state.
+type AsyncCompletion struct {
+	Result any
+	Err    error
+	Apply  func(state any, result any, err error) (any, error)
 }
 
 // Done returns a channel that is closed when the connection is shutting down.

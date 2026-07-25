@@ -288,6 +288,86 @@ can be captured and used from background goroutines. See
 
 ---
 
+## Async
+
+```go
+func Async[S any, R any](
+    ctx *Context,
+    work  func(context.Context) (R, error),
+    apply func(s S, result R, err error) (S, error),
+)
+```
+
+Runs `work` off the connection event loop, then re-enters the loop to apply
+its result to the **current** session state and re-render the originating
+connection. Reduces the [manual two-action loading pattern](../guides/progressive-complexity.md#73-server-owned-loading-tier-1)
+from ~15 lines / 2 methods to ~7 lines / 1 method.
+
+- **`work`** runs in a supervised goroutine. It receives a `context.Context`
+  tied to the connection's lifetime (cancelled on disconnect). It must not
+  touch session state — only its own inputs.
+- **`apply`** runs **on the event loop** against the latest state at
+  completion time, not a snapshot from when `work` started. Any state
+  changes from other actions during the async window are visible. Mutate
+  only the fields you own.
+- If the connection closes before `work` completes, the goroutine is
+  cancelled and `apply` never runs.
+- Render scope is **per-connection** — only the connection that called
+  `Async` gets the completion render. For group-wide fan-out, capture
+  `session := ctx.Session()` before defining `apply`, then call
+  `session.TriggerAction()` from within the `apply` closure (`ctx`
+  itself is not in scope inside `apply`).
+
+**Example:**
+
+```go
+func (c *Controller) Greet(state State, ctx *livetemplate.Context) (State, error) {
+    state.Loading = true
+    name := strings.TrimSpace(ctx.GetString("name"))
+    livetemplate.Async(ctx,
+        func(ctx context.Context) (string, error) {
+            time.Sleep(700 * time.Millisecond) // simulate slow work
+            return name, nil
+        },
+        func(s State, name string, err error) (State, error) {
+            s.Name = name
+            s.Loading = false
+            return s, nil
+        },
+    )
+    return state, nil // render #1: Loading=true (spinner on)
+    // render #2 happens automatically when work completes: Loading=false
+}
+```
+
+**Scope:** `Async` is supported only inside **action handlers** (e.g.
+`Greet`, `Save`) that run on the per-connection WebSocket event loop.
+Calling `Async` in `Mount()`, `OnConnect()`, dispatched actions, server-
+initiated actions, upload handlers, or HTTP POST handlers logs a warning
+and drops the operation — there is no persistent connection or event loop
+to re-enter.
+
+**`{{.lvt.Pending}}`:** A framework-provided template variable that is `true`
+on the render that registered async work and `false` on all other renders.
+It has **per-render** semantics: if another action or a peer dispatch
+triggers a render on the same connection while async work is still in
+flight, that render will see `Pending=false` (it did not register async
+work). For loading indicators that must stay visible across interleaved
+renders, use an explicit `Loading bool` field in your state instead.
+Use `{{.lvt.Pending}}` when the loading indicator is purely visual and
+single-action flows are the norm:
+
+```html
+<button name="greet" {{if .lvt.Pending}}disabled{{end}}>
+    {{if .lvt.Pending}}Loading...{{else}}Greet{{end}}
+</button>
+```
+
+See [Loading States §7.3](../guides/progressive-complexity.md#73-server-owned-loading-tier-1)
+for the full comparison of loading approaches.
+
+---
+
 ## LiveHandler
 
 ```go

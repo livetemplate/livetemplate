@@ -89,12 +89,13 @@ func safeMethodCall(method reflect.Value) (results []reflect.Value, panicked boo
 // identifiers referenced by the templates — see parse.CollectReferencedIdents), so a
 // method the templates never reference is skipped entirely. A nil set means evaluate
 // all qualifying methods, preserving the original eager behavior for direct callers.
-func BuildDataMap(data interface{}, messages map[string]string, devMode bool, uploadRegistry interface{}, precomputeAllow map[string]struct{}) interface{} {
+func BuildDataMap(data interface{}, messages map[string]string, devMode bool, uploadRegistry interface{}, precomputeAllow map[string]struct{}, pending bool) interface{} {
 	if messages == nil {
 		messages = make(map[string]string)
 	}
 
 	lvtContext := NewTemplateContext(messages, devMode)
+	lvtContext.Pending = pending
 	if uploadRegistry != nil {
 		lvtContext.SetUploadRegistry(uploadRegistry)
 	}
@@ -255,5 +256,5 @@ func AddLvtToData(data interface{}, messages map[string]string, devMode bool, up
 	if len(uploadRegistry) > 0 {
 		registry = uploadRegistry[0]
 	}
-	return BuildDataMap(data, messages, devMode, registry, nil)
+	return BuildDataMap(data, messages, devMode, registry, nil, false)
 }
