@@ -342,6 +342,17 @@ func (c *Controller) Greet(state State, ctx *livetemplate.Context) (State, error
 (no persistent connection), pending async operations are silently dropped —
 the action returns synchronously with its state changes.
 
+**`{{.lvt.Pending}}`:** A framework-provided template variable that is `true`
+on the render that registered async work and `false` on all other renders.
+Use it instead of a manual `Loading` state field when the loading indicator
+is purely visual:
+
+```html
+<button name="greet" {{if .lvt.Pending}}disabled{{end}}>
+    {{if .lvt.Pending}}Loading...{{else}}Greet{{end}}
+</button>
+```
+
 See [Loading States §7.3](../guides/progressive-complexity.md#73-server-owned-loading-tier-1)
 for the full comparison of loading approaches.
 

@@ -500,27 +500,27 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo · `[GATED]` blocked on gr
     - `KindAsyncCompletion` dispatch kind added to `DispatchRequest` to carry result+apply callback.
     - Async ops drain after `writeUpdateWebSocket` (render #1 reaches client before goroutine starts).
     - HTTP/fetch path: pending async ops silently dropped (correct progressive-enhancement degradation).
-- [ ] **P3 — Optional `AsyncResult`-style declarative status** `[GATED]`
-  - [ ] Framework-managed loading/ok/failed status readable as a template helper, for the
-        "only template variables" ergonomic — only as sugar over P2, only when it's real state.
+- [x] **P3 — Resolved: P2 + P5 cover both use cases.**
+  Per-operation status tracking (loading/ok/failed per named task) deferred — Async's `apply`
+  callback already receives `err` from `work`, and `{{.lvt.Pending}}` covers the zero-boilerplate
+  case. Per-operation status adds API surface nobody has asked for.
 - [x] **P4 — Reference docs** (partial; example + e2e deferred to post-release)
   - [ ] Runnable `docs/examples` app deferred — requires published `Async` API (unreleased).
-  - [x] Reference docs: `Async` section in `api-reference.md`, `Async` subsection in
-        progressive-complexity §7.3, decision table updated.
+  - [x] Reference docs: `Async` + `{{.lvt.Pending}}` sections in `api-reference.md`, `Async` +
+        `{{.lvt.Pending}}` subsections in progressive-complexity §7.3, decision table updated.
   - [ ] Browser e2e (chromedp) asserting the two-frame sequence deferred to example app phase.
-- [ ] **P5 — `{{.lvt.Pending}}` template variable** `[GATED]` (design feasibility TBD in P2)
-  - [ ] Resolve open design question: automatic pending render for all actions vs `Async`-only.
-  - [ ] Inject `.lvt.Pending` (and optionally `.lvt.PendingAction`) into template context during
-        action processing.
-  - [ ] Tests: template renders `{{if .lvt.Pending}}` correctly during async window; clears after
-        action completes; does not leak across connections.
-  - [ ] Runnable `docs/examples` app demonstrating `{{.lvt.Pending}}` for zero-attribute loading UX.
-  - [ ] Update docs decision-guide to include this as the zero-boilerplate Tier 1 path.
-  - P2 feasibility note: `{{.lvt.Pending}}` is feasible — the `.lvt` namespace uses
-    `TemplateContext` (injected via `BuildDataMap`), and a `Pending bool` field can be set based on
-    whether the connection has in-flight async work. However, the optimistic-pending-diff feature
-    (pre-computing the pending tree and sending it to the client for instant application) requires
-    client-side changes in `livetemplate/client`. Deferring to a separate issue.
+- [x] **P5 — `{{.lvt.Pending}}` template variable**
+  - [x] Design resolved: `Pending` is per-render ("did this action register Async work?"), not
+        per-connection ("does this connection have in-flight async?"). Simpler, no count tracking,
+        matches how templates use it (the button that triggered the action shows a spinner).
+  - [x] `Pending bool` field added to `TemplateContext`, threaded through `BuildDataMap` param.
+  - [x] Event loop sets `connTmpl.pending` before render; `handleAsyncCompletion` clears it.
+  - [x] Tests: `{{.lvt.Pending}}` is true on render #1, false on render #2; false for non-async
+        actions.
+  - [ ] Runnable `docs/examples` app deferred to post-release.
+  - [x] Docs decision-guide updated with zero-boilerplate `{{.lvt.Pending}}` path.
+  - Note: optimistic-pending-diff (client-side instant application) deferred — requires
+    `livetemplate/client` changes. Separate issue.
 
 ---
 

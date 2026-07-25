@@ -248,6 +248,7 @@ type Template struct {
 	wiredActions           map[string]struct{} // Cached set of client-wired action names (form/button name=, lvt-on:) extracted from templateStr; immutable after parse; drives the Publish symmetry-collision warning
 	wiredCollisionWarned   *sync.Map           // action -> struct{}: dedups the Publish symmetry-collision slog.Warn to once per action name; shared by pointer across per-session clones so the warning is app-global, not per-connection
 	precomputeAllow        map[string]struct{} // Superset of identifiers referenced by the parsed templates; immutable after parse; scopes eager method precompute in BuildDataMap so unreferenced State methods are never called
+	pending                bool                // True when the current render has pending Async work; set per-render by the event loop, consumed by buildTree
 }
 
 // Funcs registers a template.FuncMap that will be applied to all template parsing and execution.
@@ -1979,7 +1980,7 @@ func (t *Template) buildTree(data interface{}, messages map[string]string) (*tre
 	// The result is reused for both HTML rendering and tree building,
 	// eliminating the duplicate reflection that previously occurred in
 	// renderHTML (via ExecuteTemplateWithContext) and AddLvtToData.
-	dataWithLvt := context.BuildDataMap(data, messages, t.config.DevMode, t.uploadRegistry, t.precomputeAllow)
+	dataWithLvt := context.BuildDataMap(data, messages, t.config.DevMode, t.uploadRegistry, t.precomputeAllow, t.pending)
 
 	// Phase 4: Render HTML using pre-built data map (no reflection)
 	currentHTML, err := t.renderHTMLWithData(dataWithLvt)

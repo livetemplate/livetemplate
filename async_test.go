@@ -293,3 +293,121 @@ func TestAsync_ImmediateCompletion(t *testing.T) {
 		t.Errorf("Name = %q, want \"Quick(counter=0)\"", got)
 	}
 }
+
+// --- P5: {{.lvt.Pending}} template variable ---
+
+// pendingTemplateController uses {{.lvt.Pending}} in its template for zero-Go-code loading UX.
+type pendingTemplateController struct {
+	workGate chan struct{}
+}
+
+type pendingTemplateState struct {
+	Name string
+}
+
+func (c *pendingTemplateController) Mount(state pendingTemplateState, ctx *Context) (pendingTemplateState, error) {
+	return state, nil
+}
+
+func (c *pendingTemplateController) Greet(state pendingTemplateState, ctx *Context) (pendingTemplateState, error) {
+	name := ctx.GetString("name")
+	gate := c.workGate
+
+	Async(ctx,
+		func(ctx context.Context) (string, error) {
+			if gate != nil {
+				select {
+				case <-gate:
+				case <-ctx.Done():
+					return "", ctx.Err()
+				}
+			}
+			return name, nil
+		},
+		func(s pendingTemplateState, result string, err error) (pendingTemplateState, error) {
+			s.Name = result
+			return s, nil
+		},
+	)
+	return state, nil
+}
+
+func TestLvtPending_TrueOnRender1_FalseOnRender2(t *testing.T) {
+	gate := make(chan struct{})
+	ctrl := &pendingTemplateController{workGate: gate}
+
+	tmpl, err := New("test")
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	// Use {{.lvt.Pending}} directly (renders "true"/"false") to avoid
+	// nested conditional sub-trees in the diff.
+	tmpl, err = tmpl.Parse(`<div>{{.lvt.Pending}} {{.Name}}</div>`)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	handler := tmpl.Handle(ctrl, AsState(&pendingTemplateState{}))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+
+	ws, _ := connectWSRaw(t, wsURL)
+	defer func() {
+		if err := ws.Close(); err != nil {
+			t.Logf("ws close: %v", err)
+		}
+	}()
+
+	// Trigger Greet (registers Async, gate blocks work)
+	sendWSAction(t, ws, "greet", map[string]any{"name": "Alice"})
+
+	// Render #1: .lvt.Pending should be true
+	resp1 := readWSUpdate(t, ws, 3*time.Second)
+	tree1 := resp1["tree"].(map[string]any)
+	if got := fmt.Sprintf("%v", tree1["0"]); got != "true" {
+		t.Errorf("render #1: .lvt.Pending = %q, want \"true\"", got)
+	}
+
+	// Unblock async work
+	close(gate)
+
+	// Render #2: .lvt.Pending should be false, Name = "Alice"
+	resp2 := readWSUpdate(t, ws, 3*time.Second)
+	tree2 := resp2["tree"].(map[string]any)
+	if got := fmt.Sprintf("%v", tree2["0"]); got != "false" {
+		t.Errorf("render #2: .lvt.Pending = %q, want \"false\"", got)
+	}
+	if got := fmt.Sprintf("%v", tree2["1"]); got != "Alice" {
+		t.Errorf("render #2: Name = %q, want \"Alice\"", got)
+	}
+}
+
+func TestLvtPending_FalseForNonAsyncActions(t *testing.T) {
+	tmpl, err := New("test")
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse(`<div>{{.lvt.Pending}} {{.Count}}</div>`)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	handler := tmpl.Handle(&testHandleController{}, AsState(&testHandleState{}))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+
+	ws, initial := connectWSRaw(t, wsURL)
+	defer func() {
+		if err := ws.Close(); err != nil {
+			t.Logf("ws close: %v", err)
+		}
+	}()
+
+	// The initial render should have .lvt.Pending = false
+	pendingVal := treeDynamic(t, initial, "0")
+	if pendingVal != "false" {
+		t.Errorf("initial render: .lvt.Pending = %q, want \"false\"", pendingVal)
+	}
+}

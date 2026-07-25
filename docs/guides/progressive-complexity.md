@@ -228,7 +228,7 @@ LiveTemplate offers three loading models. Pick the simplest one that fits your u
 |---|---|---|---|
 | Grey out the form | N/A | **7.1 — Auto** (`<fieldset>` + CSS) | 0 lines, 0 attrs |
 | Custom loading UX (spinner, text) | Yes | **7.2 — Client-owned pending** (`lvt-el:*:on:pending`) | 0 lines, 2 attrs |
-| Custom loading UX (spinner, text) | **No** | **7.3 — Server-owned loading** with `Async` | ~7 lines, 0 attrs |
+| Custom loading UX (spinner, text) | **No** | **7.3 — Server-owned loading** with `Async` + `{{.lvt.Pending}}` | ~5 lines, 0 attrs |
 | Loading fans out to peers / survives reconnect | Either | **7.3 — Server-owned loading** with `Async` | ~7 lines, 0 attrs |
 
 **Rule of thumb:** start with 7.1. Move to 7.2 or 7.3 only when you need custom UX (spinners, text changes, progress indicators) or loading that is real application state.
@@ -370,6 +370,35 @@ The template is identical — `{{if .Loading}}` works the same way. The key guar
 - **Lifetime-bound** — if the connection closes, the goroutine is cancelled and `apply` is skipped
 
 See the [Async API reference](../references/api-reference.md#async) for the full contract.
+
+#### Zero-boilerplate with `{{.lvt.Pending}}`
+
+When loading is purely visual (no need for a `Loading` field in state), combine `Async` with the framework-provided `{{.lvt.Pending}}` template variable. It is `true` on the render that registered async work and `false` on all other renders (including the async completion render):
+
+```go
+func (c *Controller) Greet(state State, ctx *livetemplate.Context) (State, error) {
+    name := strings.TrimSpace(ctx.GetString("name"))
+    livetemplate.Async(ctx,
+        func(ctx context.Context) (string, error) {
+            time.Sleep(700 * time.Millisecond)
+            return name, nil
+        },
+        func(s State, name string, err error) (State, error) {
+            s.Name = name
+            return s, nil
+        },
+    )
+    return state, nil
+}
+```
+
+```html
+<button name="greet" {{if .lvt.Pending}}disabled{{end}}>
+    {{if .lvt.Pending}}Loading...{{else}}Greet{{end}}
+</button>
+```
+
+No `Loading` field, no `lvt-*` attributes — pure Go + standard HTML templates. Use `{{.lvt.Pending}}` when the loading indicator is chrome (visual feedback). Use an explicit `Loading` state field (with `Async`) when loading is real application state that needs to fan out to peers or survive reconnect.
 
 ---
 

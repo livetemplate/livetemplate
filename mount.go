@@ -951,6 +951,9 @@ eventLoop:
 				h.processTopicPublishes(connection, actionCtx.pendingTopicPublishes())
 			}
 
+			// Set .lvt.Pending for this render: true when the action registered Async work.
+			connTmpl.pending = len(actionCtx.pendingAsync) > 0
+
 			// Generate tree update
 			buf.Reset()
 			if err = connTmpl.ExecuteUpdates(&buf, connSt.state, connSt.getMessages()); err != nil {
@@ -2010,6 +2013,11 @@ func (h *liveHandler) handleAsyncCompletion(connSt *connState, connection *sessi
 	connSt.state = newState
 	connection.State = connSt.state
 	h.persistState(context.Background(), connSt.groupID, connSt.state)
+
+	// Clear .lvt.Pending for the completion render — no async ops in flight for this render.
+	if tmpl, ok := connection.Template.(*Template); ok {
+		tmpl.pending = false
+	}
 
 	if err := h.sendUpdate(connection, connSt.state, connSt.getMessages()); err != nil {
 		slog.Warn("sendUpdate failed during async completion",

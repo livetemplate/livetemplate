@@ -55,6 +55,7 @@ func putBuffer(buf *bytes.Buffer) {
 type TemplateContext struct {
 	messages      map[string]string // Unified map: field errors + flash (prefixed with "_flash:")
 	DevMode       bool              // Development mode - exposed to templates as {{.lvt.DevMode}}
+	Pending       bool              // True when the current action registered async work via Async()
 	uploadEntries interface{}       // *upload.Registry for accessing upload state
 }
 
@@ -417,7 +418,7 @@ const (
 // Note: If struct fields or map keys conflict with the reserved "lvt" key, they will be
 // skipped to ensure the lvt context remains accessible in templates.
 func ExecuteTemplateWithContext(tmpl *template.Template, data interface{}, messages map[string]string, devMode bool, uploadRegistry interface{}, precomputeAllow map[string]struct{}) ([]byte, error) {
-	dataMap := BuildDataMap(data, messages, devMode, uploadRegistry, precomputeAllow)
+	dataMap := BuildDataMap(data, messages, devMode, uploadRegistry, precomputeAllow, false)
 	return executeWithBuffer(tmpl, dataMap)
 }
 
