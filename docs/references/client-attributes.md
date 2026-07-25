@@ -395,6 +395,8 @@ These execute client-side with no server round-trip.
 </button>
 ```
 
+> For choosing between client-owned pending (`lvt-el:*:on:pending`) and server-owned loading (`{{if .Loading}}`), see [Loading States](../guides/progressive-complexity.md#7-loading-states) in the Progressive Complexity Guide.
+
 **Form Reset on Success:**
 
 ```html

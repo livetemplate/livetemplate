@@ -222,6 +222,19 @@ The framework fetches the page via `fetch()`, extracts the wrapper content, and 
 
 ## 7. Loading States
 
+LiveTemplate offers three loading models. Pick the simplest one that fits your use case:
+
+| I want… | Accepts `lvt-*` attrs? | Path | Go boilerplate |
+|---|---|---|---|
+| Grey out the form | N/A | **7.1 — Auto** (`<fieldset>` + CSS) | 0 lines, 0 attrs |
+| Custom loading UX (spinner, text) | Yes | **7.2 — Client-owned pending** (`lvt-el:*:on:pending`) | 0 lines, 2 attrs |
+| Custom loading UX (spinner, text) | **No** | **7.3 — Server-owned loading** (`{{if .Loading}}`) | ~15 lines, 0 attrs |
+| Loading fans out to peers / survives reconnect | Either | **7.3 — Server-owned loading** | ~15 lines, 0 attrs |
+
+**Rule of thumb:** start with 7.1. Move to 7.2 or 7.3 only when you need custom UX (spinners, text changes, progress indicators) or loading that is real application state.
+
+### 7.1 Automatic Form Loading (Tier 1)
+
 During form submission, the framework automatically:
 
 1. Sets `aria-busy="true"` on the form
@@ -244,7 +257,88 @@ During form submission, the framework automatically:
 </style>
 ```
 
-No `lvt-*` attributes needed. The `<fieldset>` wrapping is the signal.
+No `lvt-*` attributes needed, no Go code. The `<fieldset>` wrapping is the signal. This covers the "grey out the whole form" case. For custom loading UX beyond grey-out, see 7.2 or 7.3.
+
+### 7.2 Client-Owned Pending (Tier 2)
+
+When you need custom loading UX (spinners, text changes, visual feedback) and are willing to use `lvt-*` attributes, `lvt-el:*:on:pending` gives you instant feedback with zero Go code:
+
+```html
+<button name="save"
+    lvt-el:toggleAttr:on:pending="disabled"
+    lvt-el:addClass:on:pending="opacity-50"
+    lvt-el:removeClass:on:done="opacity-50">
+    Save
+</button>
+```
+
+```go
+// Just the business logic — no loading scaffolding
+func (c *Controller) Save(state State, ctx *livetemplate.Context) (State, error) {
+    time.Sleep(700 * time.Millisecond) // simulate slow work
+    state.Name = ctx.GetString("Name")
+    return state, nil
+}
+```
+
+The `pending` state fires instantly on click (before the server even receives the message) and clears on `done`. This is the most concise option for custom loading UX.
+
+**Trade-offs:** the pending state is client-only — it does not fan out to peer tabs, does not survive reconnect, and cannot drive server-side logic. The action blocks the event loop for its duration (no other clicks or peer pushes until it returns). For loading that is real application state, use 7.3.
+
+See the [Client Attributes Reference — Reactive Attributes](../references/client-attributes.md#reactive-attributes) for the full `lvt-el:*` pattern.
+
+### 7.3 Server-Owned Loading (Tier 1)
+
+When loading is real application state — it needs to fan out to peers, survive reconnect, or drive server-side logic — use a server-owned `Loading` field in your state with `{{if .Loading}}` in the template. This keeps everything in Tier 1 (no `lvt-*` attributes), but requires the manual two-action pattern:
+
+```go
+type State struct {
+    Name    string
+    Loading bool
+}
+
+// Action 1: set Loading=true, spawn the slow work off the event loop
+func (c *Controller) Greet(state State, ctx *livetemplate.Context) (State, error) {
+    if state.Loading {
+        return state, nil // re-entrancy guard: ignore clicks while loading
+    }
+    session := ctx.Session()
+    if session == nil {
+        return state, nil // nil check: no session on initial HTTP render
+    }
+    name := strings.TrimSpace(ctx.GetString("name"))
+    state.Loading = true
+    go func() {
+        time.Sleep(700 * time.Millisecond) // simulate slow work
+        _ = session.TriggerAction("finishGreet", map[string]any{"name": name})
+    }()
+    return state, nil // render #1: spinner on
+}
+
+// Action 2: clear Loading, apply the result
+func (c *Controller) FinishGreet(state State, ctx *livetemplate.Context) (State, error) {
+    state.Name = ctx.GetString("name")
+    state.Loading = false
+    return state, nil // render #2: spinner off
+}
+```
+
+```html
+<button name="greet" {{if .Loading}}disabled{{end}}>
+    {{if .Loading}}Loading...{{else}}Greet{{end}}
+</button>
+```
+
+**Why two methods?** LiveTemplate's event loop processes one action per render cycle. To show a spinner *and later* clear it, the slow work must return early (render #1: spinner on) and re-enter the event loop via `Session.TriggerAction` (render #2: spinner off).
+
+**Four things to get right:**
+
+1. **Re-entrancy guard** (`if state.Loading { return }`): prevents double-clicks from spawning duplicate goroutines. The `{{if .Loading}}disabled{{end}}` on the button is the UI-level guard; the Go check is the server-level backup.
+2. **Session nil-check** (`if session == nil`): `ctx.Session()` returns nil during initial HTTP renders (before WebSocket connects). The goroutine + `TriggerAction` pattern requires a live session.
+3. **Goroutine lifetime**: the goroutine should be short-lived. If the connection drops, `TriggerAction` returns `ErrSessionDisconnected` — the goroutine exits cleanly.
+4. **Second action name**: the `FinishGreet` method name must match the string passed to `TriggerAction`. A typo silently fails (the action dispatches but no method handles it).
+
+**Trade-offs vs 7.2:** more verbose (~15 lines across 2 methods), but the loading state is real server state — it fans out to peers via `ctx.Publish()`, survives reconnect (it's in the state struct), and can drive server-side logic (e.g., preventing concurrent operations).
 
 ---
 

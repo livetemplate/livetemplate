@@ -130,41 +130,48 @@ verbose 15-line two-method pattern. The issue asks: can this be reduced?
 
 ## Root cause — why server-owned loading is verbose
 
-Each WebSocket connection is served by a **single-threaded event loop** (`mount.go`, the
-`eventLoop:` labelled `for`/`select`). One goroutine drains two channels serially — `readChan`
-(client messages) and `connection.DispatchChan` (server-pushed actions) — and the code comment
-above `readChan` states the model plainly: *"All state mutations happen in this single goroutine
-— no mutex needed"* and *"slow dispatched actions (e.g., DB calls) pause client message
-processing."*
+LiveTemplate uses the same action-dispatch model across all transports (HTTP POST, fetch, and
+WebSocket). The core constraint is **one action → one response**: an action method receives
+state, returns updated state, and the framework renders exactly once. This is true whether the
+request arrives as an HTTP POST (response = full page), a fetch request (response = DOM patch),
+or a WebSocket message (response = update frame).
 
-Two consequences fall out of that single design choice:
+On WebSocket connections, this is implemented as a **single-threaded event loop** (`mount.go`,
+the `eventLoop:` labelled `for`/`select`) that drains `readChan` and `connection.DispatchChan`
+serially. On HTTP, the same constraint holds naturally: one request, one response.
 
-- **One action → exactly one render.** After `DispatchWithState` (`dispatch.go`) returns, the loop
-  runs the template once (`ExecuteUpdates` → marshal → `writeUpdateWebSocket`) and writes a single
-  frame. There is no in-loop "render again later" hook.
-- **A blocking action freezes the whole connection.** `time.Sleep(700ms)` or a slow DB call inside
-  an action stalls the loop: no other clicks, no peer pushes, no renders, until it returns.
+Two consequences fall out of this model regardless of transport:
+
+- **One action → exactly one render.** After `DispatchWithState` (`dispatch.go`) returns, the
+  framework renders the template once and sends the result. There is no "render again later" hook
+  within a single request/message cycle.
+- **A blocking action freezes the response.** `time.Sleep(700ms)` or a slow DB call inside an
+  action delays the response (and on WebSocket, stalls all other client messages and peer pushes
+  for that connection until it returns).
 
 So to show a spinner *and later* clear it from one logical user action, the slow work **must
-leave the event loop and re-enter it**. The only supported re-entry is a second dispatched action:
+return early and re-enter later**. On WebSocket, the re-entry mechanism is a dispatched action
+via `Session.TriggerAction` → `connection.DispatchChan`. On HTTP/fetch, the same
+`Session.TriggerAction` triggers a re-render that the client picks up on the next poll or
+WebSocket upgrade.
 
 ```
-Greet action ──(return, render #1: Loading=true)──▶ event loop renders spinner-on
+Greet action ──(return, render #1: Loading=true)──▶ framework renders spinner-on
      │
      └─ go func(){ slow work off-loop; session.TriggerAction("finishGreet") }
                                     │
                                     ▼
-        EnqueueDispatch ▶ connection.DispatchChan ▶ handleDispatchedAction
-                                                          │
+        EnqueueDispatch ▶ dispatch channel ▶ handleDispatchedAction
+                                                    │
                                     FinishGreet(current state) ─▶ render #2: Loading=false
 ```
 
-Every line of the manual pattern (§ Problem statement) is scaffolding around that forced round-trip:
-re-entrancy guard (`if s.Loading { return }`), `ctx.Session()` handle + nil check, the goroutine,
-`Session.TriggerAction`, and a whole second method `FinishGreet`.
+Every line of the manual pattern (§ Problem statement) is scaffolding around that forced
+round-trip: re-entrancy guard (`if s.Loading { return }`), `ctx.Session()` handle + nil check,
+the goroutine, `Session.TriggerAction`, and a whole second method `FinishGreet`.
 
 **Crucial correctness detail that the eventual primitive must preserve:** `handleDispatchedAction`
-runs the second action against the **current** `connSt.state` at re-entry time (`mount.go`, the
+runs the second action against the **current** state at re-entry time (`mount.go`, the
 `DispatchWithState(h.config.Controller, connSt.state, ctx)` call), *not* a snapshot captured when
 `Greet` ran. And `FinishGreet` writes only the two fields it owns (`Name`, `Loading`). That is
 what makes the manual pattern safe under concurrent edits during the async window.
@@ -179,22 +186,30 @@ what makes the manual pattern safe under concurrent edits during the async windo
 | Go | 0 lines | 1 linear method, no loading code | ~15 lines across **2** methods + goroutine |
 | Attributes | **None** | 2 `lvt-el:*` attributes | **None** |
 | Custom UX (spinner, text) | No — grey-out only | Yes — any DOM mutation | Yes — full template control |
-| First-paint latency | One round-trip | **Instant** — fires on click | One round-trip |
+| First-paint latency | One round-trip | **Instant** — fires on click | **Instant** with optimistic pending; one round-trip without |
 | Fans out to peers | No | No | Yes (`TriggerAction`) |
 | Survives reconnect | No | No | Yes (it's in state) |
 | Correct when… | "Disable the form" suffices | Indicator is **chrome** | Loading is **application state** |
 
-**Guidance to document:** start with Tier 1 auto (just wrap inputs in `<fieldset>` + CSS). If
-you need custom visual feedback (spinner, text change), reach for client-owned `lvt-el:*` attrs
-(Tier 2) — they fire instantly and need zero Go code. Reach for server-owned loading only when
-the pending state is meaningful data the rest of the app reads (queue position, job status, fan-
-out to other tabs) — not merely to grey out a button.
+**Guidance to document:** Go + standard HTML (Tier 1) is the preferred developer experience —
+it uses familiar tools, keeps logic in one place, and requires no framework-specific template
+syntax. Start with Tier 1 auto (wrap inputs in `<fieldset>` + CSS). For custom loading UX
+(spinners, text changes), the Tier 1 server-owned path (`{{if .Loading}}`) is the natural
+next step — once `Async` and `{{.lvt.Pending}}` land, this becomes low-boilerplate too.
+
+**When `lvt-*` attributes are the better choice:** with client-side optimistic pending (above),
+`{{.lvt.Pending}}` can match `lvt-el:*:on:pending` on latency. The remaining reasons to reach
+for `lvt-el:*` attributes are: (a) **fine-grained DOM mutations** beyond what template
+conditionals express (e.g. `addClass`, `toggleAttr` on specific elements without wrapping them
+in `{{if}}`), or (b) **lifecycle states beyond pending** (`success`, `error`, `done` — the
+full action lifecycle, not just the binary pending/not-pending). The trade-off remains: the
+pending state is client-only, so it doesn't fan out to peers, doesn't survive reconnect, and
+can't drive server-side logic.
 
 **The issue's question — "using only template variables":** for developers who want custom
-loading UX but refuse `lvt-*` attributes, the current answer is the verbose 15-line manual
-pattern. The proposed `{{.lvt.Pending}}` (design option 2) and `Async` (design option 3) would
-reduce this to zero Go lines (for chrome-level pending) or ~7 lines (for real app state),
-respectively — both staying in Tier 1.
+loading UX staying in Tier 1, the current answer is the verbose 15-line manual pattern. The
+proposed `{{.lvt.Pending}}` (design option 2) and `Async` (design option 3) would reduce this
+to zero Go lines (for chrome-level pending) or ~7 lines (for real app state), respectively.
 
 This table + the manual two-action recipe is the **P1 docs deliverable** and needs no new API.
 
@@ -226,27 +241,46 @@ This table + the manual two-action recipe is the **P1 docs deliverable** and nee
 
   Zero Go code, zero attributes. The developer stays entirely in Tier 1.
 
-  **Trade-off vs client-owned `on:pending`:** this requires one server round-trip before the
-  pending state renders (server must receive the message, set the flag, re-render, send the
-  update). Client-owned `on:pending` fires instantly on click. However, this latency concern
-  does not apply to the target audience: a developer who has chosen to stay in Tier 1 (no
-  `lvt-*` attributes) has already accepted the round-trip model. Within that constraint, a
-  framework-provided pending variable is strictly better than forcing them into the 15-line
-  manual pattern.
+  **Instant feedback via client-side optimistic pending (best of both worlds):**
 
-  **Mechanics:** the event loop sets a per-connection pending flag before dispatching the
-  action and clears it after the action returns. The template context injects this flag as
-  `.lvt.Pending` (or `.lvt.PendingAction` with the action name). Renders during the action
-  (if the action itself calls `Async` and returns early with a pending state) see it as `true`.
-  For synchronous actions that block the event loop, the flag is set-then-cleared within a
-  single loop iteration — no intermediate render is possible, so `.lvt.Pending` is only
-  useful when combined with `Async` (option 3) or when the framework sends an intermediate
-  render before dispatching.
+  The one advantage `lvt-el:*:on:pending` has over a server-rendered `{{.lvt.Pending}}` is
+  latency — the client fires it instantly on click, before the server even receives the message.
+  We can eliminate this gap by making the client aware of pending-state diffs:
 
-  **Open design question:** should the framework send an automatic "pending" render before
-  dispatching *every* action (making `.lvt.Pending` universally useful), or only when the
-  action is marked async? The former adds a round-trip to every action; the latter keeps
-  `.lvt.Pending` scoped to `Async`-using actions. Decide before implementation.
+  1. On each render where `.lvt.Pending` is `false`, the server also computes the tree with
+     `.lvt.Pending = true` and includes the **pending diff** as metadata alongside the normal
+     response (a small additional payload — typically just the changed dynamics: button text,
+     disabled attr, spinner visibility).
+  2. When the client dispatches an action, it **immediately applies the pre-computed pending
+     diff** — instant visual feedback, zero round-trip, no `lvt-*` attributes.
+  3. When the server responds (with the actual `Async` pending state, or the completed state),
+     the client applies that response as usual, which either confirms or supersedes the
+     optimistic pending.
+
+  This gives developers Go + standard HTML templates with the same instant-feedback UX that
+  `lvt-el:*:on:pending` provides — genuinely best of both worlds. The developer writes
+  `{{if .lvt.Pending}}Loading...{{end}}` in their template and gets instant client-side
+  feedback without any `lvt-*` attributes or Go boilerplate.
+
+  **Cost:** one additional template render per response cycle (the pending-state variant).
+  This is a server-side cost only, and only for templates that use `.lvt.Pending`. The pending
+  diff is typically small (a few changed dynamics), so wire overhead is minimal.
+
+  **Mechanics (server side):** after each render, if the template references `.lvt.Pending`,
+  the framework re-renders with `.lvt.Pending = true` and diffs the two trees. The resulting
+  diff is sent as a `"p"` (pending) key in the response metadata. The client stores it and
+  applies it optimistically on the next action dispatch.
+
+  **Mechanics (client side):** the client JS (`livetemplate/client`) stores the latest pending
+  diff. On form submit or action dispatch, it applies the diff to the DOM immediately. When
+  the server response arrives, normal patch logic takes over (the server's response is
+  authoritative).
+
+  **Open design question:** should the optimistic pending apply to all actions dispatched from
+  within the pending-diff's subtree, or should it be scoped to the specific form/button that
+  triggered it? Scoped is more correct (a page with two forms should only show pending on the
+  submitted one) but requires the client to match the dispatch source to the diff's DOM scope.
+  Evaluate during P5 implementation.
 
 - **(3) `Async` continuation primitive — RECOMMENDED to spec.** Collapse (1) to one method
   while keeping loading in real server state. This is the primary reduction for developers
@@ -443,12 +477,12 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo · `[GATED]` blocked on gr
 
 - [x] **P0 — Investigation** (this document): root cause, two-models guide, `Async` spec +
       concurrency contract, prior art, rejected alternatives, disposition.
-- [ ] **P1 — Docs decision-guide** *(shippable now, no greenlight)*
-  - [ ] "Loading & pending states: client-owned vs server-owned" section in
-        `docs/guides/progressive-complexity.md` (§7 currently covers only automatic form loading).
-  - [ ] Cross-link from `docs/references/client-attributes.md` (the `on:pending`/`on:done` block)
-        and `docs/references/controller-pattern.md` (fan-out section).
-  - [ ] Document the manual two-action pattern as the current server-owned recipe, with the
+- [x] **P1 — Docs decision-guide** *(shippable now, no greenlight)*
+  - [x] "Loading & pending states: client-owned vs server-owned" section in
+        `docs/guides/progressive-complexity.md` (§7 expanded with three-tier guide + decision table).
+  - [x] Cross-link from `docs/references/client-attributes.md` (the `on:pending`/`on:done` block)
+        and `docs/references/controller-pattern.md` (TriggerAction section).
+  - [x] Document the manual two-action pattern as the current server-owned recipe, with the
         re-entrancy / session-nil / goroutine-lifetime caveats called out.
   - Acceptance: `/simplify` on the diff; a reader can pick the right model from the table alone.
 - [ ] **P2 — `Async` primitive core** `[GATED]`
@@ -474,19 +508,20 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo · `[GATED]` blocked on gr
         action processing.
   - [ ] Tests: template renders `{{if .lvt.Pending}}` correctly during async window; clears after
         action completes; does not leak across connections.
+  - [ ] Runnable `docs/examples` app demonstrating `{{.lvt.Pending}}` for zero-attribute loading UX.
   - [ ] Update docs decision-guide to include this as the zero-boilerplate Tier 1 path.
 
 ---
 
 ## Open questions
 
-- **O1 — API home & generics.** Free `Async[S State, R any](ctx, work, apply)` vs a method on a
-  typed handle. `*Context` can't carry `S`, so a free generic function is cleanest; confirm the
-  `State` constraint composes with the reflection-based dispatch in `dispatch.go`.
-- **O2 — Group fan-out from `apply`.** `Publish` calls inside a dispatched action are dropped to
-  prevent storms (`handleDispatchedAction`). If a developer wants completion to fan out to all
-  tabs, do they use `Session.TriggerAction` inside `apply` (allowed in dispatched context), or does
-  `Async` grow an explicit `WithBroadcast()` scope option? Decide before P2.
+- **O1 — API home & generics. RESOLVED:** Free generic function
+  `Async[S State, R any](ctx, work, apply)`. `*Context` can't carry `S`, so a free function is
+  the natural home. Confirm at implementation time that the `State` constraint composes with the
+  reflection-based dispatch in `dispatch.go`.
+- **O2 — Group fan-out from `apply`. RESOLVED:** Use `Session.TriggerAction` inside `apply` for
+  fan-out — no `WithBroadcast()` option on `Async`. Keeps `Async` scoped to per-connection
+  rendering; group fan-out uses the same `TriggerAction` mechanism developers already know.
 - **O3 — Reconnect semantics.** Phoenix does not auto-restart async tasks on reconnect (Mount
   re-runs). Confirm the same for `Async`: an in-flight `work` whose connection drops is abandoned;
   the reconnect's Mount is responsible for re-deriving state. Document explicitly.
@@ -497,11 +532,9 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo · `[GATED]` blocked on gr
 - **O5 — Error surfacing.** `apply` receives `err` from `work`; document the convention (set a
   state error field / `FieldError`) so failed async work renders a visible failed state rather than
   silently clearing the spinner (aligns with Phoenix's `failed`/`exit`).
-- **O6 — `{{.lvt.Pending}}` render timing.** For `.lvt.Pending` to be useful, the framework must
-  send a render *with the flag set* before the action's slow work runs. Two options: (a) send an
-  automatic "pending" render before dispatching every action (adds a frame to every action, even
-  fast ones — wasteful), or (b) only send it when the action uses `Async` (the `Async` return is
-  the first render with `Loading=true`; `.lvt.Pending` piggybacks on it). Option (b) is more
-  targeted but ties `.lvt.Pending` to `Async` — it can't work for synchronous blocking actions.
-  This is acceptable: a blocking synchronous action freezes the event loop anyway, so no
-  intermediate render is possible regardless. Resolve during P2 design.
+- **O6 — `{{.lvt.Pending}}` render timing. SUPERSEDED by optimistic pending.** The original
+  question (send a server-side pending render before or after dispatch?) is resolved by the
+  client-side optimistic pending approach: the server pre-computes the pending diff at render
+  time, and the client applies it instantly on action dispatch — no extra server round-trip
+  needed. Remaining design question: should the optimistic diff be scoped per-form or per-page?
+  See the open question in § Design space option (2).
