@@ -1989,10 +1989,12 @@ func spawnAsyncWork(connection *session.Connection, cont asyncContinuation) {
 		}
 
 		connection.EnqueueDispatch(&session.DispatchRequest{
-			Kind:        session.KindAsyncCompletion,
-			AsyncResult: result,
-			AsyncError:  err,
-			AsyncApply:  cont.apply,
+			Kind: session.KindAsyncCompletion,
+			Async: &session.AsyncCompletion{
+				Result: result,
+				Err:    err,
+				Apply:  cont.apply,
+			},
 		})
 	}()
 }
@@ -2001,7 +2003,7 @@ func spawnAsyncWork(connection *session.Connection, cont asyncContinuation) {
 // Runs apply against the current connState (not a snapshot), persists, and
 // re-renders the originating connection only.
 func (h *liveHandler) handleAsyncCompletion(connSt *connState, connection *session.Connection, req *session.DispatchRequest) {
-	newState, err := req.AsyncApply(connSt.state, req.AsyncResult, req.AsyncError)
+	newState, err := req.Async.Apply(connSt.state, req.Async.Result, req.Async.Err)
 	if err != nil {
 		slog.Warn("Async apply failed",
 			slog.String("component", "live_handler"),

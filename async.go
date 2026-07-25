@@ -2,9 +2,6 @@ package livetemplate
 
 import "context"
 
-// asyncContinuation is an erased-type async operation registered by Async[S, R]().
-// The event loop spawns work in a goroutine after render #1; on completion it
-// enqueues apply onto the connection's DispatchChan for on-loop execution.
 type asyncContinuation struct {
 	work  func(ctx context.Context) (any, error)
 	apply func(state any, result any, err error) (any, error)

@@ -3,7 +3,6 @@ package livetemplate
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -79,16 +78,6 @@ func (c *asyncTestController) Greet(state asyncTestState, ctx *Context) (asyncTe
 func (c *asyncTestController) Increment(state asyncTestState, ctx *Context) (asyncTestState, error) {
 	state.Counter++
 	return state, nil
-}
-
-// asyncFixedGroupAuth forces all connections into one group.
-type asyncFixedGroupAuth struct {
-	groupID string
-}
-
-func (a *asyncFixedGroupAuth) Identify(_ *http.Request) (string, error) { return "", nil }
-func (a *asyncFixedGroupAuth) GetSessionGroup(_ *http.Request, _ string) (string, error) {
-	return a.groupID, nil
 }
 
 func setupAsyncTestServer(t *testing.T, ctrl *asyncTestController, opts ...Option) string {
@@ -217,7 +206,7 @@ func TestAsync_DisconnectCancelsWork(t *testing.T) {
 func TestAsync_RenderScopeIsOriginatingConnectionOnly(t *testing.T) {
 	gate := make(chan struct{})
 	ctrl := &asyncTestController{workGate: gate}
-	auth := &asyncFixedGroupAuth{groupID: "async-scope-group"}
+	auth := &fixedGroupAuth{groupID: "async-scope-group"}
 
 	wsURL := setupAsyncTestServer(t, ctrl, WithAuthenticator(auth))
 

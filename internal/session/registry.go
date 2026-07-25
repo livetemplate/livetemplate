@@ -96,10 +96,16 @@ type DispatchRequest struct {
 	Data   map[string]interface{}
 	Kind   DispatchKind
 
-	// KindAsyncCompletion fields (zero for KindAction).
-	AsyncResult any
-	AsyncError  error
-	AsyncApply  func(state any, result any, err error) (any, error)
+	// Non-nil for KindAsyncCompletion; nil for KindAction.
+	Async *AsyncCompletion
+}
+
+// AsyncCompletion carries the result of an Async work function.
+// Apply runs on the event loop against the current state.
+type AsyncCompletion struct {
+	Result any
+	Err    error
+	Apply  func(state any, result any, err error) (any, error)
 }
 
 // Done returns a channel that is closed when the connection is shutting down.
