@@ -313,8 +313,10 @@ from ~15 lines / 2 methods to ~7 lines / 1 method.
 - If the connection closes before `work` completes, the goroutine is
   cancelled and `apply` never runs.
 - Render scope is **per-connection** — only the connection that called
-  `Async` gets the completion render. For group-wide fan-out, call
-  `ctx.Session().TriggerAction()` inside `apply`.
+  `Async` gets the completion render. For group-wide fan-out, capture
+  `session := ctx.Session()` before defining `apply`, then call
+  `session.TriggerAction()` from within the `apply` closure (`ctx`
+  itself is not in scope inside `apply`).
 
 **Example:**
 

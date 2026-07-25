@@ -283,6 +283,131 @@ func TestAsync_ImmediateCompletion(t *testing.T) {
 	}
 }
 
+// --- Contract test: apply error clears pending and re-renders ---
+
+type asyncErrorController struct{}
+type asyncErrorState struct {
+	Status string
+}
+
+func (c *asyncErrorController) Mount(state asyncErrorState, ctx *Context) (asyncErrorState, error) {
+	return state, nil
+}
+
+func (c *asyncErrorController) Fail(state asyncErrorState, ctx *Context) (asyncErrorState, error) {
+	state.Status = "loading"
+	Async(ctx,
+		func(ctx context.Context) (string, error) {
+			return "done", nil
+		},
+		func(s asyncErrorState, result string, err error) (asyncErrorState, error) {
+			return s, fmt.Errorf("apply failed on purpose")
+		},
+	)
+	return state, nil
+}
+
+func TestAsync_ApplyErrorClearsPendingAndReRenders(t *testing.T) {
+	tmpl, err := New("test")
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse(`<div>{{.lvt.Pending}} {{.Status}}</div>`)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+	handler := tmpl.Handle(&asyncErrorController{}, AsState(&asyncErrorState{}))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+
+	ws, _ := connectWSRaw(t, wsURL)
+	defer func() {
+		if err := ws.Close(); err != nil {
+			t.Logf("ws close: %v", err)
+		}
+	}()
+
+	sendWSAction(t, ws, "fail", nil)
+
+	// Render #1: Pending=true, Status=loading
+	resp1 := readWSUpdate(t, ws, 3*time.Second)
+	tree1 := resp1["tree"].(map[string]any)
+	if got := fmt.Sprintf("%v", tree1["0"]); got != "true" {
+		t.Fatalf("render #1: Pending = %q, want \"true\"", got)
+	}
+
+	// Render #2: even though apply returned an error, Pending must be
+	// cleared and the client must receive an update (not hang forever).
+	got := wsHasUpdate(t, ws, 3*time.Second)
+	if !got {
+		t.Fatal("no re-render after apply error — client would be stuck on Loading")
+	}
+}
+
+// --- Contract test: work panic is recovered and surfaced as error ---
+
+type asyncPanicController struct{}
+type asyncPanicState struct {
+	Result string
+}
+
+func (c *asyncPanicController) Mount(state asyncPanicState, ctx *Context) (asyncPanicState, error) {
+	return state, nil
+}
+
+func (c *asyncPanicController) Boom(state asyncPanicState, ctx *Context) (asyncPanicState, error) {
+	state.Result = "loading"
+	Async(ctx,
+		func(ctx context.Context) (string, error) {
+			panic("kaboom")
+		},
+		func(s asyncPanicState, result string, err error) (asyncPanicState, error) {
+			if err != nil {
+				s.Result = "error"
+			} else {
+				s.Result = result
+			}
+			return s, nil
+		},
+	)
+	return state, nil
+}
+
+func TestAsync_WorkPanicRecoveredAsError(t *testing.T) {
+	tmpl, err := New("test")
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse(`<div>{{.Result}}</div>`)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+	handler := tmpl.Handle(&asyncPanicController{}, AsState(&asyncPanicState{}))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+
+	ws, _ := connectWSRaw(t, wsURL)
+	defer func() {
+		if err := ws.Close(); err != nil {
+			t.Logf("ws close: %v", err)
+		}
+	}()
+
+	sendWSAction(t, ws, "boom", nil)
+
+	// Render #1: Result=loading
+	readWSUpdate(t, ws, 3*time.Second)
+
+	// Render #2: apply should receive the panic as an error and set Result="error"
+	resp2 := readWSUpdate(t, ws, 3*time.Second)
+	tree2 := resp2["tree"].(map[string]any)
+	if got := fmt.Sprintf("%v", tree2["0"]); got != "error" {
+		t.Errorf("Result = %q, want \"error\" (panic should be surfaced as err to apply)", got)
+	}
+}
+
 // --- P5: {{.lvt.Pending}} template variable ---
 
 // pendingTemplateController uses {{.lvt.Pending}} in its template for zero-Go-code loading UX.

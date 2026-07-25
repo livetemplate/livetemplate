@@ -1979,7 +1979,16 @@ func spawnAsyncWork(connection *session.Connection, cont asyncContinuation) {
 		}()
 		defer cancel()
 
-		result, err := cont.work(ctx)
+		var result any
+		var err error
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					err = fmt.Errorf("Async work panicked: %v", r)
+				}
+			}()
+			result, err = cont.work(ctx)
+		}()
 
 		// Skip apply if the connection closed during work.
 		select {
@@ -2003,22 +2012,23 @@ func spawnAsyncWork(connection *session.Connection, cont asyncContinuation) {
 // Runs apply against the current connState (not a snapshot), persists, and
 // re-renders the originating connection only.
 func (h *liveHandler) handleAsyncCompletion(connSt *connState, connection *session.Connection, req *session.DispatchRequest) {
-	newState, err := req.Async.Apply(connSt.state, req.Async.Result, req.Async.Err)
-	if err != nil {
+	newState, applyErr := req.Async.Apply(connSt.state, req.Async.Result, req.Async.Err)
+
+	// Clear .lvt.Pending and re-render regardless of apply outcome so the
+	// client never gets stuck on a "Loading…" frame.
+	if tmpl, ok := connection.Template.(*Template); ok {
+		tmpl.pending = false
+	}
+
+	if applyErr != nil {
 		slog.Warn("Async apply failed",
 			slog.String("component", "live_handler"),
 			slog.String("group_id", connSt.groupID),
-			slog.Any("error", err))
-		return
-	}
-
-	connSt.state = newState
-	connection.State = connSt.state
-	h.persistState(context.Background(), connSt.groupID, connSt.state)
-
-	// Clear .lvt.Pending for the completion render — no async ops in flight for this render.
-	if tmpl, ok := connection.Template.(*Template); ok {
-		tmpl.pending = false
+			slog.Any("error", applyErr))
+	} else {
+		connSt.state = newState
+		connection.State = connSt.state
+		h.persistState(context.Background(), connSt.groupID, connSt.state)
 	}
 
 	if err := h.sendUpdate(connection, connSt.state, connSt.getMessages()); err != nil {
