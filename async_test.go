@@ -559,6 +559,58 @@ func TestLvtPending_TrueOnRender1_FalseOnRender2(t *testing.T) {
 	}
 }
 
+// Pin per-render semantics: an interleaved non-async action renders
+// .lvt.Pending=false even though async work is still in flight.
+func TestLvtPending_PerRenderSemantics(t *testing.T) {
+	gate := make(chan struct{})
+	ctrl := &asyncTestController{workGate: gate}
+
+	tmpl, err := New("test")
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse(`<div>{{.lvt.Pending}} {{.Loading}} {{.Name}} {{.Counter}}</div>`)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+	handler := tmpl.Handle(ctrl, AsState(&asyncTestState{}))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+
+	ws, _ := connectWSRaw(t, wsURL)
+	defer func() {
+		if err := ws.Close(); err != nil {
+			t.Logf("ws close: %v", err)
+		}
+	}()
+
+	// Trigger Greet (registers Async, gate blocks work)
+	sendWSAction(t, ws, "greet", map[string]any{"name": "Alice"})
+
+	// Render #1: .lvt.Pending=true (this action registered async work)
+	resp1 := readWSUpdate(t, ws, 3*time.Second)
+	tree1 := resp1["tree"].(map[string]any)
+	if got := fmt.Sprintf("%v", tree1["0"]); got != "true" {
+		t.Fatalf("render #1: .lvt.Pending = %q, want \"true\"", got)
+	}
+
+	// Send a non-async Increment while async work is still blocked
+	sendWSAction(t, ws, "increment", nil)
+	resp2 := readWSUpdate(t, ws, 3*time.Second)
+	tree2 := resp2["tree"].(map[string]any)
+
+	// .lvt.Pending should be false on this render (Increment didn't register
+	// async work), even though Greet's async work is still in flight.
+	if got := fmt.Sprintf("%v", tree2["0"]); got != "false" {
+		t.Errorf("interleaved render: .lvt.Pending = %q, want \"false\" (per-render semantics)", got)
+	}
+
+	// Unblock async work and verify completion still arrives
+	close(gate)
+	readWSUpdate(t, ws, 3*time.Second)
+}
+
 func TestLvtPending_FalseForNonAsyncActions(t *testing.T) {
 	tmpl, err := New("test")
 	if err != nil {

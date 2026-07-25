@@ -349,8 +349,13 @@ to re-enter.
 
 **`{{.lvt.Pending}}`:** A framework-provided template variable that is `true`
 on the render that registered async work and `false` on all other renders.
-Use it instead of a manual `Loading` state field when the loading indicator
-is purely visual:
+It has **per-render** semantics: if another action or a peer dispatch
+triggers a render on the same connection while async work is still in
+flight, that render will see `Pending=false` (it did not register async
+work). For loading indicators that must stay visible across interleaved
+renders, use an explicit `Loading bool` field in your state instead.
+Use `{{.lvt.Pending}}` when the loading indicator is purely visual and
+single-action flows are the norm:
 
 ```html
 <button name="greet" {{if .lvt.Pending}}disabled{{end}}>
