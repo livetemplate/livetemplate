@@ -36,11 +36,24 @@ func (c *stdlibController) Increment(state stdlibState, ctx *Context) (stdlibSta
 	return state, nil
 }
 
-func newStdlibHandler(t *testing.T) LiveHandler {
+func newStdlibHandler(t *testing.T, opts ...Option) LiveHandler {
 	t.Helper()
-	tmpl := Must(Must(New("stdlib")).Parse(
+	tmpl := Must(Must(New("stdlib", opts...)).Parse(
 		`<div><span id="count">{{.Count}}</span><form method="POST"><button name="lvt-action" value="Increment">+</button></form></div>`))
 	return tmpl.Handle(&stdlibController{}, AsState(&stdlibState{}))
+}
+
+// captureErrorLogs redirects slog.Default() for the duration of the test so an
+// assertion can read what the handler logged. It mutates global state, so tests
+// using it must not run in parallel — consistent with this package, which has
+// no parallel tests.
+func captureErrorLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelError})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return &logs
 }
 
 // stdlibClient keeps cookies across requests so the session group (and with it
@@ -228,14 +241,8 @@ func TestLiveHandler_WebSocketUpgrade_ThroughPassThroughMiddleware(t *testing.T)
 // one stdlib composition that cannot work, and the log line that says why. The
 // upgrade is refused cleanly (no panic) and the hint names middleware as the
 // cause, because the upgrader's own error mentions only http.Hijacker.
-//
-// Note: this test mutates the global slog.Default() via SetDefault, so it must
-// not run in parallel with tests that assert on log output.
 func TestLiveHandler_WebSocketUpgrade_WriterWrappingMiddlewareIsDiagnosed(t *testing.T) {
-	var logs bytes.Buffer
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelError})))
-	t.Cleanup(func() { slog.SetDefault(prev) })
+	logs := captureErrorLogs(t)
 
 	handler := newStdlibHandler(t)
 	stripHijacker := func(next http.Handler) http.Handler {
@@ -272,4 +279,35 @@ func TestLiveHandler_WebSocketUpgrade_WriterWrappingMiddlewareIsDiagnosed(t *tes
 	// GET still renders — the failure is scoped to the upgrade, which is what
 	// makes it easy to miss without the hint.
 	assertCount(t, getBody(t, stdlibClient(t), srv.URL+"/"), "0")
+}
+
+// TestLiveHandler_WebSocketUpgrade_HintOnlyWhenWriterIsNotHijackable keeps the
+// hint from becoming a red herring. An upgrader rejects a handshake for reasons
+// it checks before it ever reaches the hijack — a disallowed Origin here — and
+// on a plain (hijackable) writer that has nothing to do with middleware, so the
+// hint must stay off.
+func TestLiveHandler_WebSocketUpgrade_HintOnlyWhenWriterIsNotHijackable(t *testing.T) {
+	logs := captureErrorLogs(t)
+
+	// DevMode defaults off, so an Origin outside the allowed list is rejected.
+	handler := newStdlibHandler(t, WithAllowedOrigins([]string{"https://allowed.example"}))
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	header := http.Header{"Origin": []string{"https://disallowed.example"}}
+	if _, resp, err := websocket.DefaultDialer.Dial(wsDialURL(srv, "/"), header); err == nil {
+		t.Fatal("expected the upgrade to be rejected for a disallowed origin")
+	} else if resp != nil {
+		_ = resp.Body.Close()
+	}
+
+	// The positive assertion keeps this from passing vacuously: the rejection
+	// must actually have been logged for the absent hint to mean anything.
+	got := logs.String()
+	if !strings.Contains(got, "WebSocket upgrade failed") {
+		t.Fatalf("origin rejection was not logged, so the hint check proves nothing:\n%s", got)
+	}
+	if strings.Contains(got, "middleware in front of this handler is wrapping the writer") {
+		t.Errorf("hint fired on a hijackable writer, misattributing an origin rejection:\n%s", got)
+	}
 }

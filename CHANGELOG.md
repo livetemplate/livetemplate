@@ -28,7 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rendering, making the symptom "the page renders but never goes live". The
   underlying upgrader error names `http.Hijacker` but not the middleware that
   caused it; the hint does, and points at forwarding `Hijack` or leaving the
-  writer unwrapped when `livetemplate.WSIsUpgrade(r)` is true.
+  writer unwrapped when `livetemplate.WSIsUpgrade(r)` is true. It is attached on
+  the writer's own defect, which need not be what the accompanying error reports
+  — an upgrader can reject a handshake earlier (a disallowed `Origin`) and never
+  reach the hijack — so it is worded as a second failure the upgrade would have
+  hit regardless, rather than as the reported cause.
 
 ## [v0.22.0] - 2026-07-26
 

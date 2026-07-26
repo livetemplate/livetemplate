@@ -426,9 +426,15 @@ type wrapped struct{ http.ResponseWriter }
 ```
 
 The failure is partial and easy to miss — GET and POST keep rendering, only the
-upgrade is refused with a 500 — so LiveTemplate logs a `hint` naming middleware
-as the cause. To keep such middleware, either forward `Hijack` to the underlying
-writer, or leave the writer unwrapped when `livetemplate.WSIsUpgrade(r)` is true.
+upgrade is refused with a 500 — so a failed upgrade logs a `hint` naming
+middleware whenever the writer is not hijackable. To keep such middleware,
+either forward `Hijack` to the underlying writer, or leave the writer unwrapped
+when `livetemplate.WSIsUpgrade(r)` is true.
+
+The hint is attached on the writer's own defect, which need not be what the
+accompanying `error` reports — an upgrader can reject a handshake earlier (a
+disallowed `Origin`, say) and never reach the hijack. Read it as a second
+failure the upgrade would have hit regardless, not as the reported cause.
 
 ---
 
