@@ -5,6 +5,24 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`Async[S, R](ctx, work, apply)` — run expensive work off the event loop
+  with type-safe on-loop state application.** The generic function spawns a
+  goroutine for `work`, then dispatches `apply` back on the session's event
+  loop when it completes. This replaces the manual two-action pattern
+  (action triggers goroutine → goroutine calls `DispatchChan` → second action
+  applies result) with a single call that handles goroutine lifecycle,
+  panic recovery, and error propagation.
+
+- **`{{.lvt.Pending}}` — framework-provided template variable for
+  zero-boilerplate loading indicators.** On the render that registers Async
+  work, `.lvt.Pending` is `true`; on all other renders it is `false`. This
+  eliminates the need for a manual `Loading bool` field in state and the
+  `s.Loading = true / s.Loading = false` bookkeeping across two actions.
+
 ## [v0.21.0] - 2026-07-23
 
 ### Added
