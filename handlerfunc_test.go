@@ -131,7 +131,9 @@ func TestLiveHandler_Func_SplitAcrossMethodPatterns(t *testing.T) {
 
 // TestLiveHandler_Func_KeepsLifecycleMethods guards the reason Handle() returns
 // LiveHandler instead of a bare http.HandlerFunc: Func() is an accessor, not a
-// downgrade, so metrics/publish/shutdown stay reachable on the same value.
+// downgrade, so the lifecycle methods stay reachable on the same value while it
+// serves through the mux. Shutdown is left to shutdown_test.go, which owns the
+// teardown ordering against a live server.
 func TestLiveHandler_Func_KeepsLifecycleMethods(t *testing.T) {
 	handler := newStdlibHandler(t)
 
@@ -148,11 +150,10 @@ func TestLiveHandler_Func_KeepsLifecycleMethods(t *testing.T) {
 		t.Errorf("metrics endpoint missing livetemplate_templates_executed_total:\n%s", metrics)
 	}
 
+	// No subscribers here, so this asserts reachability rather than delivery —
+	// fan-out itself is covered by the topic tests.
 	if err := handler.Publish("announcements", "Increment", nil); err != nil {
 		t.Errorf("Publish after Func(): %v", err)
-	}
-	if err := handler.Shutdown(t.Context()); err != nil {
-		t.Errorf("Shutdown after Func(): %v", err)
 	}
 }
 
