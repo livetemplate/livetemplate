@@ -5,6 +5,31 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`LiveHandler.Func()` returns `ServeHTTP` as an `http.HandlerFunc`.** The
+  value `Template.Handle()` returns already satisfied `http.Handler`, so
+  `http.Handle`/`mux.Handle` worked, but the stdlib entry points that take a
+  function — `http.HandleFunc`, and `ServeMux.HandleFunc` with Go 1.22 method
+  patterns — required spelling out `handler.ServeHTTP`. `Func()` is that method
+  value, so `http.HandleFunc("/counter", handler.Func())` and
+  `mux.HandleFunc("GET /counter", handler.Func())` read naturally. It is an
+  accessor, not a downgrade: `Shutdown`, `Publish` and `MetricsHandler` stay
+  available on the `LiveHandler` it came from.
+
+### Changed
+
+- **A failed WebSocket upgrade now logs a `hint` when the `http.ResponseWriter`
+  does not implement `http.Hijacker`.** An upgrade takes over the raw
+  connection, so middleware that wraps the writer (logging, gzip, status
+  capture) without forwarding `Hijack` breaks it — while GET and POST keep
+  rendering, making the symptom "the page renders but never goes live". The
+  underlying upgrader error names `http.Hijacker` but not the middleware that
+  caused it; the hint does, and points at forwarding `Hijack` or leaving the
+  writer unwrapped when `livetemplate.WSIsUpgrade(r)` is true.
+
 ## [v0.22.0] - 2026-07-26
 
 ### Added

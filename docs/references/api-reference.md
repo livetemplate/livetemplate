@@ -375,6 +375,8 @@ type LiveHandler interface {
     http.Handler
     Shutdown(ctx context.Context) error
     MetricsHandler() http.Handler
+    Publish(topic, action string, data map[string]interface{}) error
+    Func() http.HandlerFunc
 }
 ```
 
@@ -385,6 +387,48 @@ Returned by `Template.Handle()`. Serves both HTTP and WebSocket requests.
 | `ServeHTTP` | Handles HTTP requests and WebSocket upgrades |
 | `Shutdown` | Gracefully drains connections with context timeout |
 | `MetricsHandler` | Returns Prometheus metrics endpoint handler |
+| `Publish` | Fans a topic action out to subscribers from outside an action handler ([PubSub](pubsub.md)) |
+| `Func` | Returns `ServeHTTP` as an `http.HandlerFunc` |
+
+### Standard library integration
+
+A `LiveHandler` is an ordinary `net/http` handler — one `ServeHTTP` serves the
+initial GET render, form-action POSTs, and the WebSocket upgrade. It composes
+with `net/http` routing directly, and `Func()` covers the entry points that take
+a function instead of an `http.Handler`:
+
+```go
+handler := tmpl.Handle(&CounterController{}, livetemplate.AsState(&CounterState{}))
+
+http.Handle("/counter", handler)                  // http.Handler
+mux.Handle("/counter", handler)                   // ServeMux
+http.HandleFunc("/counter", handler.Func())       // http.HandlerFunc
+mux.HandleFunc("GET /counter", handler.Func())    // Go 1.22+ method patterns
+mux.HandleFunc("POST /counter", handler.Func())   // form actions still dispatch
+```
+
+`Func()` is exactly `handler.ServeHTTP` — neither form is preferred, and taking
+it does not give up `Shutdown`, `Publish` or `MetricsHandler`, which stay on the
+`LiveHandler` it came from.
+
+Mounting under a subtree with `http.StripPrefix` is supported; the handler reads
+the request path as rewritten.
+
+**Middleware must forward `http.Hijacker`.** A WebSocket upgrade takes over the
+raw connection, so it needs the `http.ResponseWriter` to implement
+`http.Hijacker`. Middleware that only observes the request is fine; middleware
+that *wraps* the writer (logging, gzip, status capture) hides `Hijack` unless it
+forwards the method:
+
+```go
+// Breaks the upgrade: embedding promotes Write/Header/WriteHeader, not Hijack.
+type wrapped struct{ http.ResponseWriter }
+```
+
+The failure is partial and easy to miss — GET and POST keep rendering, only the
+upgrade is refused with a 500 — so LiveTemplate logs a `hint` naming middleware
+as the cause. To keep such middleware, either forward `Hijack` to the underlying
+writer, or leave the writer unwrapped when `livetemplate.WSIsUpgrade(r)` is true.
 
 ---
 

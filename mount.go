@@ -135,6 +135,22 @@ type LiveHandler interface {
 	// malformed developer topic); a transport failure to a remote instance is
 	// logged, not returned (local fan-out still succeeds).
 	Publish(topic, action string, data map[string]interface{}) error
+
+	// Func returns ServeHTTP as an http.HandlerFunc, for the stdlib entry
+	// points that take a function rather than an http.Handler.
+	//
+	//   handler := tmpl.Handle(&CounterController{}, livetemplate.AsState(&CounterState{}))
+	//   http.HandleFunc("/counter", handler.Func())
+	//   mux.HandleFunc("GET /counter", handler.Func())   // Go 1.22+ method patterns
+	//
+	// It is exactly h.ServeHTTP — same request handling, same GET/POST/upgrade
+	// routing — so http.Handle(pattern, handler) stays equally valid and neither
+	// form is preferred over the other. Func exists so the handler can be passed
+	// where an http.HandlerFunc is wanted without an explicit method value.
+	//
+	// The returned func closes over the handler, so Shutdown, Publish and
+	// MetricsHandler remain available on the LiveHandler it came from.
+	Func() http.HandlerFunc
 }
 
 // defaultEphemeralSweepTTL is how long idle HTTP template cache entries survive in
@@ -404,6 +420,18 @@ func (h *liveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h *liveHandler) Func() http.HandlerFunc { return h.ServeHTTP }
+
+// hijackerHint names the one way stdlib middleware breaks a LiveTemplate
+// handler: an upgrade takes over the raw connection, so it needs the writer to
+// implement http.Hijacker, and middleware that wraps the writer (logging, gzip,
+// status capture) hides Hijack unless it forwards the method. GET and POST keep
+// rendering, so the symptom is "the page renders but never goes live" — and the
+// upgrader's own error names Hijacker but not the middleware that caused it.
+const hijackerHint = "the http.ResponseWriter does not implement http.Hijacker, which a WebSocket upgrade requires; " +
+	"middleware in front of this handler is wrapping the writer without forwarding Hijack — either forward it, " +
+	"or leave the writer unwrapped when livetemplate.WSIsUpgrade(r) is true"
+
 func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Check if shutting down - reject new connections
 	if h.isShutdown.Load() {
@@ -454,9 +482,14 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Upgrade to WebSocket after authentication and limit check succeeds
 	conn, err := h.config.Upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		slog.Error("WebSocket upgrade failed",
+		attrs := []any{
 			slog.String("component", "live_handler"),
-			slog.Any("error", err))
+			slog.Any("error", err),
+		}
+		if _, ok := w.(http.Hijacker); !ok {
+			attrs = append(attrs, slog.String("hint", hijackerHint))
+		}
+		slog.Error("WebSocket upgrade failed", attrs...)
 		return
 	}
 	defer func() {
