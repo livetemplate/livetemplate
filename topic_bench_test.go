@@ -2,7 +2,6 @@ package livetemplate
 
 import (
 	"fmt"
-	"log/slog"
 	"testing"
 	"time"
 
@@ -23,15 +22,13 @@ import (
 //      measurable overhead over the baseline it is modeled on.
 // ============================================================================
 
-// BenchmarkTopicFanoutByN measures dispatchToTopic local fan-out for
+// BenchmarkTopicFanoutByN_EnqueueOnly measures dispatchToTopic local fan-out for
 // N ∈ {1,5,10,50,100}. Each subscriber drains its DispatchChan (the real
 // event-loop model), so the measurement reflects "enqueued", not "dropped".
-func BenchmarkTopicFanoutByN(b *testing.B) {
+func BenchmarkTopicFanoutByN_EnqueueOnly(b *testing.B) {
 	// Silence slog: the dispatchToTopic slog.Debug + a transient
 	// dispatch-full WARN would both pollute the timing and the output.
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.DiscardHandler))
-	b.Cleanup(func() { slog.SetDefault(prev) })
+	discardLogs(b)
 
 	for _, n := range []int{1, 5, 10, 50, 100} {
 		b.Run(fmt.Sprintf("N=%d", n), func(b *testing.B) {
@@ -86,9 +83,7 @@ func BenchmarkTopicFanoutByN(b *testing.B) {
 // one. Patterns are mixed segment-count so the scan exercises both the
 // fast count-mismatch reject and the first-literal-mismatch reject.
 func BenchmarkTopicPatternScanByP(b *testing.B) {
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.DiscardHandler))
-	b.Cleanup(func() { slog.SetDefault(prev) })
+	discardLogs(b)
 
 	for _, p := range []int{1, 10, 100} {
 		b.Run(fmt.Sprintf("P=%d", p), func(b *testing.B) {
