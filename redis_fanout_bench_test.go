@@ -46,11 +46,56 @@ func BenchmarkRedisCrossInstanceFanout(b *testing.B) {
 			}
 			all := append([]*compositeSession{publisher}, subscribers...)
 
-			// One warm op: connect-time SubscribeToTopicChannel blocks until
-			// Redis confirms, so no retry loop is needed — this just primes
-			// the path before timing.
-			publisher.dispatch(b, topicFanoutFrames[1])
-			awaitAll(b, subscribers)
+			// Warmup: adding a channel to an already-active go-redis PubSub
+			// does not synchronously confirm the SUBSCRIBE, so a single warm
+			// publish can race it and be lost (pub/sub has no replay) —
+			// benchmark rounds re-run this whole setup, so the race recurs
+			// per round. Re-publish until every subscriber has delivered at
+			// least one dispatched frame, then let the extra in-flight
+			// dispatches settle and drain the stale wakeup ticks. Mirrors
+			// TestTopic_Phase2_CrossInstanceRoundTripVsGroupAction's
+			// warmup-retry.
+			warmDeadline := time.Now().Add(15 * time.Second)
+			initialMsgs := make([]int64, len(subscribers))
+			for i, s := range subscribers {
+				initialMsgs[i] = s.conn.MsgsWritten()
+			}
+			for {
+				publisher.dispatch(b, topicFanoutFrames[1])
+				time.Sleep(50 * time.Millisecond)
+				warmed := 0
+				for i, s := range subscribers {
+					if s.conn.MsgsWritten() > initialMsgs[i] {
+						warmed++
+					}
+				}
+				if warmed == len(subscribers) {
+					break
+				}
+				if time.Now().After(warmDeadline) {
+					b.Fatalf("warmup: only %d/%d subscribers received the publish within 15s", warmed, len(subscribers))
+				}
+			}
+			for prev := int64(-1); ; {
+				cur := int64(0)
+				for _, s := range all {
+					cur += s.conn.MsgsWritten()
+				}
+				if cur == prev {
+					break
+				}
+				if time.Now().After(warmDeadline) {
+					b.Fatal("settle: writes never quiesced within the warmup deadline")
+				}
+				prev = cur
+				time.Sleep(50 * time.Millisecond)
+			}
+			for _, s := range all {
+				select {
+				case <-s.conn.Writes():
+				default:
+				}
+			}
 			startBytes := wireBytesTotal(all...)
 
 			b.ResetTimer()

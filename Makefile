@@ -1,4 +1,4 @@
-.PHONY: bench bench-10x bench-save bench-compare bench-quick system-card profile-cpu profile-mem profile-all coverage coverage-html
+.PHONY: bench bench-10x bench-save bench-compare bench-quick system-card profile-cpu profile-mem profile-all profile-pkg coverage coverage-html
 
 # Run all benchmarks
 bench:
@@ -43,6 +43,18 @@ profile-mem:
 # Profile everything
 profile-all: profile-cpu profile-mem
 	@echo "\nProfiles saved in profiles/ directory"
+
+# Profile a single package (PKG required; -cpuprofile/-memprofile don't work
+# with ./..., which is why profile-cpu/profile-mem are root-only). BENCH
+# narrows the benchmark set (default: all). Example:
+#   make profile-pkg PKG=./internal/session BENCH=AsyncSendThroughput
+profile-pkg:
+	@test -n "$(PKG)" || (echo "usage: make profile-pkg PKG=./internal/session [BENCH=regex]" && exit 1)
+	@mkdir -p profiles
+	GOWORK=off go test -run '^$$' -bench='$(or $(BENCH),.)' -benchmem \
+		-cpuprofile=profiles/$(notdir $(PKG))-cpu.prof \
+		-memprofile=profiles/$(notdir $(PKG))-mem.prof $(PKG)
+	@echo "\nAnalyze with: go tool pprof profiles/$(notdir $(PKG))-cpu.prof"
 
 # Show test coverage summary
 coverage:

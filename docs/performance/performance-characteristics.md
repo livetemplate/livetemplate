@@ -10,6 +10,9 @@
 | Range Operations | ~30-65µs | 80% vs full render |
 
 Numbers from baseline (Go 1.26, Apple M1/M2). Full results in [`testdata/benchmarks/baseline.txt`](../../testdata/benchmarks/baseline.txt).
+These are per-template primitives; for the cost of a full interaction (dispatch →
+render → diff → serialize → WebSocket send) and fan-out/capacity numbers, see
+[Composite Pipeline & Fan-Out](#composite-pipeline--fan-out-2026-07-30) below.
 
 **How updates stay small:** The first render ships full HTML and the client caches the static parts. Subsequent renders ship only the changed dynamic values — the statics never travel again until the template structure itself changes (detected by an FNV-1a fingerprint).
 
@@ -31,9 +34,13 @@ For statistically confident timing comparisons, use `make bench-10x` with `bench
 
 ---
 
-> **Benchmark Environment:** Go 1.26.0, arm64 (Apple M2). Numbers updated 2026-03-22.
-> These are single-run results (`make bench-save`); ns/op timings can vary significantly
-> between runs (2-4x swings observed) due to system load, thermal throttling, and GC timing.
+> **Benchmark Environment:** Go 1.26.0, arm64 (Apple M2). Numbers updated 2026-03-22,
+> except where a section carries its own date. The composite-pipeline and fan-out
+> sections below are dated 2026-07-30 and were measured on linux/arm64 (Neoverse-N1,
+> shared machine) with Go 1.26.1 — timings are not comparable across the two machines;
+> allocation counts and wireB/op are machine-independent.
+> ns/op timings can vary significantly between runs (2-4x swings observed) due to system
+> load, thermal throttling, and GC timing.
 > Allocation counts (B/op, allocs/op) are deterministic and stable across runs — use these
 > to assess actual code changes. For statistically confident timing comparisons, use
 > `make bench-10x` with benchstat. The baseline is single-run to keep CI fast.
@@ -358,7 +365,13 @@ BenchmarkBufferSizes/buf_1000  175.7 ns/op    36 B/op   2 allocs/op
 - Broadcast to 100-connection group: ~16µs (~157ns per connection)
 - Buffer size sweet spot: 50-100 messages (diminishing returns above 100)
 
-**Note:** `BenchmarkAsyncSendThroughput`, `BenchmarkConcurrentSend`, and `BenchmarkConcurrentConnections` at 10/100 connections still intermittently fail due to mock WebSocket drain timing. Tracked in [#186](https://github.com/livetemplate/livetemplate/issues/186). The `newDrainingBenchConn` helper (commit ead7c62) fixed the 1000-connection variant.
+**Note (updated 2026-07-30):** `BenchmarkAsyncSendThroughput` now routes through the
+real `writePump` via `Register` and a counting discard connection (`internal/benchharness`),
+and only stops timing once every queued message has actually been written; the old
+drain-into-the-void body is preserved as `BenchmarkAsyncSendThroughput_EnqueueOnly` for
+contrast. Both variants absorb genuine `ErrClientTooSlow` backpressure by recreating the
+connection (production behavior) instead of failing, which also resolved the intermittent
+failures previously tracked in [#186](https://github.com/livetemplate/livetemplate/issues/186).
 
 ## End-to-End Performance
 
@@ -398,12 +411,123 @@ Latency numbers are from Go micro-benchmarks (no network). Update latencies drop
 
 ### User Journey Performance
 
+Renamed 2026-07-29: the old `BenchmarkE2E*` benchmarks in `e2e_bench_test.go` measured
+only the `ExecuteUpdates` render+diff primitive (no dispatch, no connection) and now
+carry `*_ExecuteUpdatesOnly` names (e.g. `BenchmarkE2ERangeOperations` →
+`BenchmarkRangeOperations_ExecuteUpdatesOnly`). The `BenchmarkE2EUserJourney` name was
+re-pointed at a genuinely end-to-end composite bench (`composite_bench_test.go`) — see
+the composite-pipeline section below. Primitive numbers (2026-03-22, Apple M2):
+
 ```
-BenchmarkE2ERangeOperations/add-items      9516 ns/op   9404 B/op   222 allocs/op
-BenchmarkE2ERangeOperations/remove-items   5453 ns/op   5495 B/op   124 allocs/op
-BenchmarkE2ERangeOperations/reorder-items  6780 ns/op   6776 B/op   157 allocs/op
-BenchmarkE2ERangeOperations/update-items   6745 ns/op   6776 B/op   157 allocs/op
+BenchmarkRangeOperations_ExecuteUpdatesOnly/add-items      9516 ns/op   9404 B/op   222 allocs/op
+BenchmarkRangeOperations_ExecuteUpdatesOnly/remove-items   5453 ns/op   5495 B/op   124 allocs/op
+BenchmarkRangeOperations_ExecuteUpdatesOnly/reorder-items  6780 ns/op   6776 B/op   157 allocs/op
+BenchmarkRangeOperations_ExecuteUpdatesOnly/update-items   6745 ns/op   6776 B/op   157 allocs/op
 ```
+
+## Composite Pipeline & Fan-Out (2026-07-30)
+
+> **Environment:** Go 1.26.1, linux/arm64 (Neoverse-N1, 8 cores, **shared machine at
+> load ~10**). ns/op values are indicative only (±20-30% observed between runs);
+> **allocs/op and wireB/op are exact and machine-independent** — every claim below
+> that matters rests on those. wireB/op = serialized bytes reaching the write
+> boundary per operation.
+
+These benchmarks drive the full production cycle — action dispatch → controller →
+render → diff → serialize → `Connection.Send` → real `writePump` — through the real
+handler (`composite_bench_test.go` and friends), faking only the `WriteMessage`
+syscall. The previous "E2E" benchmarks measured only the render+diff primitive; the
+composite numbers below are ~1.7× the allocations (97 vs 57 per interaction) and
+~2.5× the wall time (indicative), which is the size of the old suite's blind spot.
+
+### Single interaction
+
+```
+BenchmarkCompositeUpdate      ~31µs/op     78.7 wireB/op    6325 B/op     97 allocs/op
+BenchmarkCompositeUpdate_LoopbackWS (real socket)  ~75µs/op   7466 B/op   104 allocs/op
+BenchmarkE2EUserJourney (100 actions)  ~3.0ms/op   632 KB/op   9705 allocs/op
+BenchmarkUserJourney_ExecuteUpdatesOnly (primitive)  ~1.2ms/op   279 KB/op   5683 allocs/op
+```
+
+One full interaction costs **~97 allocs and ~79 wire bytes**; the render+diff
+primitive alone is ~57 allocs — dispatch, context, response envelope, and the
+real send path add ~70%. The loopback-WS variant (~2.4× the harness) bounds what
+real socket I/O adds on top.
+
+### Fan-out to N subscribers (full pipeline per receiver)
+
+| N | Topic publish (in-process) | TriggerAction (muster shape) | Topic publish (cross-instance Redis, miniredis) |
+|---|---|---|---|
+| 1 | ~57µs · 203 allocs · 136 wireB | ~25µs · 94 allocs · 60 wireB | ~238µs · 327 allocs · 136 wireB |
+| 10 | ~275µs · 1025 allocs · 667 wireB | ~207µs · 941 allocs · 588 wireB | ~434µs · 1150 allocs · 667 wireB |
+| 100 | ~2.4ms · 9229 allocs · 6.0 KB | ~2.2ms · 9398 allocs · 5.8 KB | ~2.2ms · 9352 allocs · 6.0 KB |
+| 1000 | ~22ms · 91.3k allocs · 59 KB | ~24ms · 93.7k allocs · 57 KB | ~22ms · 91.3k allocs · 59 KB |
+| 10000 | ~196ms · 920k allocs · 590 KB | ~183ms · 923k allocs · 563 KB | — (capacity sweep gated at 1000) |
+
+- **Fan-out is linear through N=10000** — per-subscriber marginal cost is ~92
+  allocs ≈ one single-connection interaction. The fan-out machinery itself
+  (registry scan + enqueue) is noise; the per-receiver pipeline is the cost.
+- **Capacity planning:** one publish to 10k subscribers ≈ 190-200ms wall /
+  ~920k allocs / ~590 KB wire on this hardware; budget accordingly.
+- **The Redis hop is a constant ~110-190µs per publish** (serialize + relay +
+  remote dispatch, miniredis in-process) and is fully amortized by N≈100 —
+  Redis traffic is O(1) per publish, not O(N). Relay-level round trip:
+  `pubsub/BenchmarkRedisTopicRelay` ~110-130µs, 91 allocs. Real-network RTT is
+  NOT modeled; see `BenchmarkRedisTopicRelay_RealRedis`. (Documented
+  scaling-claim protection: no surveyed consumer app uses Redis fan-out.)
+- Dead session handles cost ~0.9µs / 3 allocs per `TriggerAction` error
+  (`BenchmarkTriggerAction_DeadHandle`) — muster-style prune-on-error is cheap.
+
+### Chat-room append (shared history, whole-range re-render per receiver)
+
+| history | peers | per message | allocs | wire |
+|---|---|---|---|---|
+| 10 | 10 | ~1.0ms | 6.3k | 1.3 KB |
+| 100 | 10 | ~6.2ms | 42.9k | 1.3 KB |
+| 1000 | 10 | ~33ms | 426k | 1.3 KB |
+| 10000 | 10 | ~357ms | 4.29M | 1.3 KB |
+| 100 | 100 | ~35ms | 394k | 11.9 KB |
+| 100 | 1000 | ~347ms | 3.91M | 117 KB |
+
+Server cost is **O(history × peers)** — every receiver copies and re-renders the
+whole list — while wire cost stays **O(peers)** (~130 B/receiver: stable content
+keys mean only the insert/remove ops ship). A 10k-message room costs a third of a
+second of server work per message at just 10 peers: cap chat history.
+
+### Wide-grid actions and large-document diffs
+
+```
+BenchmarkWideTableAction (50×20 grid, 1-cell toggle)   ~25ms/op   108k allocs   1519 wireB
+BenchmarkLargeDocDiff/files=10/lines=100  (1k lines)   autokey ~28ms · 93.5k allocs · 6519 wireB
+                                                       datakey ~30ms · 102k allocs · 305 wireB
+BenchmarkLargeDocDiff/files=50/lines=200  (10k lines)  autokey ~242ms · 919k allocs · 13.1 KB wire
+BenchmarkLargeDocDiff/files=100/lines=500 (50k lines)  autokey ~1.1-1.2s · 4.6M allocs · 32.6 KB wire
+```
+
+Two independent findings (both fed into [Known Bottlenecks](known-bottlenecks.md)):
+
+1. **Server CPU/allocs scale with total rendered items, not with the change** —
+   ~90-100 allocs (~25-30µs loaded) per grid cell / document line / list item per
+   action, across three unrelated workload shapes. One O(1) mutation on a 50k-line
+   document costs ~1.2s and 4.6M allocs. This is the dominant current bottleneck.
+2. **Wire: content-hash auto-keys churn on in-place edits** — the edited item's
+   key changes, so the diff re-ships the containing range (wire grows with the
+   file's line count: 6.5→32.6 KB). Explicit `data-key` makes update wire **O(1)
+   (~305 B steady-state)** at ~9% more allocs. Use `data-key` for large
+   edit-in-place ranges (matches the guidance in CLAUDE.md).
+
+### Upload modes (server-side cost per upload)
+
+```
+BenchmarkUpload_Proxied/64KB..16MB   700-1100 MB/s    114 allocs/op (constant across sizes)
+BenchmarkUpload_Volume/64KB..16MB    190-435 MB/s     121 allocs/op (disk-bound, retained staging)
+BenchmarkUpload_Direct               ~12µs/op          32 allocs/op (presign protocol only — bytes go browser→cloud)
+BenchmarkUpload_Preview              ~7µs/op           19 allocs/op (metadata only — bytes stay on device)
+```
+
+Uploads are **not** a bottleneck: the Proxied stream is genuinely zero-copy
+(allocation count independent of file size), Volume is disk-write-bound, and
+Direct/Preview are microsecond protocol handling.
 
 ### HTTP Mode Optimization
 
