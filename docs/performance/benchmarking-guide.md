@@ -339,19 +339,34 @@ func BenchmarkFeature(b *testing.B) {
 
 ### How Benchmarks Run in CI
 
-1. GitHub Actions runs benchmarks on every PR
-2. 5 iterations for statistical confidence
-3. Compares against committed baseline using benchstat
-4. Posts comparison as PR comment
+1. GitHub Actions runs `make bench-ci COUNT=3` on every PR — the full suite
+   minus the capacity-planning sweeps (high N / histories / doc sizes), whose
+   exclusion regex lives once in the Makefile (`BENCH_SKIP_CAPACITY`)
+2. Compares against the committed baseline with a **pinned** benchstat; the
+   human-readable table is posted as a PR comment
+3. `scripts/bench_gate.py` parses `benchstat -format csv` and gates —
+   failing closed if it parses no critical rows (a gate that matches nothing
+   is broken, not green)
 
-### Regression Thresholds
+### Regression Thresholds (updated 2026-07-30)
 
-**Critical Benchmarks** (E2E, Template operations):
-- >10% regression: Warning comment
-- >20% regression: CI failure, blocks merge
+**Gated metrics: B/op and allocs/op only.** They are deterministic and
+machine-independent, so the committed baseline gates correctly even though it
+was generated on a different machine than CI. **sec/op is never gated** — it
+is cross-machine noise against a committed baseline, and benchstat marks
+low-sample deltas "~" anyway (the pre-2026-07 grep gate passed vacuously on
+exactly that). Timing comparisons remain in the posted table as information.
 
-**Phase-Specific Benchmarks:**
-- Informational only, no CI failure
+**Critical families** (`scripts/bench_gate.py`):
+`E2E|Template|CompareTrees|RangeDiff|PrepareTree|Composite|TopicFanout|TriggerAction|Upload_|Redis|ChatAppend|WideTable|LargeDoc`
+— excluding the honest-variant benches (`Loopback|EnqueueOnly|RealRedis`),
+which share family tokens but are fidelity checks/contrast baselines, not
+gate material.
+
+- >10% allocation regression: Warning comment
+- >20% allocation regression: CI failure, blocks merge
+
+**Everything else:** informational only, no CI failure.
 
 ### Overriding CI
 
@@ -411,7 +426,7 @@ go tool pprof -top -alloc_objects mem.prof
 | `make bench-10x` | Run 10 iterations for confidence |
 | `make bench-save` | Save current as baseline |
 | `make bench-compare` | Compare against baseline |
-| `make bench-quick` | Critical benchmarks only |
+| `make bench-quick` | E2E + Template smoke subset (not the full critical set) |
 | `make profile-cpu` | Generate CPU profile (root package) |
 | `make profile-mem` | Generate memory profile (root package) |
 | `make profile-all` | Generate all profiles |

@@ -20,8 +20,8 @@ Profiled **through the composite-pipeline benchmarks** (the real cycle: action
 dispatch → controller → render → diff → serialize → real `writePump`), which the
 pre-2026-07 suite never exercised. Sources: `profiles/composite-{cpu,mem}.prof`
 captured over `BenchmarkCompositeUpdate`, `BenchmarkTopicFanout_FullPipeline/N=100`,
-`BenchmarkWideTableAction`, `BenchmarkLargeDocDiff/files=10/lines=100/autokey`,
-`BenchmarkChatAppendFanout/hist=100/peers=10`, `BenchmarkUpload_Proxied/1MB`.
+`BenchmarkWideTableAction`, `BenchmarkLargeDocDiff/files=10,lines=100/autokey`,
+`BenchmarkChatAppendFanout/hist=100,peers=10`, `BenchmarkUpload_Proxied/1MB`.
 
 ### 1. The per-item pipeline constant — server cost scales with rendered size, not change size
 
@@ -147,7 +147,7 @@ make profile-pkg PKG=./pubsub BENCH='RedisTopicRelay$'
 
 # Composite-only profile (what this report used):
 GOWORK=off go test -run '^$' \
-  -bench 'CompositeUpdate$|TopicFanout_FullPipeline/N=100$|WideTableAction|LargeDocDiff/files=10/lines=100/autokey|ChatAppendFanout/hist=100/peers=10$|Upload_Proxied/1MB' \
+  -bench 'CompositeUpdate$|TopicFanout_FullPipeline/N=100$|WideTableAction|LargeDocDiff/files=10,lines=100/autokey|ChatAppendFanout/hist=100,peers=10$|Upload_Proxied/1MB' \
   -benchtime=2s -cpuprofile=profiles/composite-cpu.prof -memprofile=profiles/composite-mem.prof .
 
 go tool pprof -top -cum profiles/composite-cpu.prof

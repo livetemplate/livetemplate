@@ -498,10 +498,10 @@ second of server work per message at just 10 peers: cap chat history.
 
 ```
 BenchmarkWideTableAction (50×20 grid, 1-cell toggle)   ~25ms/op   108k allocs   1519 wireB
-BenchmarkLargeDocDiff/files=10/lines=100  (1k lines)   autokey ~28ms · 93.5k allocs · 6519 wireB
+BenchmarkLargeDocDiff/files=10,lines=100  (1k lines)   autokey ~28ms · 93.5k allocs · 6519 wireB
                                                        datakey ~30ms · 102k allocs · 305 wireB
-BenchmarkLargeDocDiff/files=50/lines=200  (10k lines)  autokey ~242ms · 919k allocs · 13.1 KB wire
-BenchmarkLargeDocDiff/files=100/lines=500 (50k lines)  autokey ~1.1-1.2s · 4.6M allocs · 32.6 KB wire
+BenchmarkLargeDocDiff/files=50,lines=200  (10k lines)  autokey ~242ms · 919k allocs · 13.1 KB wire
+BenchmarkLargeDocDiff/files=100,lines=500 (50k lines)  autokey ~1.1-1.2s · 4.6M allocs · 32.6 KB wire
 ```
 
 Two independent findings (both fed into [Known Bottlenecks](known-bottlenecks.md)):

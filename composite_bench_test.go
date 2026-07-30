@@ -185,6 +185,7 @@ var incrementFrame = []byte(`{"action":"Increment"}`)
 // single connection. This is the unit of work behind every button click in
 // consumer apps (counter example, muster /ports actions).
 func BenchmarkCompositeUpdate(b *testing.B) {
+	discardLogs(b)
 	s := startCounterSession(b)
 	startBytes := wireBytesTotal(s)
 
@@ -202,6 +203,7 @@ func BenchmarkCompositeUpdate(b *testing.B) {
 // looped tmpl.ExecuteUpdates in isolation (kept as
 // BenchmarkUserJourney_ExecuteUpdatesOnly for contrast).
 func BenchmarkE2EUserJourney(b *testing.B) {
+	discardLogs(b)
 	s := startCounterSession(b)
 
 	b.ResetTimer()
@@ -219,6 +221,7 @@ func BenchmarkE2EUserJourney(b *testing.B) {
 // composite number plus real socket I/O; a large divergence means the
 // harness fake got too cheap to be meaningful. Not part of the CI gate.
 func BenchmarkCompositeUpdate_LoopbackWS(b *testing.B) {
+	discardLogs(b)
 	tmpl := Must(New("composite-loopback", WithMessageRateLimit(0, 0)))
 	if _, err := tmpl.Parse(benchCounterTemplate); err != nil {
 		b.Fatalf("Parse failed: %v", err)

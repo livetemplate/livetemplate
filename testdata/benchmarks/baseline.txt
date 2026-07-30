@@ -1,152 +1,235 @@
-# Single-run baseline — use `make bench-10x` + benchstat for statistically robust comparison
-# Go 1.26.0 | arm64 (Apple M2) | 2026-03-22
-# Baseline after PRs #219 (parse alloc reduction), #220 (Dynamics map→slice), #224 (shared statics, buffer pool, reflection dedup)
-# Note: `make bench-save` strips these headers; re-add manually after regeneration
-BenchmarkDispatchWithState_Cached-8   	 4912992	       243.8 ns/op	      80 B/op	       4 allocs/op
-BenchmarkE2EUserJourney-8             	    4573	    256978 ns/op	  251941 B/op	    5083 allocs/op
-BenchmarkE2ETodoApp-8                 	   47761	     26173 ns/op	   23185 B/op	     496 allocs/op
-BenchmarkE2ERangeOperations/add-items-8         	  127369	      9541 ns/op	    9404 B/op	     222 allocs/op
-BenchmarkE2ERangeOperations/remove-items-8      	  213930	      5600 ns/op	    5495 B/op	     124 allocs/op
-BenchmarkE2ERangeOperations/reorder-items-8     	  173886	      7037 ns/op	    6776 B/op	     157 allocs/op
-BenchmarkE2ERangeOperations/update-items-8      	  170600	      6930 ns/op	    6776 B/op	     157 allocs/op
-BenchmarkE2EMultipleSessions/sessions-1-8       	  425370	      2781 ns/op	    2809 B/op	      54 allocs/op
-BenchmarkE2EMultipleSessions/sessions-10-8      	   42166	     28640 ns/op	   28034 B/op	     540 allocs/op
-BenchmarkE2EMultipleSessions/sessions-100-8     	    4023	    303033 ns/op	  280225 B/op	    5394 allocs/op
-BenchmarkSpecificationCompliance-8              	  621726	      1960 ns/op	    1871 B/op	      41 allocs/op
-BenchmarkErrorPaths/invalid-template-syntax-8   	     565	   1856004 ns/op	  392096 B/op	    3667 allocs/op
-BenchmarkErrorPaths/missing-field-8             	  414754	      2928 ns/op	    2969 B/op	      57 allocs/op
-BenchmarkErrorPaths/nil-data-8                  	  300794	      3994 ns/op	    7315 B/op	      57 allocs/op
-BenchmarkErrorPaths/empty-template-8            	     544	   1941822 ns/op	  415268 B/op	    3814 allocs/op
-BenchmarkTemplateExecute/initial-render-8       	     640	   1898294 ns/op	  419101 B/op	    3910 allocs/op
-BenchmarkTemplateExecute/subsequent-render-8    	  379375	      3025 ns/op	    3033 B/op	      61 allocs/op
-BenchmarkTemplateExecuteUpdates/no-changes-8    	  539006	      2238 ns/op	    2201 B/op	      46 allocs/op
-BenchmarkTemplateExecuteUpdates/small-update-8  	  536530	      2263 ns/op	    2201 B/op	      46 allocs/op
-BenchmarkTemplateExecuteUpdates/large-update-8  	  177672	      6789 ns/op	    5187 B/op	     123 allocs/op
-BenchmarkTemplateComplexity/simple-fields-8     	  198736	      6258 ns/op	    4681 B/op	     115 allocs/op
-BenchmarkTemplateComplexity/with-conditionals-8 	  273748	      4250 ns/op	    3993 B/op	      87 allocs/op
-BenchmarkTemplateComplexity/with-ranges-8       	  131001	      8797 ns/op	    7555 B/op	     182 allocs/op
-BenchmarkTemplateComplexity/deeply-nested-8     	  130737	      8939 ns/op	    7731 B/op	     176 allocs/op
-BenchmarkTemplateConcurrent/goroutines-1-8      	  333078	      3531 ns/op	    3033 B/op	      61 allocs/op
-BenchmarkTemplateConcurrent/goroutines-10-8     	  319066	      3345 ns/op	    3033 B/op	      61 allocs/op
-BenchmarkTemplateConcurrent/goroutines-100-8    	  291843	      4314 ns/op	    3034 B/op	      61 allocs/op
-BenchmarkTemplate_Execute-8                     	  357734	      3230 ns/op	    3193 B/op	      63 allocs/op
-BenchmarkTemplate_ExecuteUpdates-8              	  505999	      2414 ns/op	    2321 B/op	      48 allocs/op
-BenchmarkUserJourney-8                          	    1352	    880074 ns/op	  943007 B/op	   12815 allocs/op
-BenchmarkTreeNodeCreation/flat-8                      	 2448506	       483.1 ns/op	    1264 B/op	      17 allocs/op
-BenchmarkTreeNodeCreation/nested-small-8              	  349514	      3350 ns/op	    8064 B/op	     119 allocs/op
-BenchmarkTreeNodeCreation/nested-medium-8             	  145065	      7878 ns/op	   24480 B/op	     362 allocs/op
-BenchmarkTreeNodeCreation/nested-large-8              	   49833	     23895 ns/op	   73728 B/op	    1091 allocs/op
-BenchmarkTreeNodeMarshalJSON/flat-8                   	  295693	      4074 ns/op	    3555 B/op	      52 allocs/op
-BenchmarkTreeNodeMarshalJSON/nested-small-8           	   25862	     46275 ns/op	   27942 B/op	     358 allocs/op
-BenchmarkTreeNodeMarshalJSON/nested-medium-8          	    7144	    170789 ns/op	   91194 B/op	    1087 allocs/op
-BenchmarkWrapperInjection/full-html-8                 	  393500	      2955 ns/op	    7096 B/op	      37 allocs/op
-BenchmarkWrapperInjection/fragment-8                  	  629569	      1912 ns/op	    6416 B/op	      28 allocs/op
-BenchmarkExtractWrapperContent-8                      	  617815	      1897 ns/op	    6024 B/op	      28 allocs/op
-BenchmarkContextOperations/with-statics-8             	  540753	      2265 ns/op	    7440 B/op	      93 allocs/op
-BenchmarkContextOperations/without-statics-8          	  557733	      2185 ns/op	    7440 B/op	      93 allocs/op
-BenchmarkTreeNodeClone/flat-8                         	 3904633	       304.1 ns/op	    1104 B/op	      13 allocs/op
-BenchmarkTreeNodeClone/nested-small-8                 	  542688	      2227 ns/op	    7440 B/op	      93 allocs/op
-BenchmarkTreeNodeClone/nested-medium-8                	  173260	      6915 ns/op	   22560 B/op	     282 allocs/op
-BenchmarkTreeNodeToMap/flat-8                         	 1716127	       694.1 ns/op	    2160 B/op	      18 allocs/op
-BenchmarkTreeNodeToMap/nested-small-8                 	  253890	      4671 ns/op	   14400 B/op	     120 allocs/op
-BenchmarkTreeNodeToMap/nested-medium-8                	   83988	     14391 ns/op	   43560 B/op	     363 allocs/op
-BenchmarkGenerateRandomID-8                           	12832508	        93.57 ns/op	      24 B/op	       1 allocs/op
-BenchmarkCalculateStructureFingerprint_Small-8        	 6714813	       179.6 ns/op	      88 B/op	       5 allocs/op
-BenchmarkCalculateStructureFingerprint_Medium-8       	  335924	      3568 ns/op	     904 B/op	      65 allocs/op
-BenchmarkCalculateStructureFingerprint_Large-8        	   41659	     28420 ns/op	    4112 B/op	     305 allocs/op
-BenchmarkCalculateStructureFingerprint_DeepNested-8   	  347985	      3450 ns/op	    1824 B/op	      70 allocs/op
-BenchmarkCalculateStructureFingerprint_Range100-8     	 5023008	       238.7 ns/op	     104 B/op	       7 allocs/op
-BenchmarkCalculateStructureFingerprint_Range1000-8    	 5016718	       239.4 ns/op	     104 B/op	       7 allocs/op
-BenchmarkFingerprintAlgorithms/small/MD5-previous-8   	 4153599	       289.1 ns/op	     184 B/op	       6 allocs/op
-BenchmarkFingerprintAlgorithms/small/FNV1a128-current-8         	 5610609	       214.3 ns/op	     112 B/op	       7 allocs/op
-BenchmarkFingerprintAlgorithms/medium/MD5-previous-8            	  262750	      4603 ns/op	    1000 B/op	      66 allocs/op
-BenchmarkFingerprintAlgorithms/medium/FNV1a128-current-8        	  340573	      3536 ns/op	     928 B/op	      67 allocs/op
-BenchmarkFingerprintAlgorithms/large/MD5-previous-8             	   32960	     36372 ns/op	    4208 B/op	     306 allocs/op
-BenchmarkFingerprintAlgorithms/large/FNV1a128-current-8         	   42140	     28485 ns/op	    4136 B/op	     307 allocs/op
-BenchmarkFingerprintAlgorithms/deep-20/MD5-previous-8           	  270121	      4429 ns/op	    1920 B/op	      71 allocs/op
-BenchmarkFingerprintAlgorithms/deep-20/FNV1a128-current-8       	  337766	      3549 ns/op	    1848 B/op	      72 allocs/op
-BenchmarkExecuteTemplateWithContext_Struct-8   	  638680	      1882 ns/op	    1003 B/op	      29 allocs/op
-BenchmarkExecuteTemplateWithContext_Map-8      	  596139	      2030 ns/op	    1179 B/op	      36 allocs/op
-BenchmarkPrecompute/eager_all_methods-8         	  154539	      7748 ns/op	    1608 B/op	      15 allocs/op
-BenchmarkPrecompute/referenced_only-8           	 1218118	       955.5 ns/op	     440 B/op	       5 allocs/op
-BenchmarkPrecompute/all_referenced-8            	  154534	      8011 ns/op	    1608 B/op	      15 allocs/op
-BenchmarkCompareTreesNoChanges-8                   	 9069051	       132.4 ns/op	     288 B/op	       2 allocs/op
-BenchmarkCompareTreesSmallChange-8                 	20187830	        59.75 ns/op	     144 B/op	       2 allocs/op
-BenchmarkCompareTreesLargeChange/10-8              	 6104209	       190.8 ns/op	     288 B/op	       2 allocs/op
-BenchmarkCompareTreesLargeChange/100-8             	  906968	      1297 ns/op	    1920 B/op	       2 allocs/op
-BenchmarkCompareTreesLargeChange/1000-8            	   47726	     25173 ns/op	   19392 B/op	     902 allocs/op
-BenchmarkRangeDiffUpdate-8                         	  541994	      2221 ns/op	   14104 B/op	      16 allocs/op
-BenchmarkRangeDiffInsert-8                         	  542324	      2215 ns/op	   14104 B/op	      16 allocs/op
-BenchmarkRangeDiffRemove-8                         	  543912	      2224 ns/op	   14104 B/op	      16 allocs/op
-BenchmarkRangeDiff_TreeNode_Update-8               	   46268	     26593 ns/op	   33459 B/op	     128 allocs/op
-BenchmarkRangeDiff_TreeNode_Reorder-8              	   90934	     13128 ns/op	   21116 B/op	      22 allocs/op
-BenchmarkRangeDiff_TreeNode_LargeList-8            	    3688	    321578 ns/op	  449505 B/op	    1038 allocs/op
-BenchmarkPrepareTreeForClient/with-statics-8       	585915805	         2.025 ns/op	       0 B/op	       0 allocs/op
-BenchmarkPrepareTreeForClient/without-statics-8    	 1301413	       921.3 ns/op	    1920 B/op	       2 allocs/op
-BenchmarkClientNeedsStatics_SameStructure-8        	184915884	         6.454 ns/op	       0 B/op	       0 allocs/op
-BenchmarkClientNeedsStatics_DifferentStructure-8   	195559428	         6.133 ns/op	       0 B/op	       0 allocs/op
-BenchmarkClientNeedsStatics_DeepNested-8           	186267541	         6.447 ns/op	       0 B/op	       0 allocs/op
-BenchmarkClientNeedsStatics_Range-8                	186339381	         6.600 ns/op	       0 B/op	       0 allocs/op
-BenchmarkClientNeedsStatics_NilOld-8               	601841380	         1.986 ns/op	       0 B/op	       0 allocs/op
-BenchmarkWireSize_WithStatics-8                    	  224313	      5345 ns/op	       294.0 bytes/op	    4373 B/op	      53 allocs/op
-BenchmarkWireSize_WithoutStatics-8                 	  225624	      5227 ns/op	       251.0 bytes/op	    4637 B/op	      52 allocs/op
-BenchmarkWireSizeComparison/small_5_with_statics-8 	  814711	      1482 ns/op	       104.0 bytes/op	    1017 B/op	      18 allocs/op
-BenchmarkWireSizeComparison/small_5_without_statics-8         	  971901	      1179 ns/op	        61.00 bytes/op	    1041 B/op	      17 allocs/op
-BenchmarkWireSizeComparison/medium_20_with_statics-8          	  228793	      5284 ns/op	       294.0 bytes/op	    4373 B/op	      53 allocs/op
-BenchmarkWireSizeComparison/medium_20_without_statics-8       	  233781	      5089 ns/op	       251.0 bytes/op	    4637 B/op	      52 allocs/op
-BenchmarkWireSizeComparison/large_100_with_statics-8          	   47242	     25446 ns/op	      1334 bytes/op	   19560 B/op	     217 allocs/op
-BenchmarkWireSizeComparison/large_100_without_statics-8       	   46099	     25944 ns/op	      1291 bytes/op	   21429 B/op	     216 allocs/op
-BenchmarkParse/simple-8     	  503504	      2327 ns/op	    5248 B/op	      47 allocs/op
-BenchmarkParse/conditional-8         	  359590	      3764 ns/op	    6008 B/op	      68 allocs/op
-BenchmarkParse/range-8               	  319767	      3485 ns/op	    5840 B/op	      63 allocs/op
-BenchmarkParse/nested-8              	  300814	      4166 ns/op	    6224 B/op	      73 allocs/op
-BenchmarkParse/complex-8             	  159740	      7498 ns/op	    8576 B/op	     130 allocs/op
-BenchmarkBuildTree/simple-8          	 3231937	       371.7 ns/op	     672 B/op	      14 allocs/op
-BenchmarkBuildTree/conditional-true-8         	 1598988	       750.2 ns/op	    1328 B/op	      27 allocs/op
-BenchmarkBuildTree/conditional-false-8        	 2575018	       467.3 ns/op	     968 B/op	      18 allocs/op
-BenchmarkBuildTree/range-small-8              	  434193	      2742 ns/op	    3955 B/op	      90 allocs/op
-BenchmarkBuildTreeScale/small-10-8            	  153310	      7808 ns/op	   11576 B/op	     266 allocs/op
-BenchmarkBuildTreeScale/medium-100-8          	   16635	     72147 ns/op	  109862 B/op	    2516 allocs/op
-BenchmarkBuildTreeScale/large-1000-8          	    1636	    733506 ns/op	 1096212 B/op	   25763 allocs/op
-BenchmarkNodeRender-8          	14489719	        81.89 ns/op	      56 B/op	       3 allocs/op
-BenchmarkTreeToHTML/simple-8   	 8658757	       139.2 ns/op	      64 B/op	       4 allocs/op
-BenchmarkTreeToHTML/nested-8   	 4788673	       250.7 ns/op	     144 B/op	       7 allocs/op
-BenchmarkTreeToHTML/with-ranges-8         	 5388440	       224.6 ns/op	      72 B/op	       5 allocs/op
-BenchmarkTreeToHTMLScale/small-10-8       	 1409430	       853.2 ns/op	     544 B/op	      16 allocs/op
-BenchmarkTreeToHTMLScale/medium-100-8     	  168198	      7146 ns/op	    3721 B/op	     109 allocs/op
-BenchmarkTreeToHTMLScale/large-1000-8     	   16425	     73113 ns/op	   66995 B/op	    1017 allocs/op
-BenchmarkIsVoidElement-8                  	13137397	        91.54 ns/op	       0 B/op	       0 allocs/op
-BenchmarkNodeRenderComplex-8              	 5196253	       230.5 ns/op	     248 B/op	       5 allocs/op
-BenchmarkParseActionFromHTTP-8        	  590948	      1968 ns/op	    6962 B/op	      30 allocs/op
-BenchmarkParseActionFromWebSocket-8   	 1451036	       827.0 ns/op	     656 B/op	      13 allocs/op
-BenchmarkPrepareUpdate/without-errors-8         	1000000000	         0.3640 ns/op	       0 B/op	       0 allocs/op
-BenchmarkPrepareUpdate/with-errors-8            	67183606	        17.39 ns/op	      32 B/op	       1 allocs/op
-BenchmarkSerializeUpdate-8                      	 1203759	       998.0 ns/op	     648 B/op	      10 allocs/op
-BenchmarkPrepareAndSerialize/simple-update-8    	 1000000	      1014 ns/op	     672 B/op	      11 allocs/op
-BenchmarkPrepareAndSerialize/with-metadata-8    	  904660	      1308 ns/op	     848 B/op	      15 allocs/op
-BenchmarkParseActionScale/small-http-8          	  622428	      1950 ns/op	    6954 B/op	      30 allocs/op
-BenchmarkParseActionScale/small-ws-8            	 1520503	       787.2 ns/op	     648 B/op	      13 allocs/op
-BenchmarkParseActionScale/medium-http-8         	  447283	      2657 ns/op	    7122 B/op	      40 allocs/op
-BenchmarkParseActionScale/medium-ws-8           	  787356	      1501 ns/op	     760 B/op	      23 allocs/op
-BenchmarkParseActionScale/large-http-8          	  288032	      4011 ns/op	    8074 B/op	      63 allocs/op
-BenchmarkParseActionScale/large-ws-8            	  413596	      2914 ns/op	    1616 B/op	      46 allocs/op
-BenchmarkSerializeUpdateScale/simple-8          	 1203338	       944.4 ns/op	     648 B/op	      10 allocs/op
-BenchmarkSerializeUpdateScale/nested-8          	  595752	      2069 ns/op	    1313 B/op	      19 allocs/op
-BenchmarkSerializeUpdateScale/multiple-fields-8 	  783783	      1547 ns/op	     968 B/op	      16 allocs/op
-# BenchmarkAsyncSendThroughput-8 failed in this run; no baseline recorded
-# BenchmarkConcurrentConnections/10_connections-8 failed in this run; no baseline recorded
-BenchmarkConcurrentConnections/100_connections-8        	   59728	     19757 ns/op	    3600 B/op	     200 allocs/op
-BenchmarkConcurrentConnections/1000_connections-8       	    8186	    143886 ns/op	   36001 B/op	    2000 allocs/op
-BenchmarkRegisterUnregister-8                           	  460474	      2698 ns/op	    1210 B/op	      13 allocs/op
-# BenchmarkConcurrentSend-8 failed in this run; no baseline recorded
-BenchmarkGetByGroup-8                                   	 4588725	       276.4 ns/op	     896 B/op	       1 allocs/op
-BenchmarkCloseConnection-8                              	  910707	      1224 ns/op	     248 B/op	       3 allocs/op
-BenchmarkMemoryUsage-8                                  	   29671	     40346 ns/op	   98126 B/op	     620 allocs/op
-BenchmarkBroadcastToGroup-8                             	   74743	     15726 ns/op	    4096 B/op	     101 allocs/op
-BenchmarkBufferSizes/buf_10-8                           	 4337671	       275.6 ns/op	     113 B/op	       3 allocs/op
-BenchmarkBufferSizes/buf_50-8                           	 6936325	       172.5 ns/op	      54 B/op	       2 allocs/op
-BenchmarkBufferSizes/buf_100-8                          	 7811654	       152.7 ns/op	      47 B/op	       2 allocs/op
-BenchmarkBufferSizes/buf_500-8                          	 6882126	       175.3 ns/op	      36 B/op	       2 allocs/op
-BenchmarkBufferSizes/buf_1000-8                         	 6821638	       175.7 ns/op	      36 B/op	       2 allocs/op
-BenchmarkConcurrentRegistrations-8                      	  438201	      2708 ns/op	    1239 B/op	      11 allocs/op
-BenchmarkGetByGroupExcept-8                             	 4062116	       297.9 ns/op	     896 B/op	       1 allocs/op
+# Single-run baseline over the gate set (make bench-ci; capacity sweeps excluded)
+# go version go1.26.1 linux/arm64 | Linux aarch64 | 2026-07-30
+# The CI gate compares B/op and allocs/op (machine-independent); sec/op deltas vs this file are cross-machine and informational only.
+BenchmarkCompositeUpdate-8                       	   48924	     30990 ns/op	        78.77 wireB/op	    6326 B/op	      97 allocs/op
+BenchmarkE2EUserJourney-8                        	     386	   2960109 ns/op	  632390 B/op	    9705 allocs/op
+BenchmarkCompositeUpdate_LoopbackWS-8            	   14152	     77949 ns/op	    7458 B/op	     104 allocs/op
+BenchmarkDispatchWithState_Cached-8              	 1644878	       807.2 ns/op	      80 B/op	       4 allocs/op
+BenchmarkUserJourney_ExecuteUpdatesOnly-8        	     852	   1295457 ns/op	  279016 B/op	    5683 allocs/op
+BenchmarkTodoApp_ExecuteUpdatesOnly-8            	   10000	    114234 ns/op	   25226 B/op	     556 allocs/op
+BenchmarkRangeOperations_ExecuteUpdatesOnly/add-items-8         	   25729	     46909 ns/op	   11422 B/op	     252 allocs/op
+BenchmarkRangeOperations_ExecuteUpdatesOnly/remove-items-8      	   43473	     28743 ns/op	    7231 B/op	     152 allocs/op
+BenchmarkRangeOperations_ExecuteUpdatesOnly/reorder-items-8     	   35438	     35383 ns/op	    8615 B/op	     186 allocs/op
+BenchmarkRangeOperations_ExecuteUpdatesOnly/update-items-8      	   32955	     35408 ns/op	    8617 B/op	     186 allocs/op
+BenchmarkMultipleSessions_ExecuteUpdatesOnly/sessions-1-8       	  112680	     13140 ns/op	    3078 B/op	      60 allocs/op
+BenchmarkMultipleSessions_ExecuteUpdatesOnly/sessions-10-8      	   10000	    124551 ns/op	   30776 B/op	     599 allocs/op
+BenchmarkMultipleSessions_ExecuteUpdatesOnly/sessions-100-8     	     824	   1387930 ns/op	  307187 B/op	    5968 allocs/op
+BenchmarkSpecificationCompliance-8                              	  145608	      8620 ns/op	    2011 B/op	      44 allocs/op
+BenchmarkErrorPaths/invalid-template-syntax-8                   	     494	   2197824 ns/op	  369253 B/op	    4090 allocs/op
+BenchmarkErrorPaths/missing-field-8                             	   89290	     13381 ns/op	    3113 B/op	      60 allocs/op
+BenchmarkErrorPaths/nil-data-8                                  	  132908	      8661 ns/op	    2281 B/op	      47 allocs/op
+BenchmarkErrorPaths/empty-template-8                            	     537	   2541482 ns/op	  399445 B/op	    4254 allocs/op
+BenchmarkTopicFanout_FullPipeline/N=1-8                         	   20056	     56137 ns/op	       136.0 wireB/op	   12850 B/op	     203 allocs/op
+BenchmarkTopicFanout_FullPipeline/N=10-8                        	    4354	    284650 ns/op	       667.0 wireB/op	   63826 B/op	    1025 allocs/op
+BenchmarkTopicFanout_FullPipeline/N=100-8                       	     463	   2533118 ns/op	      5977 wireB/op	  574364 B/op	    9226 allocs/op
+BenchmarkTopicFanout_LoopbackWS-8                               	    1825	    689730 ns/op	   70520 B/op	    1072 allocs/op
+BenchmarkTriggerActionFanout/N=1-8                              	   42528	     28577 ns/op	        59.74 wireB/op	    5632 B/op	      94 allocs/op
+BenchmarkTriggerActionFanout/N=10-8                             	    4597	    225649 ns/op	       587.6 wireB/op	   56545 B/op	     941 allocs/op
+BenchmarkTriggerActionFanout/N=100-8                            	     477	   2250565 ns/op	      5777 wireB/op	  564377 B/op	    9401 allocs/op
+BenchmarkTriggerAction_DeadHandle-8                             	 1000000	      1049 ns/op	     176 B/op	       3 allocs/op
+BenchmarkChatAppendFanout/hist=10,peers=10-8                    	    1118	   1017966 ns/op	      1308 wireB/op	  294049 B/op	    6306 allocs/op
+BenchmarkChatAppendFanout/hist=100,peers=10-8                   	     206	   5359149 ns/op	      1312 wireB/op	 1962204 B/op	   42950 allocs/op
+BenchmarkChatAppendFanout/hist=100,peers=1-8                    	    1004	   1129425 ns/op	       250.1 wireB/op	  358037 B/op	    7824 allocs/op
+BenchmarkChatAppendFanout/hist=100,peers=100-8                  	      30	  38298852 ns/op	     11898 wireB/op	18002002 B/op	  394215 allocs/op
+BenchmarkWideTableAction-8                                      	      43	  30206469 ns/op	      1519 wireB/op	 6995361 B/op	  107982 allocs/op
+BenchmarkLargeDocDiff/files=10,lines=100/autokey-8              	      69	  24445634 ns/op	      6518 wireB/op	 6322154 B/op	   93511 allocs/op
+BenchmarkLargeDocDiff/files=10,lines=100/datakey-8              	      46	  25600259 ns/op	      1275 wireB/op	 6977353 B/op	  101924 allocs/op
+BenchmarkRangeFullSwap_Simple_N10-8                             	    4990	    262218 ns/op	      1086 bytes/op	   63746 B/op	    1155 allocs/op
+BenchmarkRangeFullSwap_Simple_N100-8                            	     616	   2365454 ns/op	     11077 bytes/op	  604012 B/op	   10525 allocs/op
+BenchmarkRangeFullSwap_Simple_N1000-8                           	      54	  24767372 ns/op	    114578 bytes/op	 6439319 B/op	  105677 allocs/op
+BenchmarkRangeFullSwap_DynamicBranch_N10-8                      	    2826	    485175 ns/op	      1856 bytes/op	  116312 B/op	    1891 allocs/op
+BenchmarkRangeFullSwap_DynamicBranch_N100-8                     	     267	   4673601 ns/op	     18867 bytes/op	 1138155 B/op	   17836 allocs/op
+BenchmarkRangeFullSwap_DynamicBranch_N1000-8                    	      21	  50162728 ns/op	    193468 bytes/op	12796257 B/op	  178721 allocs/op
+BenchmarkRecursiveRender-8                                      	     261	   4630435 ns/op	 1089623 B/op	   20455 allocs/op
+BenchmarkRecursiveUpdate-8                                      	      44	  30060734 ns/op	       212.0 update_bytes	 9443588 B/op	   75483 allocs/op
+BenchmarkOpaqueHTMLBaseline-8                                   	     813	   1578181 ns/op	     23559 full_html_bytes	  209384 B/op	    5229 allocs/op
+BenchmarkRedisCrossInstanceFanout/N=1-8                         	    6704	    230127 ns/op	       136.0 wireB/op	   18119 B/op	     326 allocs/op
+BenchmarkRedisCrossInstanceFanout/N=10-8                        	    2403	    493610 ns/op	       667.0 wireB/op	   69035 B/op	    1148 allocs/op
+BenchmarkRedisCrossInstanceFanout/N=100-8                       	     396	   2756371 ns/op	      5977 wireB/op	  579297 B/op	    9347 allocs/op
+BenchmarkSystemCard/Counter/Dashboard/session-memory-8          	   17520	     65390 ns/op	   19424 B/op	     244 allocs/op
+BenchmarkSystemCard/Counter/Dashboard/update-8                  	   36200	     33427 ns/op	    7671 B/op	     139 allocs/op
+BenchmarkSystemCard/Counter/Dashboard/state-clone-8             	 1000000	      1160 ns/op	     168 B/op	       5 allocs/op
+BenchmarkSystemCard/Counter/Dashboard/payload-size-8            	   38175	     32618 ns/op	        59.00 payload-bytes	    7673 B/op	     139 allocs/op
+BenchmarkSystemCard/Todo_App/session-memory-8                   	    1670	    727937 ns/op	  170636 B/op	    3015 allocs/op
+BenchmarkSystemCard/Todo_App/update-8                           	    1286	    957518 ns/op	  243811 B/op	    3915 allocs/op
+BenchmarkSystemCard/Todo_App/state-clone-8                      	   48864	     23159 ns/op	    4237 B/op	      78 allocs/op
+BenchmarkSystemCard/Todo_App/payload-size-8                     	    1092	   1026985 ns/op	      3612 payload-bytes	  243865 B/op	    3915 allocs/op
+BenchmarkSystemCard/Social_Feed/session-memory-8                	     534	   2213694 ns/op	  534741 B/op	    7792 allocs/op
+BenchmarkSystemCard/Social_Feed/update-8                        	     478	   2354471 ns/op	  645632 B/op	    8915 allocs/op
+BenchmarkSystemCard/Social_Feed/state-clone-8                   	   13305	     93831 ns/op	   20441 B/op	     203 allocs/op
+BenchmarkSystemCard/Social_Feed/payload-size-8                  	     498	   2462290 ns/op	     13837 payload-bytes	  651355 B/op	    8979 allocs/op
+BenchmarkSystemCard/Chat/Collab/session-memory-8                	     387	   3381327 ns/op	  754640 B/op	   12881 allocs/op
+BenchmarkSystemCard/Chat/Collab/update-8                        	     510	   2495235 ns/op	  630070 B/op	   11408 allocs/op
+BenchmarkSystemCard/Chat/Collab/state-clone-8                   	   10000	    117231 ns/op	   22689 B/op	     423 allocs/op
+BenchmarkSystemCard/Chat/Collab/payload-size-8                  	     492	   2365313 ns/op	      1232 payload-bytes	  631334 B/op	   11408 allocs/op
+BenchmarkTemplateExecute/initial-render-8                       	     540	   2391422 ns/op	  399821 B/op	    4356 allocs/op
+BenchmarkTemplateExecute/subsequent-render-8                    	  102097	     12770 ns/op	    3176 B/op	      64 allocs/op
+BenchmarkTemplateExecuteUpdates/no-changes-8                    	  123727	      9925 ns/op	    2481 B/op	      54 allocs/op
+BenchmarkTemplateExecuteUpdates/small-update-8                  	  128814	      9269 ns/op	    2482 B/op	      54 allocs/op
+BenchmarkTemplateExecuteUpdates/large-update-8                  	   45696	     23497 ns/op	    5469 B/op	     131 allocs/op
+BenchmarkTemplateComplexity/simple-fields-8                     	   57028	     21686 ns/op	    4825 B/op	     118 allocs/op
+BenchmarkTemplateComplexity/with-conditionals-8                 	   71946	     16212 ns/op	    4137 B/op	      90 allocs/op
+BenchmarkTemplateComplexity/with-ranges-8                       	   31113	     36917 ns/op	    9227 B/op	     206 allocs/op
+BenchmarkTemplateComplexity/deeply-nested-8                     	   34184	     36262 ns/op	    9307 B/op	     196 allocs/op
+BenchmarkTemplateConcurrent/goroutines-1-8                      	  104593	     12061 ns/op	    3177 B/op	      64 allocs/op
+BenchmarkTemplateConcurrent/goroutines-10-8                     	  108040	     10637 ns/op	    3177 B/op	      64 allocs/op
+BenchmarkTemplateConcurrent/goroutines-100-8                    	  107968	     11660 ns/op	    3181 B/op	      64 allocs/op
+BenchmarkTemplate_Execute-8                                     	   98590	     12612 ns/op	    3337 B/op	      66 allocs/op
+BenchmarkTemplate_ExecuteUpdates-8                              	  129559	      9951 ns/op	    2610 B/op	      56 allocs/op
+BenchmarkTopicFanoutByN_EnqueueOnly/N=1-8                       	 1000000	      1013 ns/op	     248 B/op	       6 allocs/op
+BenchmarkTopicFanoutByN_EnqueueOnly/N=5-8                       	  575752	      2706 ns/op	     480 B/op	      10 allocs/op
+BenchmarkTopicFanoutByN_EnqueueOnly/N=10-8                      	  235486	      6045 ns/op	    1080 B/op	      18 allocs/op
+BenchmarkTopicFanoutByN_EnqueueOnly/N=50-8                      	   45360	     28119 ns/op	    5128 B/op	      62 allocs/op
+BenchmarkTopicFanoutByN_EnqueueOnly/N=100-8                     	   23413	     54090 ns/op	   10345 B/op	     114 allocs/op
+BenchmarkTopicPatternScanByP/P=1-8                              	 1000000	      1018 ns/op	     256 B/op	       6 allocs/op
+BenchmarkTopicPatternScanByP/P=10-8                             	  473455	      3796 ns/op	     992 B/op	      24 allocs/op
+BenchmarkTopicPatternScanByP/P=100-8                            	   33962	     31743 ns/op	    8192 B/op	     204 allocs/op
+BenchmarkUserJourney-8                                          	     326	   3269199 ns/op	  967297 B/op	   13236 allocs/op
+BenchmarkUpload_Proxied/64KB-8                                  	   10000	    100438 ns/op	 652.50 MB/s	   19872 B/op	     113 allocs/op
+BenchmarkUpload_Proxied/1MB-8                                   	    1201	    928193 ns/op	1129.70 MB/s	   19875 B/op	     113 allocs/op
+BenchmarkUpload_Proxied/16MB-8                                  	      84	  14564714 ns/op	1151.91 MB/s	   20045 B/op	     113 allocs/op
+BenchmarkUpload_Volume/64KB-8                                   	    3595	    385188 ns/op	 170.14 MB/s	   53062 B/op	     120 allocs/op
+BenchmarkUpload_Volume/1MB-8                                    	     556	   2131466 ns/op	 491.95 MB/s	   53063 B/op	     120 allocs/op
+BenchmarkUpload_Volume/16MB-8                                   	      37	  31548747 ns/op	 531.79 MB/s	   53686 B/op	     121 allocs/op
+BenchmarkUpload_Direct-8                                        	  125906	     11608 ns/op	    1903 B/op	      29 allocs/op
+BenchmarkUpload_Preview-8                                       	  145326	      7855 ns/op	     976 B/op	      19 allocs/op
+BenchmarkTreeNodeCreation/flat-8                      	  684130	      3821 ns/op	    1264 B/op	      17 allocs/op
+BenchmarkTreeNodeCreation/nested-small-8              	   63408	     20062 ns/op	    8064 B/op	     119 allocs/op
+BenchmarkTreeNodeCreation/nested-medium-8             	   23062	     61271 ns/op	   24480 B/op	     362 allocs/op
+BenchmarkTreeNodeCreation/nested-large-8              	   10000	    262985 ns/op	   73729 B/op	    1091 allocs/op
+BenchmarkTreeNodeMarshalJSON/flat-8                   	   59026	     20291 ns/op	    5102 B/op	      68 allocs/op
+BenchmarkTreeNodeMarshalJSON/nested-small-8           	    9242	    160208 ns/op	   37376 B/op	     465 allocs/op
+BenchmarkTreeNodeMarshalJSON/nested-medium-8          	    2244	    451368 ns/op	  120017 B/op	    1411 allocs/op
+BenchmarkWrapperInjection/full-html-8                 	   64600	     25535 ns/op	    7096 B/op	      37 allocs/op
+BenchmarkWrapperInjection/fragment-8                  	   84082	     14704 ns/op	    6416 B/op	      28 allocs/op
+BenchmarkWrapperInjection/string-fallback-tokenizer-8 	   84726	     13220 ns/op	    5058 B/op	      14 allocs/op
+BenchmarkExtractWrapperContent-8                      	  113778	     17248 ns/op	    6024 B/op	      28 allocs/op
+BenchmarkContextOperations/with-statics-8             	   53527	     21475 ns/op	    7440 B/op	      93 allocs/op
+BenchmarkContextOperations/without-statics-8          	   64503	     19811 ns/op	    7440 B/op	      93 allocs/op
+BenchmarkTreeNodeClone/flat-8                         	  321232	      3134 ns/op	    1104 B/op	      13 allocs/op
+BenchmarkTreeNodeClone/nested-small-8                 	   72184	     21767 ns/op	    7440 B/op	      93 allocs/op
+BenchmarkTreeNodeClone/nested-medium-8                	   19849	     57997 ns/op	   22560 B/op	     282 allocs/op
+BenchmarkTreeNodeToMap/flat-8                         	  274152	      4946 ns/op	    2160 B/op	      18 allocs/op
+BenchmarkTreeNodeToMap/nested-small-8                 	   41580	     33244 ns/op	   14400 B/op	     120 allocs/op
+BenchmarkTreeNodeToMap/nested-medium-8                	   12604	    111322 ns/op	   43560 B/op	     363 allocs/op
+BenchmarkGenerateRandomID-8                           	 5617778	       231.6 ns/op	      24 B/op	       1 allocs/op
+BenchmarkCalculateStructureFingerprint_Small-8        	 1628799	       659.6 ns/op	      88 B/op	       5 allocs/op
+BenchmarkCalculateStructureFingerprint_Medium-8       	  128528	     10588 ns/op	     904 B/op	      65 allocs/op
+BenchmarkCalculateStructureFingerprint_Large-8        	   19555	     67545 ns/op	    4112 B/op	     305 allocs/op
+BenchmarkCalculateStructureFingerprint_DeepNested-8   	   93273	     14189 ns/op	    1824 B/op	      70 allocs/op
+BenchmarkCalculateStructureFingerprint_Range100-8     	 1660696	       875.2 ns/op	     104 B/op	       7 allocs/op
+BenchmarkCalculateStructureFingerprint_Range1000-8    	 1546221	       862.1 ns/op	     104 B/op	       7 allocs/op
+BenchmarkFingerprintAlgorithms/small/MD5-previous-8   	 1390346	       966.4 ns/op	     152 B/op	       5 allocs/op
+BenchmarkFingerprintAlgorithms/small/FNV1a128-current-8         	 1711618	       701.0 ns/op	      80 B/op	       6 allocs/op
+BenchmarkFingerprintAlgorithms/medium/MD5-previous-8            	  123211	     11803 ns/op	     968 B/op	      65 allocs/op
+BenchmarkFingerprintAlgorithms/medium/FNV1a128-current-8        	  119624	     10330 ns/op	     896 B/op	      66 allocs/op
+BenchmarkFingerprintAlgorithms/large/MD5-previous-8             	   15979	     75741 ns/op	    4177 B/op	     305 allocs/op
+BenchmarkFingerprintAlgorithms/large/FNV1a128-current-8         	   16788	     66574 ns/op	    4105 B/op	     306 allocs/op
+BenchmarkFingerprintAlgorithms/deep-20/MD5-previous-8           	  126321	      9678 ns/op	     952 B/op	      65 allocs/op
+BenchmarkFingerprintAlgorithms/deep-20/FNV1a128-current-8       	  163702	      9686 ns/op	     880 B/op	      66 allocs/op
+BenchmarkExecuteTemplateWithContext_Struct-8   	  189333	      7290 ns/op	    1003 B/op	      29 allocs/op
+BenchmarkExecuteTemplateWithContext_Map-8      	  114843	      8880 ns/op	    1179 B/op	      36 allocs/op
+BenchmarkPrecompute/eager_all_methods-8        	  127034	     10772 ns/op	    1608 B/op	      15 allocs/op
+BenchmarkPrecompute/referenced_only-8          	 1000000	      1523 ns/op	     440 B/op	       5 allocs/op
+BenchmarkPrecompute/all_referenced-8           	  104670	     10262 ns/op	    1608 B/op	      15 allocs/op
+BenchmarkCompareTreesNoChanges-8                          	 2300774	       619.2 ns/op	     288 B/op	       2 allocs/op
+BenchmarkCompareTreesSmallChange-8                        	 3476570	       354.9 ns/op	     144 B/op	       2 allocs/op
+BenchmarkCompareTreesLargeChange/10-8                     	 1407506	       949.0 ns/op	     288 B/op	       2 allocs/op
+BenchmarkCompareTreesLargeChange/100-8                    	  197133	      5728 ns/op	    1920 B/op	       2 allocs/op
+BenchmarkCompareTreesLargeChange/1000-8                   	   12956	     95961 ns/op	   19392 B/op	     902 allocs/op
+BenchmarkRangeDiffUpdate-8                                	   83270	     23068 ns/op	   17585 B/op	      19 allocs/op
+BenchmarkRangeDiffInsert-8                                	   38793	     34241 ns/op	   17586 B/op	      19 allocs/op
+BenchmarkRangeDiffRemove-8                                	   65818	     19895 ns/op	   17585 B/op	      19 allocs/op
+BenchmarkRangeDiff_TreeNode_Update-8                      	    2106	    530671 ns/op	   92658 B/op	    2445 allocs/op
+BenchmarkRangeDiff_TreeNode_Reorder-8                     	    5205	    329548 ns/op	   68378 B/op	    1623 allocs/op
+BenchmarkRangeDiff_TreeNode_LargeList-8                   	     306	   4774466 ns/op	 1019266 B/op	   24053 allocs/op
+BenchmarkPrepareTreeForClient/with-statics-8              	358706809	         3.391 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPrepareTreeForClient/without-statics-8           	  279318	      4947 ns/op	    1920 B/op	       2 allocs/op
+BenchmarkClientNeedsStatics_SameStructure-8               	89305807	        13.39 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClientNeedsStatics_DifferentStructure-8          	96147081	        12.35 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClientNeedsStatics_DeepNested-8                  	88326880	        13.52 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClientNeedsStatics_Range-8                       	89697796	        15.30 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClientNeedsStatics_NilOld-8                      	577572976	         2.024 ns/op	       0 B/op	       0 allocs/op
+BenchmarkWireSize_WithStatics-8                           	   36723	     28585 ns/op	       294.0 bytes/op	    5800 B/op	      31 allocs/op
+BenchmarkWireSize_WithoutStatics-8                        	   55458	     26962 ns/op	       251.0 bytes/op	    6096 B/op	      32 allocs/op
+BenchmarkWireSizeComparison/small_5_with_statics-8        	  130738	      7891 ns/op	       104.0 bytes/op	    1442 B/op	      14 allocs/op
+BenchmarkWireSizeComparison/small_5_without_statics-8     	  176818	      6580 ns/op	        61.00 bytes/op	    1531 B/op	      15 allocs/op
+BenchmarkWireSizeComparison/medium_20_with_statics-8      	   47043	     29562 ns/op	       294.0 bytes/op	    5799 B/op	      31 allocs/op
+BenchmarkWireSizeComparison/medium_20_without_statics-8   	   42672	     28567 ns/op	       251.0 bytes/op	    6094 B/op	      32 allocs/op
+BenchmarkWireSizeComparison/large_100_with_statics-8      	   10000	    123101 ns/op	      1334 bytes/op	   24645 B/op	     117 allocs/op
+BenchmarkWireSizeComparison/large_100_without_statics-8   	   10000	    148697 ns/op	      1291 bytes/op	   26558 B/op	     118 allocs/op
+BenchmarkRangeDiff_Stream_Append_Small-8                  	   50562	     21222 ns/op	    5016 B/op	     111 allocs/op
+BenchmarkRangeDiff_Stream_Append_Medium-8                 	    9416	    184553 ns/op	   41928 B/op	     831 allocs/op
+BenchmarkRangeDiff_Stream_Append_Large-8                  	      52	  20872466 ns/op	 4423740 B/op	   80121 allocs/op
+BenchmarkRangeDiff_Stream_Update_Small-8                  	   54364	     25094 ns/op	    5504 B/op	     106 allocs/op
+BenchmarkRangeDiff_Stream_Update_Medium-8                 	    7402	    193593 ns/op	   45489 B/op	     826 allocs/op
+BenchmarkRangeDiff_Stream_Update_Large-8                  	      82	  20509471 ns/op	 4860690 B/op	   80146 allocs/op
+BenchmarkRangeDiff_Stream_Reorder_Small-8                 	   75877	     23067 ns/op	    4936 B/op	     103 allocs/op
+BenchmarkRangeDiff_Stream_Reorder_Medium-8                	    8936	    158591 ns/op	   43304 B/op	     823 allocs/op
+BenchmarkRangeDiff_Stream_Reorder_Large-8                 	      80	  16489193 ns/op	 4696452 B/op	   80143 allocs/op
+BenchmarkRangeDiff_Stream_Append_WireSize_Small-8         	   34983	     30651 ns/op	        52.00 bytes/op	    6109 B/op	     127 allocs/op
+BenchmarkRangeDiff_Stream_Append_WireSize_Medium-8        	    6346	    188097 ns/op	        54.00 bytes/op	   43095 B/op	     847 allocs/op
+BenchmarkRangeDiff_Stream_Append_WireSize_Large-8         	      84	  18327992 ns/op	        58.00 bytes/op	 4428969 B/op	   80149 allocs/op
+BenchmarkRangeDiff_Stream_Update_WireSize_Small-8         	   53116	     26634 ns/op	        45.00 bytes/op	    5738 B/op	     114 allocs/op
+BenchmarkRangeDiff_Stream_Update_WireSize_Medium-8        	    5533	    192307 ns/op	        47.00 bytes/op	   45738 B/op	     834 allocs/op
+BenchmarkRangeDiff_Stream_Update_WireSize_Large-8         	      88	  20186503 ns/op	        51.00 bytes/op	 4861857 B/op	   80157 allocs/op
+BenchmarkRangeDiff_Stream_Reorder_WireSize_Small-8        	   49854	     21423 ns/op	        99.00 bytes/op	    5074 B/op	     105 allocs/op
+BenchmarkRangeDiff_Stream_Reorder_WireSize_Medium-8       	    8655	    196481 ns/op	       999.0 bytes/op	   44414 B/op	     825 allocs/op
+BenchmarkRangeDiff_Stream_Reorder_WireSize_Large-8        	      67	  17671867 ns/op	    118899 bytes/op	 4996358 B/op	   80164 allocs/op
+BenchmarkRangeDiff_LegacyPartialDelta_Update_WireSize-8   	 1000000	      1485 ns/op	        33.00 bytes/op	     192 B/op	       7 allocs/op
+BenchmarkParse/simple-8     	   90782	     16329 ns/op	    5272 B/op	      48 allocs/op
+BenchmarkParse/conditional-8         	   50011	     26258 ns/op	    6032 B/op	      69 allocs/op
+BenchmarkParse/range-8               	   52413	     23661 ns/op	    5864 B/op	      64 allocs/op
+BenchmarkParse/nested-8              	   46616	     23566 ns/op	    6248 B/op	      74 allocs/op
+BenchmarkParse/complex-8             	   31531	     39973 ns/op	    8600 B/op	     131 allocs/op
+BenchmarkBuildTree/simple-8          	  483258	      2767 ns/op	     688 B/op	      15 allocs/op
+BenchmarkBuildTree/conditional-true-8         	  259456	      4981 ns/op	    1344 B/op	      28 allocs/op
+BenchmarkBuildTree/conditional-false-8        	  644743	      2834 ns/op	     984 B/op	      19 allocs/op
+BenchmarkBuildTree/range-small-8              	   69913	     16128 ns/op	    3872 B/op	      82 allocs/op
+BenchmarkBuildTreeScale/small-10-8            	   29673	     44560 ns/op	   11280 B/op	     237 allocs/op
+BenchmarkBuildTreeScale/medium-100-8          	    4129	    370555 ns/op	  106609 B/op	    2217 allocs/op
+BenchmarkBuildTreeScale/large-1000-8          	     229	   5775400 ns/op	 1081652 B/op	   22780 allocs/op
+BenchmarkNodeRender-8          	 4003639	       304.7 ns/op	      56 B/op	       3 allocs/op
+BenchmarkTreeToHTML/simple-8   	 2314873	       496.9 ns/op	      64 B/op	       4 allocs/op
+BenchmarkTreeToHTML/nested-8   	 1549868	       923.4 ns/op	     144 B/op	       7 allocs/op
+BenchmarkTreeToHTML/with-ranges-8         	 1726348	       664.6 ns/op	      72 B/op	       5 allocs/op
+BenchmarkTreeToHTMLScale/small-10-8       	  373358	      3762 ns/op	     544 B/op	      16 allocs/op
+BenchmarkTreeToHTMLScale/medium-100-8     	   55146	     26991 ns/op	    3722 B/op	     109 allocs/op
+BenchmarkTreeToHTMLScale/large-1000-8     	    5266	    351647 ns/op	   67005 B/op	    1017 allocs/op
+BenchmarkIsVoidElement-8                  	 7815249	       154.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNodeRenderComplex-8              	 1000000	      1069 ns/op	     248 B/op	       5 allocs/op
+BenchmarkParseActionFromHTTP-8        	  127810	     12795 ns/op	    6713 B/op	      26 allocs/op
+BenchmarkParseActionFromWebSocket-8   	  739171	      1732 ns/op	     456 B/op	       9 allocs/op
+BenchmarkPrepareUpdate/without-errors-8         	1000000000	         0.4162 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPrepareUpdate/with-errors-8            	 8747707	       149.7 ns/op	      64 B/op	       1 allocs/op
+BenchmarkSerializeUpdate-8                      	  283345	      4347 ns/op	     897 B/op	      14 allocs/op
+BenchmarkPrepareAndSerialize/simple-update-8    	  260889	      3990 ns/op	     921 B/op	      15 allocs/op
+BenchmarkPrepareAndSerialize/with-metadata-8    	  211545	      6217 ns/op	    1342 B/op	      22 allocs/op
+BenchmarkParseActionScale/small-http-8          	  120232	     12207 ns/op	    6697 B/op	      26 allocs/op
+BenchmarkParseActionScale/small-ws-8            	  787772	      1633 ns/op	     440 B/op	       9 allocs/op
+BenchmarkParseActionScale/medium-http-8         	   90262	     14511 ns/op	    6913 B/op	      39 allocs/op
+BenchmarkParseActionScale/medium-ws-8           	  560356	      3350 ns/op	     608 B/op	      22 allocs/op
+BenchmarkParseActionScale/large-http-8          	   51320	     22399 ns/op	    7946 B/op	      67 allocs/op
+BenchmarkParseActionScale/large-ws-8            	  201994	      7477 ns/op	    1544 B/op	      50 allocs/op
+BenchmarkSerializeUpdateScale/simple-8          	  390600	      4282 ns/op	     896 B/op	      14 allocs/op
+BenchmarkSerializeUpdateScale/nested-8          	  210350	      7152 ns/op	    1802 B/op	      26 allocs/op
+BenchmarkSerializeUpdateScale/multiple-fields-8 	  226116	      5300 ns/op	    1473 B/op	      16 allocs/op
+BenchmarkAsyncSendThroughput-8               	 2426454	       437.6 ns/op	      1646 slow-closes	      39 B/op	       1 allocs/op
+BenchmarkAsyncSendThroughput_EnqueueOnly-8   	 3297560	       328.6 ns/op	      38 B/op	       1 allocs/op
+BenchmarkConcurrentConnections/10_connections-8         	--- FAIL: BenchmarkConcurrentConnections/10_connections-8
+BenchmarkConcurrentConnections/100_connections-8        	--- FAIL: BenchmarkConcurrentConnections/100_connections-8
+BenchmarkConcurrentConnections/1000_connections-8       	    2162	    589793 ns/op	   36002 B/op	    2000 allocs/op
+BenchmarkRegisterUnregister-8                           	  110422	     10189 ns/op	    1489 B/op	      15 allocs/op
+BenchmarkConcurrentSend-8                               	--- FAIL: BenchmarkConcurrentSend-8
+BenchmarkGetByGroup-8                                   	  700341	      2068 ns/op	     896 B/op	       1 allocs/op
+BenchmarkCloseConnection-8                              	  237554	      5876 ns/op	     248 B/op	       3 allocs/op
+BenchmarkMemoryUsage-8                                  	    4556	    234887 ns/op	  124264 B/op	     825 allocs/op
+BenchmarkBroadcastToGroup-8                             	   27912	     41337 ns/op	    4096 B/op	     101 allocs/op
+BenchmarkBufferSizes/buf_10-8                           	 1607710	       876.3 ns/op	     117 B/op	       3 allocs/op
+BenchmarkBufferSizes/buf_50-8                           	 2536945	       456.9 ns/op	      59 B/op	       2 allocs/op
+BenchmarkBufferSizes/buf_100-8                          	 2756858	       433.4 ns/op	      52 B/op	       2 allocs/op
+BenchmarkBufferSizes/buf_500-8                          	 2996784	       407.1 ns/op	      43 B/op	       2 allocs/op
+BenchmarkBufferSizes/buf_1000-8                         	 2879772	       414.3 ns/op	      42 B/op	       2 allocs/op
+BenchmarkConcurrentRegistrations-8                      	  130281	     10503 ns/op	    1532 B/op	      13 allocs/op
+BenchmarkGetByGroupExcept-8                             	  639948	      1712 ns/op	     896 B/op	       1 allocs/op
+BenchmarkRedisTopicRelay-8             	   12654	     86551 ns/op	    4154 B/op	      91 allocs/op

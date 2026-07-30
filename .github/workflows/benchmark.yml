@@ -30,22 +30,26 @@ jobs:
         go-version: '1.26'
 
     - name: Install benchstat
-      run: go install golang.org/x/perf/cmd/benchstat@latest
+      # Pinned: the gate parses benchstat's CSV output, and @latest could
+      # change the format under us.
+      run: go install golang.org/x/perf/cmd/benchstat@v0.0.0-20260709024250-82a0b07e230d
 
     - name: Run benchmarks
       run: |
-        # -run=^$ skips all regular tests, only runs benchmarks
-        # -count=3 for statistical significance while keeping runtime reasonable
-        go test -run=^$ -bench=. -benchmem -count=3 ./... 2>&1 | grep "^Benchmark" | grep -v -E "(livetemplate\.New|WARN|INFO|DEBUG|ERROR)" > current-bench.txt || true
+        # bench-ci = every benchmark except the capacity-planning sweeps
+        # (high-N fan-out, huge histories/docs — informational only; the
+        # excluded set is defined once, in the Makefile). COUNT=3 gives
+        # benchstat a median for the posted tables; the gated metrics
+        # (B/op, allocs/op) are deterministic and need no repetition.
+        make bench-ci COUNT=3 > current-bench.txt || true
         cat current-bench.txt
-      env:
-        GOWORK: off
 
     - name: Compare against baseline
       id: compare
       run: |
         if [ -f testdata/benchmarks/baseline.txt ]; then
           benchstat testdata/benchmarks/baseline.txt current-bench.txt > comparison.txt || true
+          benchstat -format csv testdata/benchmarks/baseline.txt current-bench.txt > comparison.csv 2>/dev/null || true
           echo "comparison<<EOF" >> $GITHUB_OUTPUT
           cat comparison.txt >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
@@ -58,20 +62,17 @@ jobs:
     - name: Check for regressions
       id: regression-check
       run: |
-        if [ -f comparison.txt ]; then
-          # Critical benchmarks: E2E, Template, and Diff (core functionality)
-          # Check for critical regressions >20%
-          if grep -E 'Benchmark(E2E|Template|CompareTrees|RangeDiff|PrepareTree).*\+[2-9][0-9]\.[0-9]+%' comparison.txt; then
+        if [ -f comparison.csv ]; then
+          # Gates on B/op and allocs/op (machine-independent) for the critical
+          # families; computes deltas from benchstat's medians itself because
+          # benchstat marks low-sample deltas "~" — the old grep gate passed
+          # vacuously on exactly that. Fails closed if it parses no rows.
+          python3 scripts/bench_gate.py comparison.csv | tee gate-output.txt || true
+          if ! grep -E '^(status|message)=' gate-output.txt >> $GITHUB_OUTPUT; then
+            # The gate script crashed before emitting a verdict — that is a
+            # broken gate, not a green build. Fail closed.
             echo "status=fail" >> $GITHUB_OUTPUT
-            echo "message=Critical performance regression detected (>20%)" >> $GITHUB_OUTPUT
-            exit 1
-          # Check for warnings >10%
-          elif grep -E 'Benchmark(E2E|Template|CompareTrees|RangeDiff|PrepareTree).*\+1[0-9]\.[0-9]+%' comparison.txt; then
-            echo "status=warn" >> $GITHUB_OUTPUT
-            echo "message=Performance regression detected (>10%)" >> $GITHUB_OUTPUT
-          else
-            echo "status=pass" >> $GITHUB_OUTPUT
-            echo "message=No significant regressions detected" >> $GITHUB_OUTPUT
+            echo "message=bench_gate.py produced no verdict (script crash) — failing closed" >> $GITHUB_OUTPUT
           fi
         else
           echo "status=skip" >> $GITHUB_OUTPUT
@@ -82,11 +83,18 @@ jobs:
     - name: Post comparison comment
       if: github.event_name == 'pull_request'
       uses: actions/github-script@v7
+      env:
+        # Passed via env, not ${{ }} interpolation inside the script:
+        # comparison/message embed benchmark names, which PR code controls —
+        # textual interpolation into the JS would be script injection.
+        COMPARISON: ${{ steps.compare.outputs.comparison }}
+        GATE_STATUS: ${{ steps.regression-check.outputs.status }}
+        GATE_MESSAGE: ${{ steps.regression-check.outputs.message }}
       with:
         script: |
-          const comparison = `${{ steps.compare.outputs.comparison }}`;
-          const status = '${{ steps.regression-check.outputs.status }}';
-          const message = '${{ steps.regression-check.outputs.message }}';
+          const comparison = process.env.COMPARISON;
+          const status = process.env.GATE_STATUS;
+          const message = process.env.GATE_MESSAGE;
 
           let statusIcon = '✅';
           if (status === 'fail') statusIcon = '❌';
@@ -96,10 +104,11 @@ jobs:
           const body = `## ${statusIcon} Performance Benchmark Results\n\n` +
             `**Status:** ${message}\n\n` +
             `<details>\n<summary>Benchmark Comparison</summary>\n\n\`\`\`\n${comparison}\n\`\`\`\n\n</details>\n\n` +
-            `### Thresholds\n\n` +
-            `- ⚠️ Warning: Regressions >10% on critical benchmarks\n` +
-            `- ❌ Failure: Regressions >20% on critical benchmarks\n` +
-            `- Critical benchmarks: \`Benchmark(E2E|Template|CompareTrees|RangeDiff|PrepareTree).*\`\n\n` +
+            `### Gate\n\n` +
+            `- Gated metrics: **B/op and allocs/op** (machine-independent; sec/op is informational — the committed baseline is from a different machine)\n` +
+            `- ⚠️ Warning: >10% allocation regression on critical benchmarks · ❌ Failure: >20%\n` +
+            `- Critical families: \`E2E|Template|CompareTrees|RangeDiff|PrepareTree|Composite|TopicFanout|TriggerAction|Upload_|Redis|ChatAppend|WideTable|LargeDoc\` excluding \`Loopback|EnqueueOnly|RealRedis\` variants (authoritative list: \`scripts/bench_gate.py\`)\n` +
+            `- Capacity sweeps (enumerated in the Makefile's \`BENCH_SKIP_CAPACITY\`: N/hist ∈ {1000, 10000}, peers=1000, files ∈ {50, 100}) are excluded from CI runs entirely — see \`make bench-ci\`\n\n` +
             `See [benchmarking guide](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/${context.payload.pull_request.head.ref}/docs/performance/benchmarking-guide.md) for details.`;
 
           // Find existing benchmark comment
@@ -140,10 +149,14 @@ jobs:
         path: |
           current-bench.txt
           comparison.txt
+          comparison.csv
+          gate-output.txt
         retention-days: 30
 
     - name: Fail if critical regression
       if: steps.regression-check.outputs.status == 'fail'
+      env:
+        GATE_MESSAGE: ${{ steps.regression-check.outputs.message }}
       run: |
-        echo "::error::${{ steps.regression-check.outputs.message }}"
+        echo "::error::${GATE_MESSAGE}"
         exit 1

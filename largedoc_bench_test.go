@@ -86,7 +86,9 @@ func BenchmarkLargeDocDiff(b *testing.B) {
 	}
 	for _, size := range sizes {
 		for _, v := range variants {
-			b.Run(fmt.Sprintf("files=%d/lines=%d/%s", size.files, size.lines, v.name), func(b *testing.B) {
+			// Size axes share one segment (comma, not slash) so the CI
+			// capacity-skip regex can match them in one path element.
+			b.Run(fmt.Sprintf("files=%d,lines=%d/%s", size.files, size.lines, v.name), func(b *testing.B) {
 				app := newCompositeApp(b, v.template,
 					&largeDocController{files: size.files, lines: size.lines},
 					AsState(&largeDocState{}))

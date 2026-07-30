@@ -24,7 +24,10 @@ import (
 
 // discardLogs silences slog for the duration of the benchmark: high-N setup
 // logs one "Client connected" INFO per connection, and per-op Debug/Warn
-// logging would pollute both the timing and the output.
+// logging would pollute both the timing and the output. Every benchmark that
+// opens a connection MUST call it: an INFO line merges into the benchmark
+// name line, and the CI/baseline filter drops log-bearing lines — silently
+// removing that benchmark from the gate.
 func discardLogs(tb testing.TB) {
 	prev := slog.Default()
 	slog.SetDefault(slog.New(slog.DiscardHandler))
@@ -43,6 +46,9 @@ func awaitAll(tb testing.TB, sessions []*compositeSession) {
 }
 
 // fanoutSweep is the subscriber-count axis shared by the fan-out benches.
+// Adding a value >=1000 requires a matching entry in the Makefile's
+// BENCH_SKIP_CAPACITY (an enumerated denylist, not a threshold) or CI will
+// run and gate the new capacity sweep.
 var fanoutSweep = []int{1, 10, 100, 1000, 10000}
 
 // ---------------------------------------------------------------------------
@@ -341,12 +347,14 @@ func BenchmarkChatAppendFanout(b *testing.B) {
 		}
 	}
 	// Two axes, swept independently: history length at a fixed 10-peer room,
-	// then peer count at a fixed 100-message history.
+	// then peer count at a fixed 100-message history. Single-segment names
+	// (comma, not slash) so the CI capacity-skip regex can match the axis
+	// tokens in one sub-benchmark path element.
 	for _, l := range []int{10, 100, 1000, 10000} {
-		b.Run(fmt.Sprintf("hist=%d/peers=10", l), run(l, 10))
+		b.Run(fmt.Sprintf("hist=%d,peers=10", l), run(l, 10))
 	}
 	for _, n := range []int{1, 100, 1000} {
-		b.Run(fmt.Sprintf("hist=100/peers=%d", n), run(100, n))
+		b.Run(fmt.Sprintf("hist=100,peers=%d", n), run(100, n))
 	}
 }
 
