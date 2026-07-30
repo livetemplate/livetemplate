@@ -358,7 +358,8 @@ low-sample deltas "~" anyway (the pre-2026-07 grep gate passed vacuously on
 exactly that). Timing comparisons remain in the posted table as information.
 
 **Critical families** (`scripts/bench_gate.py`):
-`E2E|Template|CompareTrees|RangeDiff|PrepareTree|Composite|TopicFanout|TriggerAction|Upload_|Redis|ChatAppend|WideTable|LargeDoc`
+`E2E|Template|CompareTrees|RangeDiff|PrepareTree|Composite|TopicFanout|TriggerAction|Upload_|Redis|ChatAppend|WideTable|LargeDoc|TodoApp|RangeOperations|MultipleSessions|UserJourney`
+(the last four are the render+diff primitives renamed from `BenchmarkE2E*`)
 — excluding the honest-variant benches (`Loopback|EnqueueOnly|RealRedis`),
 which share family tokens but are fidelity checks/contrast baselines, not
 gate material.

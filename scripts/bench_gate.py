@@ -31,7 +31,11 @@ import sys
 
 CRITICAL = re.compile(
     r"^(E2E|Template|CompareTrees|RangeDiff|PrepareTree|Composite|TopicFanout"
-    r"|TriggerAction|Upload_|Redis|ChatAppend|WideTable|LargeDoc)"
+    r"|TriggerAction|Upload_|Redis|ChatAppend|WideTable|LargeDoc"
+    # The render+diff primitives renamed from BenchmarkE2E* in 2026-07: the
+    # honesty rename dropped their E2E prefix, but they still guard the
+    # todo-list, range-op, multi-session, and journey primitive paths.
+    r"|TodoApp|RangeOperations|MultipleSessions|UserJourney)"
 )
 # Honest-variant benches share family tokens but must not gate:
 # Loopback = real-socket fidelity checks, EnqueueOnly = deliberately hollow

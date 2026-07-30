@@ -117,6 +117,19 @@ class BenchGateTest(unittest.TestCase):
         self.assertEqual(status, "fail")
         self.assertEqual(code, 1)
 
+    def test_renamed_primitives_stay_gated(self):
+        # The 2026-07 honesty rename dropped the E2E prefix from these
+        # benchmark names; they must remain in the critical set (this
+        # regressed silently once — caught in review of #523).
+        for name in (
+            "TodoApp_ExecuteUpdatesOnly",
+            "RangeOperations_ExecuteUpdatesOnly/add-items",
+            "MultipleSessions_ExecuteUpdatesOnly/sessions-10",
+            "UserJourney_ExecuteUpdatesOnly",
+        ):
+            self.assertTrue(bench_gate.CRITICAL.match(name), name)
+            self.assertFalse(bench_gate.EXCLUDED.search(name), name)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=1)

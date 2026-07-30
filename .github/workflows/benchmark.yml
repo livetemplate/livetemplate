@@ -128,7 +128,7 @@ jobs:
             `### Gate\n\n` +
             `- Gated metrics: **B/op and allocs/op** (machine-independent; sec/op is informational — the committed baseline is from a different machine)\n` +
             `- ⚠️ Warning: >10% allocation regression on critical benchmarks · ❌ Failure: >20%\n` +
-            `- Critical families: \`E2E|Template|CompareTrees|RangeDiff|PrepareTree|Composite|TopicFanout|TriggerAction|Upload_|Redis|ChatAppend|WideTable|LargeDoc\` excluding \`Loopback|EnqueueOnly|RealRedis\` variants (authoritative list: \`scripts/bench_gate.py\`)\n` +
+            `- Critical families: \`E2E|Template|CompareTrees|RangeDiff|PrepareTree|Composite|TopicFanout|TriggerAction|Upload_|Redis|ChatAppend|WideTable|LargeDoc|TodoApp|RangeOperations|MultipleSessions|UserJourney\` excluding \`Loopback|EnqueueOnly|RealRedis\` variants (authoritative list: \`scripts/bench_gate.py\`)\n` +
             `- Capacity sweeps (enumerated in the Makefile's \`BENCH_SKIP_CAPACITY\`: N/hist ∈ {1000, 10000}, peers=1000, files ∈ {50, 100}) are excluded from CI runs entirely — see \`make bench-ci\`\n\n` +
             `See [benchmarking guide](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/${context.payload.pull_request.head.ref}/docs/performance/benchmarking-guide.md) for details.`;
 
