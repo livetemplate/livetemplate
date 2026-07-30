@@ -6,6 +6,11 @@
 # (e.g. `go test -bench 'TopicFanout_FullPipeline/N=10000' .`) for capacity
 # numbers. The CI workflow uses `make bench-ci`, so this is the single source
 # of truth for the excluded set.
+# NOTE: -skip matches each token as an UNANCHORED substring of the sub-bench
+# path element, so exclusions prefix-match longer values (N=1000 also skips
+# N=10000 — intended). The flip side: before adding a new sweep value, check
+# no exclusion token is a substring of it (e.g. a hypothetical hist=10000x
+# would be silently skipped by hist=1000).
 BENCH_SKIP_CAPACITY := Benchmark(TopicFanout_FullPipeline|TriggerActionFanout|RedisCrossInstanceFanout|ChatAppendFanout|LargeDocDiff)/(N=1000|N=10000|hist=1000|hist=10000|peers=1000|files=50|files=100)
 BENCH_FILTER := grep "^Benchmark" | grep -v -E "(livetemplate\.New|WARN|INFO|DEBUG|ERROR)"
 

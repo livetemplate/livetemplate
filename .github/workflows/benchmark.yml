@@ -34,6 +34,13 @@ jobs:
       # change the format under us.
       run: go install golang.org/x/perf/cmd/benchstat@v0.0.0-20260709024250-82a0b07e230d
 
+    - name: Gate self-test
+      # Locks the benchstat-CSV contract the gate depends on: if a benchstat
+      # bump changes the format, this fails with a clear message instead of
+      # the gate starving of rows mid-PR. No continue-on-error — a broken
+      # gate must fail the job loudly.
+      run: python3 scripts/bench_gate_test.py
+
     - name: Run benchmarks
       run: |
         # bench-ci = every benchmark except the capacity-planning sweeps
@@ -68,12 +75,26 @@ jobs:
           # benchstat marks low-sample deltas "~" — the old grep gate passed
           # vacuously on exactly that. Fails closed if it parses no rows.
           python3 scripts/bench_gate.py comparison.csv | tee gate-output.txt || true
-          if ! grep -E '^(status|message)=' gate-output.txt >> $GITHUB_OUTPUT; then
+          status=$(grep -m1 '^status=' gate-output.txt | cut -d= -f2-)
+          message=$(grep -m1 '^message=' gate-output.txt | cut -d= -f2-)
+          if [ -z "$status" ]; then
             # The gate script crashed before emitting a verdict — that is a
             # broken gate, not a green build. Fail closed.
-            echo "status=fail" >> $GITHUB_OUTPUT
-            echo "message=bench_gate.py produced no verdict (script crash) — failing closed" >> $GITHUB_OUTPUT
+            status=fail
+            message="bench_gate.py produced no verdict (script crash) — failing closed"
           fi
+          # Heredoc-delimited writes: message embeds benchmark names, which
+          # PR code controls. grep already guarantees single lines, but the
+          # delimiter pattern removes any reliance on that (defense in depth
+          # against GITHUB_OUTPUT key injection).
+          {
+            echo "status<<GATE_OUTPUT_DELIM_7f2c"
+            echo "$status"
+            echo "GATE_OUTPUT_DELIM_7f2c"
+            echo "message<<GATE_OUTPUT_DELIM_7f2c"
+            echo "$message"
+            echo "GATE_OUTPUT_DELIM_7f2c"
+          } >> $GITHUB_OUTPUT
         else
           echo "status=skip" >> $GITHUB_OUTPUT
           echo "message=No baseline comparison available" >> $GITHUB_OUTPUT

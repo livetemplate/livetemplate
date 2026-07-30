@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/livetemplate/livetemplate/internal/benchharness"
 )
@@ -91,7 +92,13 @@ func BenchmarkAsyncSendThroughput(b *testing.B) {
 		conn, bc, cleanup = newRealPumpBenchConn(1000)
 		sentOnConn = 0
 	}
+	// Bounded drain: a writePump regression that never writes the last
+	// queued message should fail with a message, not hang to the job timeout.
+	drainDeadline := time.Now().Add(30 * time.Second)
 	for bc.MsgsWritten() < int64(sentOnConn) {
+		if time.Now().After(drainDeadline) {
+			b.Fatalf("drain: pump wrote %d of %d queued messages within 30s", bc.MsgsWritten(), sentOnConn)
+		}
 		runtime.Gosched()
 	}
 	b.StopTimer()
