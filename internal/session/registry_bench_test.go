@@ -2,7 +2,11 @@ package session
 
 import (
 	"fmt"
+	"runtime"
 	"testing"
+	"time"
+
+	"github.com/livetemplate/livetemplate/internal/benchharness"
 )
 
 const benchWSTextMessage = 1 // RFC 6455 text message type (mirrors WSTextMessage in root package)
@@ -10,6 +14,10 @@ const benchWSTextMessage = 1 // RFC 6455 text message type (mirrors WSTextMessag
 // newDrainingBenchConn creates a connection with a dedicated drain goroutine
 // that consumes messages from sendChan, preventing "client too slow" errors.
 // The drain goroutine runs until cleanup is called.
+//
+// Hollow by design: the nil Conn means the real writePump and WriteMessage
+// never run, so this measures ENQUEUE cost only. Benchmarks that claim to
+// measure sending must use newRealPumpBenchConn instead.
 func newDrainingBenchConn(bufferSize int) (conn *Connection, cleanup func()) {
 	conn = &Connection{
 		GroupID: "bench-group",
@@ -35,17 +43,92 @@ func newDrainingBenchConn(bufferSize int) (conn *Connection, cleanup func()) {
 	}
 }
 
-// BenchmarkAsyncSendThroughput measures message sending throughput
-// with async channel-based sending.
+// newRealPumpBenchConn registers a connection through the production
+// Register path, so the REAL writePump dequeues each message and hands it
+// to WriteMessage on the attached benchharness.Conn, which counts and
+// discards it at the syscall boundary.
+func newRealPumpBenchConn(bufferSize int) (*Connection, *benchharness.Conn, func()) {
+	registry := NewConnectionRegistry()
+	bc := benchharness.NewConn()
+	conn := &Connection{
+		Conn:    bc,
+		GroupID: "bench-group",
+		UserID:  "bench-user",
+	}
+	registry.Register(conn, bufferSize)
+	return conn, bc, func() { registry.Unregister(conn) }
+}
+
+// BenchmarkAsyncSendThroughput measures send throughput through the real
+// write pump: Send enqueues, the pump dequeues and writes each frame at the
+// discard boundary. The timed region ends only after every queued message
+// has actually been written, so the number covers the full send path, not
+// just enqueue. Contrast with BenchmarkAsyncSendThroughput_EnqueueOnly,
+// which measures what the pre-Phase-1 bench of this name measured.
 func BenchmarkAsyncSendThroughput(b *testing.B) {
-	conn, cleanup := newDrainingBenchConn(1000)
-	defer cleanup()
+	conn, bc, cleanup := newRealPumpBenchConn(1000)
+	defer func() { cleanup() }()
+	payload := []byte("benchmark message")
+	slowCloses := 0
+	sentOnConn := 0
 
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		if err := conn.Send(benchWSTextMessage, []byte("benchmark message")); err != nil {
+		err := conn.Send(benchWSTextMessage, payload)
+		if err == nil {
+			sentOnConn++
+			continue
+		}
+		if err != ErrClientTooSlow {
+			b.Fatalf("Send failed: %v", err)
+		}
+		// The producer outran the pump and production closed the connection —
+		// real backpressure behavior, not a bench failure. Recreate (which
+		// drains the old conn) and keep going, reporting how often it happened.
+		slowCloses++
+		cleanup()
+		conn, bc, cleanup = newRealPumpBenchConn(1000)
+		sentOnConn = 0
+	}
+	// Bounded drain: a writePump regression that never writes the last
+	// queued message should fail with a message, not hang to the job timeout.
+	drainDeadline := time.Now().Add(30 * time.Second)
+	for bc.MsgsWritten() < int64(sentOnConn) {
+		if time.Now().After(drainDeadline) {
+			b.Fatalf("drain: pump wrote %d of %d queued messages within 30s", bc.MsgsWritten(), sentOnConn)
+		}
+		runtime.Gosched()
+	}
+	b.StopTimer()
+	if slowCloses > 0 {
+		b.ReportMetric(float64(slowCloses), "slow-closes")
+	}
+}
+
+// BenchmarkAsyncSendThroughput_EnqueueOnly is the old hollow benchmark,
+// relabeled: its drain goroutine consumes sendChan into the void with a nil
+// Conn, so the real writePump and WriteMessage never run. Kept so the
+// honest-vs-enqueue-only contrast stays visible in benchmark output.
+func BenchmarkAsyncSendThroughput_EnqueueOnly(b *testing.B) {
+	conn, cleanup := newDrainingBenchConn(1000)
+	defer func() { cleanup() }()
+	payload := []byte("benchmark message")
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		err := conn.Send(benchWSTextMessage, payload)
+		if err == ErrClientTooSlow {
+			// Even the drain goroutine can fall behind on a loaded machine;
+			// recreate and continue, as production would after a slow-close.
+			cleanup()
+			conn, cleanup = newDrainingBenchConn(1000)
+			continue
+		}
+		if err != nil {
 			b.Fatalf("Send failed: %v", err)
 		}
 	}

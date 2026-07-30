@@ -1,5 +1,7 @@
 # Performance Benchmarking Guide
 
+**Last updated:** 2026-07-30 (composite-pipeline suite added).
+
 ## Overview
 
 This guide explains how to run, interpret, and contribute to LiveTemplate's performance benchmarks.
@@ -16,15 +18,45 @@ Benchmarks co-located with their phase code:
 - **Phase 4 (Render):** `internal/render/render_bench_test.go`
 - **Phase 5 (Send):** `internal/send/send_bench_test.go`
 
+### Composite-Pipeline Benchmarks (added 2026-07-30)
+
+These drive the REAL production cycle — action dispatch → controller method →
+render → diff → serialize → `Connection.Send` → `writePump` — through the
+actual handler with a scripted connection faked only at the syscall boundary
+(`internal/benchharness`, driver in `composite_bench_test.go`). Each is
+modeled on a named consumer workload:
+
+- **Single interaction / journeys:** `composite_bench_test.go` — `BenchmarkCompositeUpdate`, `BenchmarkE2EUserJourney`
+- **Fan-out (topic, TriggerAction, chat, wide grid):** `fanout_bench_test.go` — N-sweeps to 10000 subscribers
+- **Cross-instance Redis (miniredis, no Docker):** `redis_fanout_bench_test.go` + relay-level `pubsub/redis_bench_test.go`
+- **Upload modes:** `upload_bench_test.go` — Proxied/Volume byte paths, Direct/Preview protocol cost
+- **Large-document diffs:** `largedoc_bench_test.go` — files×lines sweeps, auto-key vs `data-key`
+
+**Honesty conventions:**
+- A benchmark must drive the path its name claims. Deliberately narrower
+  variants say so in the name: `*_EnqueueOnly` (stops at channel enqueue,
+  no real write pump), `*_ExecuteUpdatesOnly` (render+diff primitive only,
+  no dispatch/connection).
+- `*_LoopbackWS` variants re-run a composite bench over real loopback
+  WebSockets as a fidelity spot-check for the scripted-conn harness; they
+  include kernel/socket cost and are not comparison-stable.
+- `*_RealRedis` needs `LVT_REDIS_INTEGRATION=<addr>` and measures real
+  network RTT; it self-skips otherwise.
+- None of `Loopback|_EnqueueOnly|_RealRedis` belong in the CI gate or
+  baseline — exclude them when widening the gate.
+- Composite benches report **`wireB/op`** — serialized bytes reaching the
+  write boundary per op. It is deterministic (exact across `-count` runs)
+  and is the capacity-planning counterpart to ns/op.
+
 ### End-to-End Benchmarks
 
 Comprehensive scenarios in root directory:
 
 - **Template Operations:** `template_bench_test.go`
-- **User Journeys:** `e2e_bench_test.go`
+- **Render+diff primitives (formerly misnamed `BenchmarkE2E*`):** `e2e_bench_test.go` (`*_ExecuteUpdatesOnly`)
 - **Tree Operations:** `tree_bench_test.go` (fingerprinting)
 - **Error Handling:** `error_bench_test.go`
-- **Session Operations:** `internal/session/registry_bench_test.go` (async sends, concurrent connections, buffer sizes)
+- **Session Operations:** `internal/session/registry_bench_test.go` (async sends through the real write pump, concurrent connections, buffer sizes)
 
 ## Running Benchmarks
 
@@ -50,12 +82,18 @@ Runs 10 iterations to account for variance. Use this before updating baselines.
 # Run phase-specific benchmarks
 GOWORK=off go test -bench=. -benchmem ./internal/parse/ -run=^$
 
-# Run end-to-end benchmarks only
-GOWORK=off go test -bench=BenchmarkE2E -benchmem -run=^$
+# Run the whole composite-pipeline suite (includes the high-N capacity sweeps
+# and the Loopback/EnqueueOnly variants; the CI-gate subset is N ≤ 100 without
+# those variants — a single regex cannot express the N cutoff)
+GOWORK=off go test -bench='Composite|Fanout|ChatAppend|WideTable|Upload_|LargeDoc' -benchmem -run=^$ .
 
 # Run specific benchmark
 GOWORK=off go test -bench=BenchmarkTemplateExecute -benchmem -run=^$
 ```
+
+High-N sub-benches (N ≥ 1000, `hist=10000`, `files=100`) are capacity-planning
+sweeps — expect per-op times in the hundreds of milliseconds to seconds; they
+are informational, not gate material.
 
 ### Quick Smoke Test
 
@@ -215,8 +253,13 @@ open cpu-flame.svg
 ### Profile Specific Benchmarks
 
 ```bash
-# Profile just E2E benchmarks
-GOWORK=off go test -bench=BenchmarkE2E -cpuprofile=profiles/e2e-cpu.prof -run=^$
+# Profile a non-root package (profile-cpu/profile-mem are root-only because
+# -cpuprofile does not combine with ./...)
+make profile-pkg PKG=./internal/session BENCH=AsyncSendThroughput
+make profile-pkg PKG=./pubsub BENCH=RedisTopicRelay
+
+# Profile just the composite-pipeline benchmarks
+GOWORK=off go test -bench='Composite|Fanout' -cpuprofile=profiles/composite-cpu.prof -run=^$ .
 
 # Profile with execution trace (for concurrency issues)
 GOWORK=off go test -bench=BenchmarkTemplateConcurrent -trace=profiles/trace.out -run=^$
@@ -296,19 +339,35 @@ func BenchmarkFeature(b *testing.B) {
 
 ### How Benchmarks Run in CI
 
-1. GitHub Actions runs benchmarks on every PR
-2. 5 iterations for statistical confidence
-3. Compares against committed baseline using benchstat
-4. Posts comparison as PR comment
+1. GitHub Actions runs `make bench-ci COUNT=3` on every PR — the full suite
+   minus the capacity-planning sweeps (high N / histories / doc sizes), whose
+   exclusion regex lives once in the Makefile (`BENCH_SKIP_CAPACITY`)
+2. Compares against the committed baseline with a **pinned** benchstat; the
+   human-readable table is posted as a PR comment
+3. `scripts/bench_gate.py` parses `benchstat -format csv` and gates —
+   failing closed if it parses no critical rows (a gate that matches nothing
+   is broken, not green)
 
-### Regression Thresholds
+### Regression Thresholds (updated 2026-07-30)
 
-**Critical Benchmarks** (E2E, Template operations):
-- >10% regression: Warning comment
-- >20% regression: CI failure, blocks merge
+**Gated metrics: B/op and allocs/op only.** They are deterministic and
+machine-independent, so the committed baseline gates correctly even though it
+was generated on a different machine than CI. **sec/op is never gated** — it
+is cross-machine noise against a committed baseline, and benchstat marks
+low-sample deltas "~" anyway (the pre-2026-07 grep gate passed vacuously on
+exactly that). Timing comparisons remain in the posted table as information.
 
-**Phase-Specific Benchmarks:**
-- Informational only, no CI failure
+**Critical families** (`scripts/bench_gate.py`):
+`E2E|Template|CompareTrees|RangeDiff|PrepareTree|Composite|TopicFanout|TriggerAction|Upload_|Redis|ChatAppend|WideTable|LargeDoc|TodoApp|RangeOperations|MultipleSessions|UserJourney`
+(the last four are the render+diff primitives renamed from `BenchmarkE2E*`)
+— excluding the honest-variant benches (`Loopback|EnqueueOnly|RealRedis`),
+which share family tokens but are fidelity checks/contrast baselines, not
+gate material.
+
+- >10% allocation regression: Warning comment
+- >20% allocation regression: CI failure, blocks merge
+
+**Everything else:** informational only, no CI failure.
 
 ### Overriding CI
 
@@ -368,10 +427,11 @@ go tool pprof -top -alloc_objects mem.prof
 | `make bench-10x` | Run 10 iterations for confidence |
 | `make bench-save` | Save current as baseline |
 | `make bench-compare` | Compare against baseline |
-| `make bench-quick` | Critical benchmarks only |
-| `make profile-cpu` | Generate CPU profile |
-| `make profile-mem` | Generate memory profile |
+| `make bench-quick` | E2E + Template smoke subset (not the full critical set) |
+| `make profile-cpu` | Generate CPU profile (root package) |
+| `make profile-mem` | Generate memory profile (root package) |
 | `make profile-all` | Generate all profiles |
+| `make profile-pkg PKG=./pubsub [BENCH=regex]` | Profile a single non-root package |
 
 ### Tools
 
