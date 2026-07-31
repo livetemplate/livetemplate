@@ -381,6 +381,12 @@ from ~15 lines / 2 methods to ~7 lines / 1 method.
   `session := ctx.Session()` before defining `apply`, then call
   `session.TriggerAction()` from within the `apply` closure (`ctx`
   itself is not in scope inside `apply`).
+- **`apply` receives only `(state, result, err)`** — there is no `*Context`,
+  so the completion render cannot set a flash, write a cookie, or navigate.
+  Anything that needs `ctx` on the *second* render has to arrive as a real
+  action: keep the manual two-action pattern, or capture the session and
+  `TriggerAction` from inside `apply`. State changes are unaffected — those
+  are what `apply` returns.
 
 **Example:**
 
