@@ -288,15 +288,15 @@ allocations are the follow-up.
       Priorities)*
 
 ### Open
-- [ ] **Partial re-render / unchanged-subtree memoization** (Priority 1 — finding #1)
-- [ ] **Streaming-range hash without string materialization** (Priority 2 — finding #4)
-- [ ] **Sorted-map encoder audit + shared fan-out marshal** (Priority 3 — finding #3)
-- [ ] Debug-mode warning on per-render re-keying of large ranges (finding #6, optional)
+- [ ] **Partial re-render / unchanged-subtree memoization** (Priority 1 — finding #1) — [#526](https://github.com/livetemplate/livetemplate/issues/526)
+- [ ] **Streaming-range hash without string materialization** (Priority 2 — finding #4) — [#524](https://github.com/livetemplate/livetemplate/issues/524)
+- [ ] **Sorted-map encoder audit + shared fan-out marshal** (Priority 3 — finding #3) — [#525](https://github.com/livetemplate/livetemplate/issues/525)
+- [ ] Debug-mode warning on per-render re-keying of large ranges (finding #6, optional) — [#527](https://github.com/livetemplate/livetemplate/issues/527)
 - [ ] Allocation budget tests (`testing.AllocsPerRun` pinned to
-      `BenchmarkCompositeUpdate`'s 97 allocs/interaction)
-- [ ] Profile production workloads (pprof endpoints on a real consumer app)
+      `BenchmarkCompositeUpdate`'s 97 allocs/interaction) — [#528](https://github.com/livetemplate/livetemplate/issues/528)
+- [ ] Profile production workloads (pprof endpoints on a real consumer app) — [#529](https://github.com/livetemplate/livetemplate/issues/529)
 
-**Last Updated:** 2026-07-30
+**Last Updated:** 2026-07-31 (tracking-issue links; measurements unchanged from 2026-07-30)
 
 ## Per-Subsystem Notes
 
