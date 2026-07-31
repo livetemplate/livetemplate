@@ -109,6 +109,70 @@ handler := tmpl.Handle(&TodoController{DB: db}, livetemplate.AsState(&TodoState{
 
 ---
 
+## Validate
+
+```go
+func Validate(templateText string, opts ...ValidateOption) ([]Diagnostic, error)
+```
+
+Parses `templateText` the way the live renderer does — against the framework's real function set and any supplied component templates — and returns the problems found. An empty slice means the template parses cleanly and will be served rather than silently dropped.
+
+**Why this exists:** `Execute` and `ExecuteUpdates` catch a first-render failure and fall back to an HTML-structure tree. A malformed template — an unclosed `{{range}}`, an unknown function, an unresolved `{{template}}` — therefore renders *degraded* and returns no error. A tool that wants to reject a bad template **before** serving it had nothing to call. `Validate` is that call.
+
+```go
+type Diagnostic struct {
+    Line     int      // 1-based line in the supplied text; 0 if the parser reported none
+    Severity Severity // SeverityError today; SeverityWarning is reserved
+    Message  string
+}
+```
+
+| Severity | Meaning |
+|---|---|
+| `SeverityError` | A problem that prevents the template from being served: the block is dropped at serve time and renders nothing. |
+| `SeverityWarning` | Reserved for problems that degrade a template rather than break it — the home for the data-dependent checks a future sample-data mode would surface. Not emitted today. |
+
+**Diagnostics are not errors.** The returned `error` is reserved for infrastructure failures — a component set that itself fails to parse, or an internal fault. A template that does not parse is *always* reported as a `Diagnostic`, never as an `error`. This mirrors the shape of a linter: problems in the input are data, not errors.
+
+```go
+diags, err := livetemplate.Validate(text)
+if err != nil {
+    return fmt.Errorf("validation could not run: %w", err) // infrastructure fault
+}
+for _, d := range diags {
+    fmt.Printf("%s:%d: %s: %s\n", path, d.Line, d.Severity, d.Message)
+}
+if len(diags) > 0 {
+    return errors.New("template rejected")
+}
+```
+
+**What it checks:** the syntax and composition layer — unclosed or malformed actions (`{{range}}`, `{{if}}`, `{{with}}`), unknown functions (checked against the framework's own builtins, which a downstream caller cannot enumerate, so this check cannot be reproduced outside the module), and unresolved component or composition templates.
+
+**What it does not check:** data-dependent problems that only surface when the template is executed against a value. Those are out of scope until a sample-data mode is added.
+
+**At most one diagnostic per call today.** The underlying parser stops at the first error rather than recovering, so the slice has length 0 or 1. The slice shape anticipates the multi-error reporting a recovering pass could add.
+
+### Validating templates that use components
+
+```go
+func WithValidateComponents(sets ...*TemplateSet) ValidateOption
+```
+
+Makes the given component template sets available, so a template invoking `{{template "ns:name" .}}` resolves the same way it does at serve time. Pass the same sets you pass to `New(WithComponentTemplates(...))`; **without them a component reference is reported — correctly — as an unresolved template.**
+
+```go
+diags, err := livetemplate.Validate(text,
+    livetemplate.WithValidateComponents(uiKit),
+)
+```
+
+Each call re-parses the supplied component sets from their `fs.FS`. That suits pre-serve and dev-time validation rather than per-keystroke use against a large component library.
+
+> **Line-number caveat:** HTML comments are stripped before parsing (matching serve), so a diagnostic below a multi-line HTML comment can report a line shifted by the comment's height.
+
+---
+
 ## Controller+State Pattern
 
 For patterns, examples, and usage guide, see [Controller+State Pattern](controller-pattern.md).
