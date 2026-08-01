@@ -1393,7 +1393,7 @@ If issues arise after migration:
 3. **Set up alerting** for Redis connectivity issues
 4. **Review capacity planning** for expected load
 
-See [SESSION.md](SESSION.md) for the Session API guide on server-initiated actions.
+See [session.md](../references/session.md) for the Session API guide on server-initiated actions.
 
 ---
 
@@ -1862,7 +1862,7 @@ redis_connected_clients{instance="redis1"} > 9000  # 90% of Redis max clients
 ## Next Steps
 
 - **Roadmap:** See [ROADMAP.md](../../ROADMAP.md) for upcoming scaling features
-- **Architecture:** See [ARCHITECTURE.md](ARCHITECTURE.md) for system design
+- **Architecture:** See [ARCHITECTURE.md](../design/ARCHITECTURE.md) for system design
 
 ---
 
