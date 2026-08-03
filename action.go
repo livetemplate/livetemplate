@@ -320,26 +320,47 @@ func (a *ActionData) GetBool(key string) bool {
 }
 
 // GetBoolOk extracts a bool value with explicit success indicator.
-// Returns (value, true) if key exists and value is a bool or boolean string.
-// Returns (false, false) if key doesn't exist or value cannot be parsed as bool.
+// Returns (value, true) if key exists and carries something an HTML form can
+// mean by "boolean". Returns (false, false) if the key doesn't exist or the
+// value is not one of those.
 //
-// This method handles both boolean values and string values "true"/"false"
-// from HTML form submissions (HTTP path uses strings, WebSocket uses booleans).
-// String comparison is case-insensitive to handle variations like "True", "TRUE", etc.
+// One checkbox arrives here as three different Go types depending on how the
+// form was submitted, so all three are accepted:
+//
+//   - bool — the WebSocket path. The client serializes a lone checkbox as
+//     input.checked and discards its value attribute.
+//   - "1" / "on" / "true" — the no-JS POST path, where every field is a string.
+//     A browser posts a checked box as its value attribute, or as "on" when it
+//     has none. An unchecked box is not posted at all and so lands here as an
+//     absent key, correctly yielding (false, false).
+//   - 1 / 0 — a hidden or text input whose value looks numeric. The client's
+//     parseValue() coerces it to a JSON number, which unmarshals to float64.
+//
+// Accepting only bool and "true"/"false" is what made this method unusable for
+// the case it exists to serve: neither of the two shapes a real checkbox sends
+// was in the set. Handlers silently read false for a ticked box, which is the
+// opposite of the promise behind the progressive_enhancement capability — that
+// one handler stays correct whether or not the browser ran the client.
+//
+// String matching is case-insensitive, so "On" and "TRUE" work.
 func (a *ActionData) GetBoolOk(key string) (bool, bool) {
-	// Handle bool values directly (from WebSocket + parseValue)
-	if v, ok := a.raw[key].(bool); ok {
+	switch v := a.raw[key].(type) {
+	case bool:
 		return v, true
-	}
-	// Handle string values from HTTP form submissions (case-insensitive)
-	if v, ok := a.raw[key].(string); ok {
-		lowerV := strings.ToLower(v)
-		if lowerV == "true" {
+	case string:
+		switch strings.ToLower(v) {
+		case "true", "1", "on":
 			return true, true
-		}
-		if lowerV == "false" {
+		case "false", "0", "off":
 			return false, true
 		}
+	case float64:
+		// JSON numbers. Non-zero is true, mirroring how every other language
+		// reads a numeric flag; 1/0 is what forms actually carry.
+		return v != 0, true
+	case int:
+		// Session.TriggerAction callers pass Go-native values.
+		return v != 0, true
 	}
 	return false, false
 }
