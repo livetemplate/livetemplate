@@ -1,6 +1,9 @@
 package livetemplate
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 // TestGetBoolOk_CheckboxWireShapes pins the value shapes a checkbox actually
 // reaches a handler as. Before this, GetBoolOk accepted bool and "true"/"false"
@@ -33,12 +36,23 @@ func TestGetBoolOk_CheckboxWireShapes(t *testing.T) {
 		// "1" over a plain POST. Both must read the same.
 		{"ws numeric one", float64(1), true, true, ""},
 		{"ws numeric zero", float64(0), false, true, ""},
-		{"native int one", 1, true, true, "Session.TriggerAction passes Go-native values"},
+
+		// Session.TriggerAction takes a map[string]interface{} a caller fills
+		// with native values, so the numeric widths GetIntOk and GetFloatOk
+		// accept have to read the same here.
+		{"native int", 1, true, true, ""},
+		{"native int32", int32(1), true, true, ""},
+		{"native int64 zero", int64(0), false, true, ""},
+		{"native uint8", uint8(1), true, true, ""},
+		{"native float32", float32(1), true, true, ""},
 
 		// Anything else is not a boolean, and saying so is the point of the Ok.
 		{"free text", "yes", false, false, ""},
+		{"numeric string", "2", false, false, "a number that is not 1/0 is data, not a flag"},
 		{"empty string", "", false, false, ""},
 		{"nil", nil, false, false, ""},
+		{"NaN", math.NaN(), false, false, "NaN != 0 is true in Go; it must not read as ticked"},
+		{"+Inf", math.Inf(1), false, false, ""},
 	}
 
 	for _, tt := range tests {
@@ -82,13 +96,26 @@ func TestGetBoolOk_TransportParity(t *testing.T) {
 			if tc.post != nil {
 				postData["box"] = tc.post
 			}
-			ws := NewActionData(wsData).GetBool("box")
-			post := NewActionData(postData).GetBool("box")
+			// GetBoolOk, not GetBool: whether the value was recognized as
+			// boolean-shaped at all is half the parity property. An absent key
+			// reads (false, false) and a sent `false` reads (false, true) —
+			// both mean "unchecked", so only the value has to agree.
+			ws, wsOk := NewActionData(wsData).GetBoolOk("box")
+			post, postOk := NewActionData(postData).GetBoolOk("box")
 			if ws != post {
-				t.Errorf("transport disagreement: websocket=%v, POST=%v", ws, post)
+				t.Errorf("transport disagreement: websocket=%v (ok=%v), POST=%v (ok=%v)",
+					ws, wsOk, post, postOk)
 			}
 			if ws != tc.want {
-				t.Errorf("GetBool = %v, want %v", ws, tc.want)
+				t.Errorf("GetBoolOk = %v, want %v", ws, tc.want)
+			}
+			// A value that WAS sent must be recognized on both sides; only the
+			// unchecked-and-therefore-absent case may report not-ok.
+			if !wsOk {
+				t.Errorf("websocket value %#v not recognized as boolean", tc.ws)
+			}
+			if tc.post != nil && !postOk {
+				t.Errorf("POST value %#v not recognized as boolean", tc.post)
 			}
 		})
 	}

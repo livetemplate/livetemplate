@@ -19,9 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   checkbox correctly on both paths, so a handler could not be written once and
   stay correct across them — the opposite of what the `progressive_enhancement`
   capability promises. `GetBoolOk` now accepts `"1"`/`"on"`/`"true"` as true and
-  `"0"`/`"off"`/`"false"` as false (case-insensitive), plus JSON numbers, which
-  is what the client's `parseValue()` turns a numeric-looking hidden input into
-  before sending it. An absent key still reads `(false, false)` — that is how an
+  `"0"`/`"off"`/`"false"` as false (case-insensitive), plus numbers in every
+  width `GetFloatOk` accepts — a numeric-looking hidden input is what the
+  client's `parseValue()` turns into a number before sending it. `NaN` and
+  `±Inf` are rejected rather than read as true, and a string that is neither
+  boolean-shaped nor `1`/`0` (say `"2"`) stays unrecognized rather than being
+  guessed at. An absent key still reads `(false, false)` — that is how an
   unchecked box arrives on the POST path, where it is not submitted at all.
   `docs/proposals/patterns.md` has documented `ctx.GetBool()` as the way to read
   checkbox state all along.

@@ -335,6 +335,9 @@ func (a *ActionData) GetBool(key string) bool {
 //     absent key, correctly yielding (false, false).
 //   - 1 / 0 — a hidden or text input whose value looks numeric. The client's
 //     parseValue() coerces it to a JSON number, which unmarshals to float64.
+//     Every Go numeric width GetFloatOk accepts is read the same way, since
+//     Session.TriggerAction takes a map[string]interface{} a caller fills
+//     with native values. NaN and ±Inf are rejected rather than read as true.
 //
 // Accepting only bool and "true"/"false" is what made this method unusable for
 // the case it exists to serve: neither of the two shapes a real checkbox sends
@@ -354,13 +357,19 @@ func (a *ActionData) GetBoolOk(key string) (bool, bool) {
 		case "false", "0", "off":
 			return false, true
 		}
-	case float64:
-		// JSON numbers. Non-zero is true, mirroring how every other language
-		// reads a numeric flag; 1/0 is what forms actually carry.
-		return v != 0, true
-	case int:
-		// Session.TriggerAction callers pass Go-native values.
-		return v != 0, true
+		// Any other string is data, not a flag. "2" parses as a number, but
+		// reading it as true would mean guessing at a field whose author
+		// plainly did not mean a boolean — so stop here rather than fall
+		// through to the numeric path below.
+		return false, false
+	}
+
+	// Numbers, in every width GetFloatOk accepts. Non-zero is true, which is
+	// how 1/0 flags read everywhere else. NaN and ±Inf are rejected: NaN != 0
+	// is true in Go, so without this guard a corrupt value would arrive
+	// looking exactly like a ticked box.
+	if f, ok := a.GetFloatOk(key); ok && !math.IsNaN(f) && !math.IsInf(f, 0) {
+		return f != 0, true
 	}
 	return false, false
 }
