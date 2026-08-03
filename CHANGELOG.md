@@ -5,6 +5,30 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`ctx.GetBool()` now reads a checkbox on both transports.** It accepted
+  `bool` and the strings `"true"`/`"false"` — and neither is what a checkbox
+  actually sends. Over the WebSocket the client serializes a lone checkbox as
+  `input.checked` (a bool; the `value` attribute is discarded), which worked.
+  With the client not running, the browser posts the box's `value` attribute —
+  `"1"`, or `"on"` when it has none — and `GetBool` read `false` for a ticked
+  box. Since `GetString` does not accept a bool either, no accessor read a
+  checkbox correctly on both paths, so a handler could not be written once and
+  stay correct across them — the opposite of what the `progressive_enhancement`
+  capability promises. `GetBoolOk` now accepts `"1"`/`"on"`/`"true"` as true and
+  `"0"`/`"off"`/`"false"` as false (case-insensitive), plus numbers in every
+  width `GetFloatOk` accepts — a numeric-looking hidden input is what the
+  client's `parseValue()` turns into a number before sending it. `NaN` and
+  `±Inf` are rejected rather than read as true, and a string that is neither
+  boolean-shaped nor `1`/`0` (say `"2"`) stays unrecognized rather than being
+  guessed at. An absent key still reads `(false, false)` — that is how an
+  unchecked box arrives on the POST path, where it is not submitted at all.
+  `docs/proposals/patterns.md` has documented `ctx.GetBool()` as the way to read
+  checkbox state all along.
+
 ## [v0.23.0] - 2026-08-02
 
 ### Added
