@@ -339,11 +339,9 @@ func (a *ActionData) GetBool(key string) bool {
 //     Session.TriggerAction takes a map[string]interface{} a caller fills
 //     with native values. NaN and ±Inf are rejected rather than read as true.
 //
-// Accepting only bool and "true"/"false" is what made this method unusable for
-// the case it exists to serve: neither of the two shapes a real checkbox sends
-// was in the set. Handlers silently read false for a ticked box, which is the
-// opposite of the promise behind the progressive_enhancement capability — that
-// one handler stays correct whether or not the browser ran the client.
+// The set has to span all of them for progressive enhancement to hold: one
+// handler stays correct whether or not the browser ran the client, and the two
+// transports do not agree on the type.
 //
 // String matching is case-insensitive, so "On" and "TRUE" work.
 func (a *ActionData) GetBoolOk(key string) (bool, bool) {
@@ -357,10 +355,9 @@ func (a *ActionData) GetBoolOk(key string) (bool, bool) {
 		case "false", "0", "off":
 			return false, true
 		}
-		// Any other string is data, not a flag. "2" parses as a number, but
-		// reading it as true would mean guessing at a field whose author
-		// plainly did not mean a boolean — so stop here rather than fall
-		// through to the numeric path below.
+		// Any other string is data, not a flag: "2" parses as a number, but
+		// reading it as true would be guessing at a field whose author plainly
+		// did not mean a boolean. Stop here rather than fall through.
 		return false, false
 	}
 

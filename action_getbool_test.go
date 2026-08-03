@@ -6,9 +6,8 @@ import (
 )
 
 // TestGetBoolOk_CheckboxWireShapes pins the value shapes a checkbox actually
-// reaches a handler as. Before this, GetBoolOk accepted bool and "true"/"false"
-// and nothing else — so a ticked box read false on the no-JS path, where a
-// browser posts the box's value attribute ("1") or "on".
+// reaches a handler as. Which shape arrives depends on how the form was
+// submitted, and none of them is discoverable from the handler's side.
 func TestGetBoolOk_CheckboxWireShapes(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -75,7 +74,7 @@ func TestGetBoolOk_CheckboxWireShapes(t *testing.T) {
 	}
 }
 
-// TestGetBoolOk_TransportParity is the property the fix exists for: the same
+// TestGetBoolOk_TransportParity asserts the property directly: the same
 // checkbox, submitted over the socket and as a plain form POST, reads the same.
 // A handler that is only correct on one transport defeats progressive
 // enhancement, which promises the server handles plain POSTs end-to-end.
