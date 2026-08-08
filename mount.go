@@ -171,6 +171,7 @@ type mountConfig struct {
 	wsBufferSize           int                                 // WebSocket send buffer size per connection (default: 50)
 	ProgressiveEnhancement bool                                // Enable non-JS form submission support with PRG pattern (default: true)
 	Capabilities           []string                            // Controller capabilities detected at setup (e.g., ["change"])
+	Attributes             []string                            // lvt-* attribute names found in the template, for the client's unhandled-attribute warning (attribute_census.go)
 	TopicACL               TopicACLFunc                        // Topic-subscription ACL hook (nil unless WithTopicACL); deny-all default when nil and !OpenTopics
 	OpenTopics             bool                                // WithOpenTopics(): permit every topic Subscribe (mutually exclusive with TopicACL)
 }
@@ -760,6 +761,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			Success:      !connSt.hasErrors(),
 			Errors:       connSt.getErrorsOnly(),
 			Capabilities: h.config.Capabilities,
+			Attributes:   h.config.Attributes,
 		},
 	}
 
@@ -1271,6 +1273,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 				Meta: &ResponseMetadata{
 					Success:      true,
 					Capabilities: h.config.Capabilities,
+					Attributes:   h.config.Attributes,
 				},
 			}
 

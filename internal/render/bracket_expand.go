@@ -5,18 +5,33 @@ import (
 	"strings"
 )
 
-// bracketAttrPattern matches lvt-{el|fx|form}:*:on:[actions]:state="value" attributes.
+// bracketAttrPattern matches lvt-<ns>:*:on:[actions]:state="value" attributes.
 // It captures the prefix before the bracket, the comma-separated actions inside brackets,
 // and the suffix after the bracket (state + optional ="value").
 //
+// The namespace is any lvt- prefix, not a fixed el|fx|form list, so an app-defined
+// attribute gets the same bracket syntax the built-ins have —
+// lvt-x:tooltip:on:[save,delete]:pending expands exactly like lvt-fx:animate does.
+// Without that, custom attributes would be second-class purely because this regex
+// enumerates the namespaces it knew about when it was written.
+//
 // Lifecycle states (pending, success, error, done) are the four core states defined by
 // the client protocol. If new states are added, update this regex to match.
+//
+// Widening the namespace does mean lvt-on:, lvt-mod: and lvt-nav: now match in
+// bracket context — measured, not assumed: lvt-on:click:on:[a,b]:pending is
+// structurally a match, and RE2 has no lookahead to exclude it cheaply. That is
+// harmless rather than a regression, because those three namespaces have no
+// :on:[actions]:state form at all: such an attribute is already malformed, the
+// client has no handler for either spelling, and expansion just turns one inert
+// attribute into two. Excluding them would buy nothing and cost a special case
+// that the next namespace would have to be added to.
 //
 // Known limitation: unquoted attribute values are not matched.
 // The +? quantifier requires at least one character in the method segment,
 // rejecting malformed patterns like lvt-el::on:[save]:pending.
 var bracketAttrPattern = regexp.MustCompile(
-	`(lvt-(?:el|fx|form):[^=\s]+?:on:)\[([^\]]+)\](:(?:pending|success|error|done))` +
+	`(lvt-[a-zA-Z][a-zA-Z0-9-]*:[^=\s]+?:on:)\[([^\]]+)\](:(?:pending|success|error|done))` +
 		`(="[^"]*"|='[^']*')?`,
 )
 
@@ -29,8 +44,8 @@ var bracketAttrPattern = regexp.MustCompile(
 //
 //	lvt-el:addClass:on:save:pending="opacity-50" lvt-el:addClass:on:delete:pending="opacity-50"
 //
-// This handles lvt-el:*, lvt-fx:*, and lvt-form:* prefixes.
-// Attributes without brackets pass through unchanged.
+// Attributes without brackets pass through unchanged. See bracketAttrPattern for
+// which attributes carry bracket syntax.
 //
 // Called at template parse time (in parseInternal) so both the HTTP response path
 // and the WebSocket tree path receive expanded attributes. Bracket syntax inside
@@ -39,8 +54,10 @@ var bracketAttrPattern = regexp.MustCompile(
 //
 // Note: expansion operates on raw template source text, not parsed HTML. This means
 // bracket patterns inside <script> or <style> content will also be expanded if they
-// match the regex. In practice, the lvt-el:/lvt-fx:/lvt-form: prefixes are specific
-// enough that false matches are unlikely outside HTML attribute contexts.
+// match the regex. In practice the full lvt-<ns>:<method>:on:[…]:<state> shape is
+// specific enough that false matches are unlikely outside HTML attribute contexts;
+// widening the namespace does not loosen that, since the anchor is the :on:[…]:state
+// tail rather than the namespace.
 //
 // Template expressions inside bracket action lists (e.g. [{{.Action}},delete]) are
 // detected and left unexpanded to avoid producing invalid attribute names.

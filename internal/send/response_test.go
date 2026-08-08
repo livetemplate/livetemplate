@@ -448,3 +448,54 @@ func TestResponseMetadata_CapabilitiesIncludedWhenSet(t *testing.T) {
 		t.Errorf("Expected capabilities=[\"change\"], got %v", caps)
 	}
 }
+
+func TestResponseMetadata_AttributesOmittedWhenNil(t *testing.T) {
+	meta := &ResponseMetadata{
+		Success: true,
+		Errors:  map[string]string{},
+	}
+
+	bytes, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	if strings.Contains(string(bytes), `"attributes"`) {
+		t.Error("Expected nil attributes to be omitted from JSON")
+	}
+}
+
+// Attributes is additive: a metadata object carrying it must still decode the
+// same for every existing field, so an older client that ignores the key is
+// unaffected.
+func TestResponseMetadata_AttributesIncludedWhenSet(t *testing.T) {
+	meta := &ResponseMetadata{
+		Success:      true,
+		Errors:       map[string]string{},
+		Capabilities: []string{"change"},
+		Attributes:   []string{"lvt-fx:scroll", "lvt-on:click"},
+	}
+
+	bytes, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(bytes, &decoded); err != nil {
+		t.Fatalf("Expected valid JSON, got error: %v", err)
+	}
+
+	attrs, ok := decoded["attributes"].([]interface{})
+	if !ok {
+		t.Fatal("Expected attributes to be an array")
+	}
+	if len(attrs) != 2 || attrs[0] != "lvt-fx:scroll" || attrs[1] != "lvt-on:click" {
+		t.Errorf("Expected attributes=[\"lvt-fx:scroll\",\"lvt-on:click\"], got %v", attrs)
+	}
+
+	caps, ok := decoded["capabilities"].([]interface{})
+	if !ok || len(caps) != 1 || caps[0] != "change" {
+		t.Errorf("Expected capabilities to be unchanged by the new field, got %v", decoded["capabilities"])
+	}
+}

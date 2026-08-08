@@ -19,6 +19,7 @@ Complete reference for LiveTemplate form handling and `lvt-*` HTML attributes.
 - [File Uploads](#file-uploads)
 - [Form Behavior](#form-behavior)
 - [Attribute Reference](#attribute-reference)
+- [Attribute Census (`meta.attributes`)](#attribute-census-metaattributes)
 
 ---
 
@@ -504,9 +505,9 @@ When the same reactive attribute applies to multiple actions, use bracket syntax
 </button>
 ```
 
-Bracket expansion works for `lvt-el:*`, `lvt-fx:*`, and `lvt-form:*` prefixes, including boolean attributes (no `="value"`). Bracket syntax works everywhere in templates, including inside `{{range}}` and `{{if}}` blocks.
+Bracket expansion works for **any** `lvt-<namespace>:` prefix — the built-in `lvt-el:*`, `lvt-fx:*` and `lvt-form:*`, and app-defined ones such as `lvt-x:tooltip:on:[save,delete]:pending` — including boolean attributes (no `="value"`). Bracket syntax works everywhere in templates, including inside `{{range}}` and `{{if}}` blocks.
 
-> **Note:** Attribute values must be quoted (`="..."` or `='...'`). Unquoted values like `lvt-el:addClass:on:[a,b]:pending=loading` will produce incorrect output. Bracket expansion operates on raw template source, so patterns inside `<script>` or `<style>` blocks would also be expanded if they match — though the `lvt-el:`/`lvt-fx:`/`lvt-form:` prefixes make false matches unlikely in practice.
+> **Note:** Attribute values must be quoted (`="..."` or `='...'`). Unquoted values like `lvt-el:addClass:on:[a,b]:pending=loading` will produce incorrect output. Bracket expansion operates on raw template source, so patterns inside `<script>` or `<style>` blocks would also be expanded if they match — though the full `lvt-<ns>:<method>:on:[…]:<state>` shape makes false matches unlikely in practice.
 
 ---
 
@@ -1143,6 +1144,40 @@ Use reactive attributes for automatic form reset:
     Save
 </button>
 ```
+
+---
+
+## Attribute Census (`meta.attributes`)
+
+On the **initial render only** — over both the WebSocket and the HTTP-JSON transport — the server includes the sorted list of `lvt-*` attribute names it found in your template:
+
+```json
+{
+  "tree": { "...": "..." },
+  "meta": {
+    "success": true,
+    "capabilities": ["change"],
+    "attributes": ["lvt-fx:scroll", "lvt-mod:debounce", "lvt-on:click"]
+  }
+}
+```
+
+The client diffs this against the attributes it actually has handlers for and warns for any it does not, so an attribute that would otherwise sit silently inert — a typo, or a handler bundle the page forgot to load — is loud on the first render instead of never.
+
+**This is a diagnostic, not behavior.** The server does not interpret `lvt-*` attributes: it collects names, and nothing downstream branches on the result. Your template renders byte-identically whether or not a client reads the field. `meta.attributes` is `omitempty`, so a template using no `lvt-*` attributes omits it entirely, and a client that ignores the key is unaffected.
+
+**Why the server rather than a DOM scan.** A client-side scan only sees attributes that have already rendered, so an `lvt-fx:*` attribute inside an untaken `{{if}}` branch would stay invisible until a user reached it. The server sees the whole template — including unrendered branches and flattened `{{define}}`/`{{template}}` blocks — so the warning fires immediately.
+
+**What is reported.** Attribute names in attribute position, reduced to the part before `:on:` — `lvt-fx:animate:on:save:pending` and `lvt-fx:animate:on:delete:pending` both report as `lvt-fx:animate`, so the census names handlers rather than growing with your action list. Case is preserved (`lvt-el:addClass`, not `lvt-el:addclass`).
+
+**What is not reported, so an absent warning is never proof of correctness:**
+
+| Not censused | Why |
+| --- | --- |
+| Dynamic names — `lvt-fx:{{.Kind}}` | The name does not exist until render; it collapses to a bare namespace and is discarded |
+| Attributes added only by client-side JavaScript | The census reads template source, not the live DOM |
+| `data-lvt-*` markers | Framework-internal output (`data-lvt-id`, `data-lvt-loading`, …), not authored extension points |
+| `lvt-*` used as a CSS class or an ID value | Not in attribute position — `class="lvt-fade-in"` is a class, not an attribute |
 
 ---
 

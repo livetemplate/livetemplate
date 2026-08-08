@@ -1899,30 +1899,12 @@ func (c *capControllerWithChangeAndValidate) Validate(state capState, ctx *Conte
 	return state, nil
 }
 
-// readCapabilities issues an Accept: application/json request to the handler
-// and returns the capabilities slice from the initial render meta. Any nil
-// return signals that capabilities was omitted.
+// readCapabilities returns the capabilities slice from the initial render meta
+// (see readInitialMeta in attribute_census_test.go for the probe itself). Any
+// nil return signals that capabilities was omitted.
 func readCapabilities(t *testing.T, handler http.Handler) []interface{} {
 	t.Helper()
-	req := httptest.NewRequest("GET", "/", nil)
-	req.Header.Set("Accept", "application/json")
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("Expected status 200, got %d", rec.Code)
-	}
-	var resp map[string]interface{}
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("Failed to parse response JSON: %v", err)
-	}
-	meta, ok := resp["meta"].(map[string]interface{})
-	if !ok {
-		t.Fatal("Expected meta field in response")
-	}
-	caps, ok := meta["capabilities"].([]interface{})
-	if !ok {
-		return nil
-	}
+	caps, _ := readInitialMeta(t, handler)["capabilities"].([]interface{})
 	return caps
 }
 

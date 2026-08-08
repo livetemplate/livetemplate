@@ -135,6 +135,41 @@ func TestExpandBracketAttributes(t *testing.T) {
 			input: `<div lvt-el:addClass:on:[{{.Action}},delete]:pending="X">`,
 			want:  `<div lvt-el:addClass:on:[{{.Action}},delete]:pending="X">`,
 		},
+		{
+			// An app-defined namespace gets the same syntax as the built-ins.
+			// This is the case the fixed el|fx|form list used to exclude, and the
+			// reason custom attributes were second-class under bracket syntax.
+			name:  "custom namespace bracket expansion",
+			input: `<div lvt-x:tooltip:on:[save,delete]:pending="Saving…">`,
+			want:  `<div lvt-x:tooltip:on:save:pending="Saving…" lvt-x:tooltip:on:delete:pending="Saving…">`,
+		},
+		{
+			name:  "hyphenated custom namespace bracket expansion",
+			input: `<div lvt-x-acme:orgchart:on:[a,b]:done="ok">`,
+			want:  `<div lvt-x-acme:orgchart:on:a:done="ok" lvt-x-acme:orgchart:on:b:done="ok">`,
+		},
+		{
+			// Characterizes the widening rather than asking for it; rationale is
+			// at bracketAttrPattern. Pinned so nobody reads the old el|fx|form
+			// list as having rejected this on purpose.
+			name:  "routing namespace in bracket context expands (already malformed either way)",
+			input: `<div lvt-on:click:on:[a,b]:pending="X">`,
+			want:  `<div lvt-on:click:on:a:pending="X" lvt-on:click:on:b:pending="X">`,
+		},
+		{
+			// The real-world lvt-on: / lvt-mod: / lvt-nav: shapes are untouched:
+			// they carry no :on:[…]:state tail, which is what anchors the match.
+			name:  "real routing attributes pass through unchanged",
+			input: `<div lvt-on:click="Save" lvt-mod:debounce="300" lvt-nav:no-intercept>`,
+			want:  `<div lvt-on:click="Save" lvt-mod:debounce="300" lvt-nav:no-intercept>`,
+		},
+		{
+			// The namespace must still be a namespace: a bare lvt- attribute with
+			// no colon segment is not a bracket-syntax carrier.
+			name:  "non-namespaced lvt attribute passes through",
+			input: `<div lvt-toast-stack:on:[a,b]:pending="X">`,
+			want:  `<div lvt-toast-stack:on:[a,b]:pending="X">`,
+		},
 	}
 
 	for _, tt := range tests {
