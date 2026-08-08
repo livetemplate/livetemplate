@@ -1166,7 +1166,9 @@ The client diffs this against the attributes it actually has handlers for and wa
 
 **This is a diagnostic, not behavior.** The server does not interpret `lvt-*` attributes: it collects names, and nothing downstream branches on the result. Your template renders byte-identically whether or not a client reads the field. `meta.attributes` is `omitempty`, so a template using no `lvt-*` attributes omits it entirely, and a client that ignores the key is unaffected.
 
-**Why the server rather than a DOM scan.** A client-side scan only sees attributes that have already rendered, so an `lvt-fx:*` attribute inside an untaken `{{if}}` branch would stay invisible until a user reached it. The server sees the whole template — including unrendered branches and flattened `{{define}}`/`{{template}}` blocks — so the warning fires immediately.
+**Why the server rather than a DOM scan.** A client-side scan only sees attributes that have already rendered, so an `lvt-fx:*` attribute inside an untaken `{{if}}` branch would stay invisible until a user reached it. The server sees the whole template — including unrendered branches — so the warning fires immediately.
+
+**Associated templates are covered.** An attribute inside a `{{define}}` block is censused at its `{{template "x" .}}` call site, whether the block lives in the same template string or in a separate file loaded via `ParseFiles`/`ParseFS`.
 
 **What is reported.** Attribute names in attribute position, reduced to the part before `:on:` — `lvt-fx:animate:on:save:pending` and `lvt-fx:animate:on:delete:pending` both report as `lvt-fx:animate`, so the census names handlers rather than growing with your action list. Case is preserved (`lvt-el:addClass`, not `lvt-el:addclass`).
 

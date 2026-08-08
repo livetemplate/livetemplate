@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/gorilla/websocket"
 )
@@ -166,6 +167,37 @@ func TestAttributeCensus_CoversAssociatedTemplates(t *testing.T) {
 	want := []string{"lvt-fx:highlight", "lvt-scroll-sentinel"}
 	if !slices.Equal(tmpl.attributeCensus, want) {
 		t.Errorf("census over associated templates\n  got:  %v\n  want: %v", tmpl.attributeCensus, want)
+	}
+}
+
+// The harder half of the same claim, and the shape actually worth pinning: the
+// {{define}} lives in a *separately parsed source*, not in the main template's
+// string. ParseFiles/ParseFS parse every source into one set and parseInternal
+// flattens the set, so the census still reaches it — but that is a property of
+// the flatten step, not of the scan, and nothing else would notice if it
+// changed. A regression here silently hollows out the diagnostic for exactly
+// the multi-file template sets most likely to need it.
+func TestAttributeCensus_CoversSeparatelyParsedSources(t *testing.T) {
+	fsys := fstest.MapFS{
+		// Lexical order decides which source is the main template.
+		"a_main.tmpl": &fstest.MapFile{Data: []byte(
+			`<ul lvt-scroll-sentinel>{{range .Items}}{{template "row" .}}{{end}}</ul>`)},
+		"b_row.tmpl": &fstest.MapFile{Data: []byte(
+			`{{define "row"}}<li lvt-fx:highlight="new"></li>{{end}}`)},
+	}
+
+	tmpl, err := New("multisource")
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.ParseFS(fsys, "*.tmpl")
+	if err != nil {
+		t.Fatalf("ParseFS failed: %v", err)
+	}
+
+	want := []string{"lvt-fx:highlight", "lvt-scroll-sentinel"}
+	if !slices.Equal(tmpl.attributeCensus, want) {
+		t.Errorf("census across separately parsed sources\n  got:  %v\n  want: %v", tmpl.attributeCensus, want)
 	}
 }
 

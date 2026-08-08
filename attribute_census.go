@@ -105,9 +105,11 @@ const lifecycleSuffixSeparator = ":on:"
 //     an attribute a script sets via setAttribute is invisible to it. That is
 //     the right side to err on — a handler registered for it is not a mistake.
 //
-// Not a limitation: associated templates. parseInternal flattens
-// {{define}}/{{template}}/{{block}} into templateStr before this runs, so an
-// attribute inside an associated template is censused at its call site.
+// Not a limitation: associated templates, in either shape. parseInternal
+// flattens {{define}}/{{template}}/{{block}} into templateStr before this runs,
+// and ParseFiles/ParseFS parse every source into one set before that flatten —
+// so an attribute is censused at its call site whether its {{define}} sits in
+// the same string or in a separately parsed file.
 func extractAttributeNames(templateStr string) []string {
 	if !strings.Contains(templateStr, lvtAttributePrefix) {
 		return nil
