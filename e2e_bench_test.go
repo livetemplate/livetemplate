@@ -6,12 +6,18 @@ import (
 	"testing"
 )
 
+// The *_ExecuteUpdatesOnly benchmarks in this file measure the render+diff
+// primitive (tmpl.ExecuteUpdates) in isolation: no dispatch, no controller,
+// no WebSocket, no serialization to a connection. They were previously named
+// BenchmarkE2E*, which overstated their coverage; the honest end-to-end
+// variants driving the full composite pipeline live in composite_bench_test.go.
+
 type Activity struct {
 	Action string
 	Data   map[string]interface{}
 }
 
-func simulateUserJourney(tmpl *Template, activities []Activity) error {
+func executeUpdatesJourney(tmpl *Template, activities []Activity) error {
 	var buf bytes.Buffer
 	for _, activity := range activities {
 		buf.Reset()
@@ -23,7 +29,7 @@ func simulateUserJourney(tmpl *Template, activities []Activity) error {
 	return nil
 }
 
-func BenchmarkE2EUserJourney(b *testing.B) {
+func BenchmarkUserJourney_ExecuteUpdatesOnly(b *testing.B) {
 	tmpl := Must(New("counter"))
 	_, err := tmpl.Parse(`<div><button>{{.Count}}</button></div>`)
 	if err != nil {
@@ -46,14 +52,14 @@ func BenchmarkE2EUserJourney(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		err := simulateUserJourney(tmpl, activities)
+		err := executeUpdatesJourney(tmpl, activities)
 		if err != nil {
 			b.Fatal(err)
 		}
 	}
 }
 
-func BenchmarkE2ETodoApp(b *testing.B) {
+func BenchmarkTodoApp_ExecuteUpdatesOnly(b *testing.B) {
 	tmpl := Must(New("todos"))
 	_, err := tmpl.Parse(`<ul>{{range .Items}}<li>{{.Text}}</li>{{end}}</ul>`)
 	if err != nil {
@@ -92,14 +98,14 @@ func BenchmarkE2ETodoApp(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		err := simulateUserJourney(tmpl, activities)
+		err := executeUpdatesJourney(tmpl, activities)
 		if err != nil {
 			b.Fatal(err)
 		}
 	}
 }
 
-func BenchmarkE2ERangeOperations(b *testing.B) {
+func BenchmarkRangeOperations_ExecuteUpdatesOnly(b *testing.B) {
 	tmpl := Must(New("list"))
 	_, err := tmpl.Parse(`<ul>{{range .Items}}<li>{{.}}</li>{{end}}</ul>`)
 	if err != nil {
@@ -161,7 +167,7 @@ func BenchmarkE2ERangeOperations(b *testing.B) {
 	})
 }
 
-func BenchmarkE2EMultipleSessions(b *testing.B) {
+func BenchmarkMultipleSessions_ExecuteUpdatesOnly(b *testing.B) {
 	template := `<div>{{.Count}}</div>`
 
 	sessions := []int{1, 10, 100}

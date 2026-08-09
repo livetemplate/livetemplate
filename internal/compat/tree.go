@@ -27,6 +27,11 @@ func ExtractTemplateBodyContent(templateStr string) string {
 	return build.ExtractTemplateBodyContent(templateStr)
 }
 
+// ExtractTemplateBodyContentSliced wraps internal/build.ExtractTemplateBodyContentSliced.
+func ExtractTemplateBodyContentSliced(templateStr string) (body string, sliced bool) {
+	return build.ExtractTemplateBodyContentSliced(templateStr)
+}
+
 // extractTemplateContent wraps internal/build.ExtractTemplateContent for backward compatibility
 func ExtractTemplateContent(input string, wrapperID string) string {
 	return build.ExtractTemplateContent(input, wrapperID)

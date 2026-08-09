@@ -241,12 +241,14 @@ type Template struct {
 	config                 Config              // Template configuration
 	uploadRegistry         interface{}         // Upload registry for this connection (*upload.Registry)
 	cachedParseTemplate    *parse.Template     // Cached AST to avoid re-parsing on every render
-	cachedBodyContent      string              // Cached result of ExtractTemplateBodyContent(t.templateStr)
+	cachedBodyContent      string              // Cached body content for the reactive parse: the <body> slice of templateStr, plus recursionDefines when a body region was actually sliced out (see getOrComputeBodyContent)
 	cachedBodyContentValid bool                // Whether cachedBodyContent has been computed (empty string is valid)
+	recursionDefines       string              // FlattenTemplate's {{define}} blocks for templates on an invocation cycle. They sit past </html> in templateStr, so extracting the body drops them; the reactive parse needs them to populate the recursion registry. Held here rather than rescanned out of templateStr (issue #496). Empty for every non-recursive template. MUST be copied in Clone — production renders through per-session clones, so a clone that loses it silently degrades recursion to HTML-string diffing.
 	formSchema             *FormSchema         // Cached schema extracted from templateStr; nil if no rules
 	wiredActions           map[string]struct{} // Cached set of client-wired action names (form/button name=, lvt-on:) extracted from templateStr; immutable after parse; drives the Publish symmetry-collision warning
 	wiredCollisionWarned   *sync.Map           // action -> struct{}: dedups the Publish symmetry-collision slog.Warn to once per action name; shared by pointer across per-session clones so the warning is app-global, not per-connection
 	precomputeAllow        map[string]struct{} // Superset of identifiers referenced by the parsed templates; immutable after parse; scopes eager method precompute in BuildDataMap so unreferenced State methods are never called
+	pending                bool                // True when the current render has pending Async work; set per-render by the event loop, consumed by buildTree
 	attributeCensus        []string            // Sorted set of lvt-* attribute names appearing in templateStr; immutable after parse; advertised on initial render so the client can warn about attributes no handler claims (attribute_census.go)
 }
 
@@ -1127,6 +1129,7 @@ func (t *Template) Clone() (*Template, error) {
 	cachedParse := t.cachedParseTemplate
 	bodyContent := t.cachedBodyContent
 	bodyContentValid := t.cachedBodyContentValid
+	recursionDefines := t.recursionDefines
 	formSchema := t.formSchema
 	wiredActions := t.wiredActions
 	wiredCollisionWarned := t.wiredCollisionWarned
@@ -1148,11 +1151,16 @@ func (t *Template) Clone() (*Template, error) {
 		cachedParseTemplate:    cachedParse, // Share parsed AST + builtins
 		cachedBodyContent:      bodyContent, // Share extracted body content
 		cachedBodyContentValid: bodyContentValid,
-		formSchema:             formSchema,           // Share extracted form schema (immutable)
-		wiredActions:           wiredActions,         // Share extracted wired-action set (immutable)
-		wiredCollisionWarned:   wiredCollisionWarned, // Share dedup store by pointer (app-global once-per-action warn)
-		precomputeAllow:        precomputeAllow,      // Share referenced-identifier set (immutable after parse)
-		attributeCensus:        attributeCensus,      // Share extracted lvt-* attribute census (immutable)
+		// Without this the clone recomputes body content with no recursion
+		// defines, silently degrading recursive templates to HTML-string
+		// diffing — and production renders through clones, so a master-only
+		// test would not notice.
+		recursionDefines:     recursionDefines,
+		formSchema:           formSchema,           // Share extracted form schema (immutable)
+		wiredActions:         wiredActions,         // Share extracted wired-action set (immutable)
+		wiredCollisionWarned: wiredCollisionWarned, // Share dedup store by pointer (app-global once-per-action warn)
+		precomputeAllow:      precomputeAllow,      // Share referenced-identifier set (immutable after parse)
+		attributeCensus:      attributeCensus,      // Share extracted lvt-* attribute census (immutable)
 		// Don't copy lastData, lastHTML, lastTree, etc. - start fresh per session
 	}
 
@@ -1208,17 +1216,26 @@ func (t *Template) Parse(text string) (*Template, error) {
 // parseInternal handles the common logic for parsing templates:
 // flattening, wrapper injection, final parsing, and validation.
 func (t *Template) parseInternal(text string, baseTemplate *template.Template) (*Template, error) {
+	// recursionDefines holds the {{define}} blocks FlattenTemplate emits for
+	// templates on an invocation cycle, which cannot be inlined. They are needed
+	// in two places — appended to the document below so html/template can resolve
+	// the recursive calls, and appended to the extracted <body> content so the
+	// reactive parse populates the recursion registry — so keep them addressable
+	// rather than re-deriving them from the assembled string later (issue #496).
+	var recursionDefines string
+
 	// Check if template uses composition features and flatten if needed
 	if parse.HasTemplateComposition(baseTemplate) {
 		// Flatten the template to resolve all {{define}}/{{template}}/{{block}}
-		flattenedStr, err := parse.FlattenTemplate(baseTemplate)
+		flattenedStr, defines, err := parse.FlattenTemplate(baseTemplate)
 		if err != nil {
 			return nil, fmt.Errorf("template flattening failed: %w", err)
 		}
 
 		// Store flattened version for tree generation (WITHOUT wrapper)
 		// This ensures updates use the flattened template
-		text = flattenedStr
+		text = flattenedStr + defines
+		recursionDefines = defines
 	}
 
 	// Determine if this is a full HTML document. Computed here (after any
@@ -1268,8 +1285,10 @@ func (t *Template) parseInternal(text string, baseTemplate *template.Template) (
 	t.templateStr = text
 	t.tmpl = tmpl
 	t.cachedParseTemplate = nil // Invalidate cached AST when template source changes
-	t.cachedBodyContent = ""    // Invalidate cached body content
+
+	t.cachedBodyContent = "" // Invalidate cached body content
 	t.cachedBodyContentValid = false
+	t.recursionDefines = recursionDefines
 	t.formSchema = extractFormSchemaFromTemplateStr(text)
 	t.precomputeAllow = parse.CollectReferencedIdentsFromTemplate(tmpl)
 	t.attributeCensus = extractAttributeNames(text)
@@ -1592,7 +1611,16 @@ func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}, messages ...ma
 func (t *Template) getOrComputeBodyContent() string {
 	if !t.cachedBodyContentValid {
 		if t.wrapperID != "" {
-			t.cachedBodyContent = compat.ExtractTemplateBodyContent(t.templateStr)
+			// Re-attach the recursion {{define}} blocks only when a body region
+			// was actually sliced out, because that is exactly when the tail
+			// they live in got dropped. templateStr still ends with them, so the
+			// paths returning it unchanged (a fragment has no <body>) would
+			// otherwise carry every block twice.
+			body, sliced := compat.ExtractTemplateBodyContentSliced(t.templateStr)
+			if sliced {
+				body += t.recursionDefines
+			}
+			t.cachedBodyContent = body
 		} else {
 			t.cachedBodyContent = t.templateStr
 		}
@@ -1957,7 +1985,7 @@ func (t *Template) buildTree(data interface{}, messages map[string]string) (*tre
 	// The result is reused for both HTML rendering and tree building,
 	// eliminating the duplicate reflection that previously occurred in
 	// renderHTML (via ExecuteTemplateWithContext) and AddLvtToData.
-	dataWithLvt := context.BuildDataMap(data, messages, t.config.DevMode, t.uploadRegistry, t.precomputeAllow)
+	dataWithLvt := context.BuildDataMap(data, messages, t.config.DevMode, t.uploadRegistry, t.precomputeAllow, t.pending)
 
 	// Phase 4: Render HTML using pre-built data map (no reflection)
 	currentHTML, err := t.renderHTMLWithData(dataWithLvt)

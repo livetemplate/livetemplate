@@ -66,3 +66,21 @@ jobs:
         go test -v -timeout=300s -run '^(TestFuzz|Fuzz)' -rapid.checks=50 $(go list ./... | grep -v '/cmd/lvt' | grep -v '/examples' | grep -v '/client')
       env:
         CGO_ENABLED: 1
+
+  release-script-tests:
+    name: Release Script Tests
+    runs-on: ubuntu-latest
+
+    # Pure-bash unit tests for release.sh's changelog promotion and client-pin
+    # guard. They source release.sh with RELEASE_SH_LIB=1, run in a temp dir, and
+    # need no Go build or network — release.sh is only exercised during a release,
+    # so these move regression discovery from release time onto every PR.
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Test release.sh changelog handling
+      run: bash scripts/test_release_changelog.sh
+
+    - name: Test release.sh client-pin guard
+      run: bash scripts/test_release_client_pin.sh

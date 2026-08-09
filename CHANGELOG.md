@@ -5,6 +5,160 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.24.0] - 2026-08-03
+
+### Fixed
+
+- **`ctx.GetBool()` now reads a checkbox on both transports.** It accepted
+  `bool` and the strings `"true"`/`"false"` — and neither is what a checkbox
+  actually sends. Over the WebSocket the client serializes a lone checkbox as
+  `input.checked` (a bool; the `value` attribute is discarded), which worked.
+  With the client not running, the browser posts the box's `value` attribute —
+  `"1"`, or `"on"` when it has none — and `GetBool` read `false` for a ticked
+  box. Since `GetString` does not accept a bool either, no accessor read a
+  checkbox correctly on both paths, so a handler could not be written once and
+  stay correct across them — the opposite of what the `progressive_enhancement`
+  capability promises. `GetBoolOk` now accepts `"1"`/`"on"`/`"true"` as true and
+  `"0"`/`"off"`/`"false"` as false (case-insensitive), plus numbers in every
+  width `GetFloatOk` accepts — a numeric-looking hidden input is what the
+  client's `parseValue()` turns into a number before sending it. `NaN` and
+  `±Inf` are rejected rather than read as true, and a string that is neither
+  boolean-shaped nor `1`/`0` (say `"2"`) stays unrecognized rather than being
+  guessed at. An absent key still reads `(false, false)` — that is how an
+  unchecked box arrives on the POST path, where it is not submitted at all.
+  `docs/proposals/patterns.md` has documented `ctx.GetBool()` as the way to read
+  checkbox state all along.
+
+## [v0.23.0] - 2026-08-02
+
+### Added
+
+- **`LiveHandler.Func()` returns `ServeHTTP` as an `http.HandlerFunc`.** The
+  value `Template.Handle()` returns already satisfied `http.Handler`, so
+  `http.Handle`/`mux.Handle` worked, but the stdlib entry points that take a
+  function — `http.HandleFunc`, and `ServeMux.HandleFunc` with Go 1.22 method
+  patterns — required spelling out `handler.ServeHTTP`. `Func()` is that method
+  value, so `http.HandleFunc("/counter", handler.Func())` and
+  `mux.HandleFunc("GET /counter", handler.Func())` read naturally. It is an
+  accessor, not a downgrade: `Shutdown`, `Publish` and `MetricsHandler` stay
+  available on the `LiveHandler` it came from.
+
+### Changed
+
+- **A failed WebSocket upgrade now logs a `hint` when the `http.ResponseWriter`
+  does not implement `http.Hijacker`.** An upgrade takes over the raw
+  connection, so middleware that wraps the writer (logging, gzip, status
+  capture) without forwarding `Hijack` breaks it — while GET and POST keep
+  rendering, making the symptom "the page renders but never goes live". The
+  underlying upgrader error names `http.Hijacker` but not the middleware that
+  caused it; the hint does, and points at forwarding `Hijack` or leaving the
+  writer unwrapped when `livetemplate.WSIsUpgrade(r)` is true. It is attached on
+  the writer's own defect, which need not be what the accompanying error reports
+  — an upgrader can reject a handshake earlier (a disallowed `Origin`) and never
+  reach the hijack — so it is worded as a second failure the upgrade would have
+  hit regardless, rather than as the reported cause.
+
+## [v0.22.0] - 2026-07-26
+
+### Added
+
+- **`Async[S, R](ctx, work, apply)` — run expensive work off the event loop
+  with type-safe on-loop state application.** The generic function spawns a
+  goroutine for `work`, then dispatches `apply` back on the session's event
+  loop when it completes. This replaces the manual two-action pattern
+  (action triggers goroutine → goroutine calls `DispatchChan` → second action
+  applies result) with a single call that handles goroutine lifecycle,
+  panic recovery, and error propagation.
+
+- **`{{.lvt.Pending}}` — framework-provided template variable for
+  zero-boilerplate loading indicators.** On the render that registers Async
+  work, `.lvt.Pending` is `true`; on all other renders it is `false`. This
+  eliminates the need for a manual `Loading bool` field in state and the
+  `s.Loading = true / s.Loading = false` bookkeeping across two actions.
+
+## [v0.21.0] - 2026-07-23
+
+### Added
+
+- **`Validate(templateText)` reports template problems as structured
+  diagnostics — including the parse and composition errors the live-render path
+  silently swallows.** `Execute`/`ExecuteUpdates` catch a first-render failure
+  and fall back to an HTML-structure tree, so a malformed template (an unclosed
+  `{{range}}`, an unknown function, an unresolved `{{template}}`) renders
+  degraded with no error returned — a tool that wants to reject a bad template
+  *before* serving had nothing to call. `Validate(templateText string, opts
+  ...ValidateOption) ([]Diagnostic, error)` parses the text through the real
+  framework function set and any component templates supplied via
+  `WithValidateComponents` — the same `ParseFS` path serve uses, so component
+  definitions resolve rather than false-positive — and returns a
+  `Diagnostic{Line, Severity, Message}` per problem (at most one today — the
+  parser stops at the first error). The returned
+  `error` is reserved for infrastructure failures (a component set that itself
+  fails to parse); a template that does not parse is always a diagnostic, not an
+  error, mirroring the shape of a linter. Because unknown functions are checked
+  against the framework's own builtins — which a downstream consumer cannot
+  enumerate — this check cannot be reproduced outside the module. Data-dependent
+  checks (render behaviour against a sample value) are out of scope for now, and
+  `SeverityWarning` is reserved for them.
+
+## [v0.20.1] - 2026-07-20
+
+### Fixed
+
+- **The pinned browser client is no longer three releases behind, so the upload
+  field-serialization fix actually reaches applications.** `ClientVersion` — the
+  constant `ClientScriptURL` is built from, and therefore what every app using
+  the documented `<script src="{{ .ClientScriptURL }}">` integration loads —
+  still pointed at client 0.18.2 while the client had shipped 0.19.1 and 0.20.0.
+  0.18.2 predates the opt-in change to upload form fields, so an application on
+  the documented path was still serializing its entire enclosing form into every
+  Proxied upload (everything except `type="password"`), including CSRF tokens and
+  hidden secrets. Pinned to 0.20.0. Applications that self-host or pin the client
+  themselves were unaffected; those following the default were not.
+  ([client#150](https://github.com/livetemplate/client/pull/150), #452)
+
+### Documentation
+
+- **`lvt-upload-with` is documented where the docs site actually reads from.**
+  The upload reference and the client-attribute tables live here and are mirrored
+  into the docs site on release; the opt-in marking contract had been written
+  into the mirror instead, where the next sync would have deleted it. The
+  `UploadStreamer` godoc also still described the pre-opt-in behaviour, which is
+  the copy an `OnUpload` implementer is likeliest to read. (#452, #508)
+
+## [v0.20.0] - 2026-07-20
+
+### Fixed
+
+- **Template auto-discovery no longer fails when a directory disappears while it
+  is being searched.** `livetemplate.New()` walks the template directory, and any
+  error from that walk aborted it — including a transient directory being removed
+  by something else at that moment, which surfaced as
+  `template auto-discovery failed: readdirent …: no such file or directory` from
+  an unrelated part of the app. A path vanishing underneath the walk is now
+  skipped rather than fatal. Deliberately narrow: a missing *base* directory
+  still errors, since that means the caller pointed at somewhere that does not
+  exist, and non-ENOENT failures such as permissions still surface. `.uploads` is
+  also skipped outright, being uploaded files rather than templates. (#502)
+- **Range items whose keyed element sits under more than one wrapper keep their
+  stable identity.** Nested constructs stack wrappers, so
+  `{{if}}{{if}}<li data-key="…">` puts the keyed element two levels below the
+  range item; key lookup only looked one level down and fell back to hashing the
+  item's content. Because a content hash changes when the content does, editing
+  such an item changed its key and the client removed and re-inserted the row
+  instead of patching it — the churn `data-key` exists to avoid. Lookup now
+  descends through nested wrappers, bounded at four levels. Items with no key at
+  any depth still use content hashes, as before. (#505)
+
+### Internal
+
+No behaviour change from these, but they are where the two fixes above came from:
+`FlattenTemplate` now hands recursion defines back to its caller rather than
+appending them itself (#503), and wrappers carry an explicit kind instead of
+being inferred from tree shape (#504) — the inference was whitespace-sensitive,
+which is what let #505 through. Release tooling also refuses to bump on top of an
+unpublished release (#501) and restores its files when a run aborts (#499).
+
 ## [v0.19.1] - 2026-07-18
 
 Documentation-only. No library behavior changes; released so the docs site,
@@ -309,18 +463,6 @@ channel names (`livetemplate:broadcast:*`) are unchanged.
 
 
 
-## [Unreleased]
-
-### Breaking changes
-
-- **Retroactive breaking-change notice for v0.8.5: `TreeNode` internal API changed in [#220](https://github.com/livefir/livetemplate/pull/220)** (commit `3fe784ca`, shipped in `v0.8.5`). The `Dynamics` field type and the helper signatures changed when the internal map was replaced with a slice for ~20% speedup:
-  - `Dynamics` field: `map[string]interface{}` → `[]interface{}`
-  - `SetDynamic(position string, value interface{})` → `SetDynamic(index int, value interface{})`
-  - `GetDynamic(position string)` → `GetDynamic(index int)`
-  - New `AutoKey string` Go field replaces the previous `"_k"` map key. The `"_k"` *wire-format* key is unchanged — only the in-memory Go field name moved.
-
-  `TreeNode` lives in `internal/build` and is not part of the public `livetemplate` API surface; the breaking surface is therefore limited to **library forks and downstream modules that vendor or replace `internal/build`**, plus internal test fixtures. Application code that consumes `livetemplate` through its exported API is unaffected. The on-the-wire tree format (numeric string keys: `"0"`, `"1"`, ...) is unchanged; only the in-memory Go API moved.
-
 ## [v0.8.23] - 2026-05-02
 
 ### Changes
@@ -558,6 +700,18 @@ Key changes:
 
 <a name="v0.8.5"></a>
 ## [v0.8.5] - 2026-03-25
+
+### Breaking changes
+
+> Added retroactively — this change shipped in v0.8.5 but was not recorded at the time.
+
+- **`TreeNode` internal API changed in [#220](https://github.com/livefir/livetemplate/pull/220)** (commit `3fe784ca`). The `Dynamics` field type and the helper signatures changed when the internal map was replaced with a slice for ~20% speedup:
+  - `Dynamics` field: `map[string]interface{}` → `[]interface{}`
+  - `SetDynamic(position string, value interface{})` → `SetDynamic(index int, value interface{})`
+  - `GetDynamic(position string)` → `GetDynamic(index int)`
+  - New `AutoKey string` Go field replaces the previous `"_k"` map key. The `"_k"` *wire-format* key is unchanged — only the in-memory Go field name moved.
+
+  `TreeNode` lives in `internal/build` and is not part of the public `livetemplate` API surface; the breaking surface is therefore limited to **library forks and downstream modules that vendor or replace `internal/build`**, plus internal test fixtures. Application code that consumes `livetemplate` through its exported API is unaffected. The on-the-wire tree format (numeric string keys: `"0"`, `"1"`, ...) is unchanged; only the in-memory Go API moved.
 
 ### Bug Fixes
 

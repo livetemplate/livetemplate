@@ -1,177 +1,242 @@
 # Known Performance Bottlenecks
 
-**Last CPU Profiled:** 2026-03-19
-**Last Memory Profiled:** 2026-03-23
+**Last CPU Profiled:** 2026-07-30 (composite-pipeline suite)
+**Last Memory Profiled:** 2026-07-30 (composite-pipeline suite) · 2026-07-29 (full root suite)
 **Last Range-Diff Benchmarked:** 2026-05-01 (Phase 5 streaming-range)
-**Go Version (profiles):** 1.26.0
-**Go Version (benchmarks):** 1.26.0
-**Architecture:** arm64 (Apple M2 for profiles; linux/arm64 for Phase 5 benchmarks)
+**Go Version:** 1.26.1
+**Architecture:** linux/arm64 (Neoverse-N1, 8 cores, shared machine at load ~10)
+
+> **Reading the numbers.** The 2026-07 profiles were captured on a loaded shared
+> machine. pprof percentages are shares of this process's own samples and remain
+> valid for *ranking*; allocs/op and wireB/op are exact and machine-independent;
+> **ns/op values are indicative only** (±20-30% between runs). Clean absolute
+> timings belong to the CI benchmark gate (amd64 ubuntu runner) whose baseline is
+> maintained in `testdata/benchmarks/baseline.txt`. Numbers dated 2026-03 were
+> captured on Apple M2 (darwin/arm64) and are not comparable across machines.
+
+## Bottleneck Report — 2026-07-30, composite workloads, ranked
+
+Profiled **through the composite-pipeline benchmarks** (the real cycle: action
+dispatch → controller → render → diff → serialize → real `writePump`), which the
+pre-2026-07 suite never exercised. Sources: `profiles/composite-{cpu,mem}.prof`
+captured over `BenchmarkCompositeUpdate`, `BenchmarkTopicFanout_FullPipeline/N=100`,
+`BenchmarkWideTableAction`, `BenchmarkLargeDocDiff/files=10,lines=100/autokey`,
+`BenchmarkChatAppendFanout/hist=100,peers=10`, `BenchmarkUpload_Proxied/1MB`.
+
+### 1. The per-item pipeline constant — server cost scales with rendered size, not change size
+
+**The headline the isolated micro-benches hid.** Across three unrelated workload
+shapes — wide grid (seat-picker), chat history, large document (prereview) — one
+action costs **~90-100 allocs and ~25-30µs (loaded) per rendered range item**,
+regardless of how small the actual state change is:
+
+| Workload | One action costs | Wire ships |
+|---|---|---|
+| 50×20 grid, 1-cell toggle | ~25ms · 108k allocs | 1.5 KB |
+| 1k-line doc, 1-line comment | ~28ms · 93k allocs | 6.5 KB (auto-key) / 305 B (data-key) |
+| 10k-line doc, 1-line comment | ~242ms · 919k allocs | 13 KB (auto-key) |
+| 50k-line doc, 1-line comment | ~1.2s · 4.6M allocs | 33 KB (auto-key) |
+| 10k-msg chat, 1 append × 10 peers | ~357ms · 4.3M allocs | 1.3 KB |
+
+Every action re-renders and re-diffs the entire template against fresh state.
+The diff engine keeps the *wire* minimal, but the server pays O(total items) in
+render+diff work for an O(1) mutation. This is the dominant scalability ceiling:
+fan-out multiplies it per subscriber (per-subscriber marginal cost ≈ one full
+single-connection interaction, ~92 allocs — measured linear through N=10000).
+
+**Candidate optimization:** memoized/partial re-render — skip rebuilding range
+item subtrees whose input data is unchanged (e.g. reuse the previous render's
+`TreeNode` subtree keyed by the existing stream-mode content hash before
+re-rendering the item). Expected impact: turns O(total items) per action into
+O(changed items + hash checks) for the build phase — for the 50k-line document
+that is the difference between ~1.2s and low tens of ms. High effort: touches
+the build path's correctness-critical statics/dynamics contract.
+**Identification only — not undertaken in this plan.**
+
+### 2. TreeNode construction — 24.8% of composite allocations
+
+`build.NewTreeNode` 14.8% flat + `build.NewTreeNodeWithStatics` 10.0% flat
+(composite mem profile). Unchanged ranking vs 2026-03 (22.7% then, full-suite),
+now confirmed under real workloads. The 2026-03 `sync.Pool` investigation stands:
+pooling gains <3% because GC clears pools; an arena or a flattened tree layout
+remains the only structural fix. Largely subsumed by #1 — memoizing unchanged
+subtrees would eliminate most TreeNode churn as a side effect.
+
+### 3. Serialization — ~16.5% cumulative of composite allocations
+
+`json-iterator frozenConfig.Marshal` 16.45% cum; inside it
+`TreeNode.MarshalJSON` 13.1% cum, `sortKeysMapEncoder.Encode` 13.8% cum,
+`hex.EncodeToString` 2.6% flat, plus reflect2 map iteration 4.6% cum. Grew from
+2.11% (2026-03, pre-json-iterator, full-suite) — the wire-format marshal now
+runs once per receiver per action, so fan-out multiplies it.
+
+**Candidate optimizations:** (a) audit whether the sorted-map encoder config is
+needed on the hot path — the tree wire format already emits ordered keys via the
+custom `MarshalJSON` (expected: several % of total allocs); (b) marshal the
+response envelope once per publish and share the byte slice across subscribers
+whose diff is identical (the chat/topic push case — today each of N identical
+updates is re-marshaled). Expected impact at N=100 fan-out: removes up to N-1
+redundant marshals per publish.
+
+### 4. Streaming-range per-item hashing — ~12.3% cumulative
+
+`keys.buildHashParts` 12.3% cum / `keys.formatHashPart` 10.9% cum /
+`hex.EncodeToString` + `fnv.New128a` beneath — the stream-mode content hashing
+introduced by the 2026-05 streaming-range rewrite, now a top-5 allocator under
+composite load (invisible to the old suite; first flagged by the 2026-07-29
+full-suite snapshot at 7.7% cum). Each range item's dynamics are stringified and
+hex-encoded on every render.
+
+**Candidate optimization:** hash without materializing intermediate strings
+(feed the FNV hasher incrementally; keep the 64-bit hash as `uint64` instead of
+a hex `string` key). Expected impact: most of the ~12% cum, plus downstream
+savings in `newStreamRangeContext` (3.9% flat) and `sameKeySet` (1.3% flat).
+Medium effort, self-contained in `internal/keys` + `internal/diff`.
+
+### 5. Per-render template AST walking — ~40% cumulative
+
+`parse.walkAST`/`walkList` 40.4% cum (composite mem), `newOrderedVars` 3.9%
+flat, `buildRangeItemVarCtx` 6.2% cum; CPU-side `walkAST/walkList` is 19.3% cum
+of composite CPU. The parsed AST is cached (2026-03, PR #219), but the *walk*
+still happens per render per receiver, allocating per-item variable contexts.
+This is the build-phase engine behind finding #1 — same fix (skip unchanged
+subtrees), listed for attribution rather than as a separate work item.
+
+### 6. Auto-key churn on in-place edits — wire, not CPU
+
+Editing an item in place changes its content-hash auto-key, so the diff ships
+the containing range's op list instead of a minimal update: wire grows with the
+containing range's size (6.5→33 KB for a 1-line edit as the file grows —
+`BenchmarkLargeDocDiff/*/autokey`). With explicit `data-key` the same edit ships
+**~305 B steady-state, independent of document size** (+~9% allocs for key
+extraction). The first render after a structure change still ships that
+subtree's statics once (amortizes across the session).
+
+**Candidate optimization:** none needed in the engine — this is the documented
+key-stability design; the fix is usage-level: `data-key` is strongly recommended
+for large edit-in-place ranges (see CLAUDE.md "data-key in Range Templates").
+Optional follow-up: a debug-mode warning when a large range re-keys an existing
+item on consecutive renders.
+
+### 7. Cross-instance Redis — constant hop, amortized by N≈100 (healthy)
+
+Relay round trip ~110-130µs / 91 allocs over in-process miniredis
+(`pubsub/BenchmarkRedisTopicRelay`); full-pipeline cross-instance fan-out
+converges with in-process fan-out by N=100 (`BenchmarkRedisCrossInstanceFanout`:
+~238µs at N=1 vs ~57µs in-process; indistinguishable at N≥100). Redis traffic is
+O(1) per publish. Relay allocations split between deserialize (`handleMessage`,
+29% cum of the pubsub profile) and go-redis/miniredis internals. No action
+needed — documented as scaling-claim protection; no surveyed consumer app uses
+Redis fan-out in production.
+
+### 8. Uploads — healthy, deprioritized
+
+Proxied streams 700-1100 MB/s at a **constant 114 allocs/op across
+64KB→16MB** (genuinely zero-copy; the CPU is `mime/multipart` boundary scanning,
+6.1% cum of composite CPU, proportional to bytes — stdlib floor). Volume is
+disk-write-bound (190-435 MB/s, 121 allocs/op). Direct/Preview are 12µs/7µs
+protocol handling. No framework bottleneck.
 
 ## Profiling Methodology
 
-Profiles generated using:
 ```bash
-make profile-cpu
+make profile-cpu            # root package, all benches
 make profile-mem
+make profile-pkg PKG=./internal/session BENCH='AsyncSendThroughput$'
+make profile-pkg PKG=./pubsub BENCH='RedisTopicRelay$'
+
+# Composite-only profile (what this report used):
+GOWORK=off go test -run '^$' \
+  -bench 'CompositeUpdate$|TopicFanout_FullPipeline/N=100$|WideTableAction|LargeDocDiff/files=10,lines=100/autokey|ChatAppendFanout/hist=100,peers=10$|Upload_Proxied/1MB' \
+  -benchtime=2s -cpuprofile=profiles/composite-cpu.prof -memprofile=profiles/composite-mem.prof .
+
+go tool pprof -top -cum profiles/composite-cpu.prof
+go tool pprof -top -alloc_space profiles/composite-mem.prof
 ```
 
-Analyzed using:
-```bash
-go tool pprof -top -cum profiles/cpu.prof
-go tool pprof -top -alloc_space profiles/mem.prof
-```
+## CPU Profile — 2026-07-30, composite suite
 
-## CPU Bottlenecks
-
-### Analysis Summary
+Loaded-machine caveat applies to absolute times; ranking is valid.
 
 ```
-File: livetemplate.test
-Type: cpu
-Time: 2026-03-19 20:53:34 CET
-Duration: 66.90s, Total samples = 100.03s (149.52%)
-Showing nodes accounting for 84.02s, 83.99% of 100.03s total
-Dropped 1039 nodes (cum <= 0.50s)
-      flat  flat%   sum%        cum   cum%
-     0.09s  0.09%  0.09%     59.39s 59.37%  runtime.systemstack
-     0.02s  0.02%  0.11%     26.20s 26.19%  runtime.gcBgMarkWorker.func2
-     0.23s  0.23%  0.34%     26.12s 26.11%  runtime.gcDrain
-    23.54s 23.53% 23.87%     23.54s 23.53%  runtime.kevent
-         0     0% 23.87%     23.54s 23.53%  runtime.netpoll
-         0     0% 23.87%     23.46s 23.45%  runtime.startTheWorldWithSema
-         0     0% 23.87%     23.29s 23.28%  runtime.gcStart.func4
-     0.03s  0.03% 23.90%     18.37s 18.36%  runtime.schedule
-     0.04s  0.04% 23.94%     18.35s 18.34%  runtime.gcBgMarkWorker
-     0.01s  0.01% 23.95%     17.41s 17.40%  runtime.mcall
-     0.04s  0.04% 23.99%     17.01s 17.00%  runtime.park_m
-     0.16s  0.16% 24.15%     16.90s 16.89%  runtime.findRunnable
-         0     0% 24.15%     16.87s 16.86%  runtime.gcDrainMarkWorkerIdle (inline)
+Duration: 24.65s, samples 30.56s
+      cum%   (cumulative, selected)
+     51.6%  Template.ExecuteUpdates            ← the per-action pipeline
+     48.1%  Template.buildTree
+     26.4%  runtime.mallocgc                   ← allocation machinery
+     19.3%  parse.walkAST / walkList           ← per-render AST walk (finding #5)
+     15.4%  Template.renderHTMLWithData
+     15.1%  html/template.(*Template).Execute  ← stdlib render floor
+     14.3%  Template.compareTreesAndGetChanges ← diff phase
+      8.8%  reflect.Value.call                 ← controller dispatch + data map
+      6.1%  mime/multipart boundary scan       ← upload byte path (healthy)
+
+      flat% (selected)
+      8.6%  runtime.asyncPreempt               ← loaded-box scheduling noise
+      5.7%  bytealg.LastIndexByte              ← multipart boundary scan
+     ~14%   runtime lock2/unlock2 + GC mark    ← allocation pressure (findings #2-#4)
 ```
 
-### Key Findings
-
-#### Runtime/GC Overhead
-- **Impact:** ~59% of CPU time in garbage collection
-- **Analysis:** The benchmark suite allocates heavily, triggering frequent GC cycles
-- **Optimization Opportunity:** Reduce allocations (see Memory Bottlenecks section)
-
-#### Fingerprinting (Phase 2: Build)
-- **Location:** `internal/build/fingerprint.go:CalculateStructureFingerprint`
-- **Impact:** No longer a measurable CPU hotspot (previously 5.93% of CPU samples in Nov 2025)
-- **Status:** Replaced MD5 with FNV-1a 128-bit (commit 1e351ca). Lazy-cached on TreeNode via `GetStructureFingerprint()`. No longer a significant bottleneck.
-- **Tradeoff:** `ClientNeedsStatics` fingerprint comparison slowed from ~4ns to ~6.6ns (zero-alloc, likely from `atomic.Value` type assertion overhead). Acceptable: the 2.6ns increase per comparison is negligible vs the ~3100ns saved per range diff operation.
-
-#### Overall Distribution
-Most CPU time is spent in:
-1. Garbage collection (59%)
-2. Runtime overhead (scheduling, memory management)
-3. Application logic (template rendering, tree diffing)
-
-The high GC overhead indicates that memory allocation reduction would have the most significant performance impact.
-
-## Memory Bottlenecks
-
-> **Note:** Profile shape changed significantly after PRs #219, #220, #224. Previous top allocator
-> `SetDynamic` (6.13%) dropped to 1.56% due to Dynamics map→slice conversion. `newEvaluator` (5.90%)
-> eliminated by pre-computed builtins. NewTreeNode struct allocation is now the dominant LiveTemplate hotspot.
-
-### Analysis Summary
+## Memory Profile — 2026-07-30, composite suite
 
 ```
-File: livetemplate.test
-Type: alloc_space
-Time: 2026-03-23
-Showing top allocators (44.6 GB total across all benchmark iterations)
-      flat  flat%   sum%        cum   cum%
- 5796.21MB 13.01%         github.com/livetemplate/livetemplate/internal/build.NewTreeNode
- 4318.53MB  9.69%         github.com/livetemplate/livetemplate/internal/build.NewTreeNodeWithStatics
- 3884.94MB  8.72%         github.com/livetemplate/livetemplate/internal/context.buildDataMapWithContext
- 1971.53MB  4.42%         reflect.unsafe_New
- 1446.59MB  3.25%         text/template.(*Template).execute
- 1224.32MB  2.75%         encoding/json.(*decodeState).objectInterface
- 1170.62MB  2.63%         github.com/livetemplate/livetemplate/internal/context.executeWithBuffer
- 1069.63MB  2.40%         github.com/livetemplate/livetemplate/internal/diff.CompareTreesAndGetChangesWithPath
-  941.70MB  2.11%         github.com/livetemplate/livetemplate/internal/build.(*TreeNode).MarshalJSON
-  895.65MB  2.01%         github.com/livetemplate/livetemplate/internal/diff.FindRangeConstructMatches
-  892.02MB  2.00%         github.com/livetemplate/livetemplate/internal/parse.walkAST
-  853.59MB  1.92%         github.com/livetemplate/livetemplate.(*Template).renderHTMLWithData
-  732.52MB  1.64%         github.com/livetemplate/livetemplate/internal/build.(*TreeNode).SetDynamic
-  673.61MB  1.51%         encoding/json.mapEncoder.encode
-  611.01MB  1.37%         github.com/livetemplate/livetemplate/internal/build.hashStructureWithCircularDetection
-  607.27MB  1.36%         github.com/livetemplate/livetemplate/internal/parse.precomputeBuiltins
-  599.15MB  1.34%         github.com/livetemplate/livetemplate/internal/build.(*TreeNode).GetDynamics
-  592.03MB  1.33%         github.com/livetemplate/livetemplate/internal/parse.walkList
-  565.09MB  1.27%         text/template.builtins
-  556.03MB  1.25%         github.com/livetemplate/livetemplate/internal/parse.newOrderedVars
-  522.52MB  1.17%         html/template.htmlReplacer
+6.77 GB total allocated across the profile run
+      flat  flat%        cum%
+ 1002.1MB  14.8%         —     build.NewTreeNode                    (#2)
+  677.1MB  10.0%         —     build.NewTreeNodeWithStatics         (#2)
+  343.1MB   5.1%       13.1%   build.(*TreeNode).MarshalJSON        (#3)
+  264.0MB   3.9%         —     parse.newOrderedVars                 (#5)
+  261.2MB   3.9%         —     diff.newStreamRangeContext           (#4)
+  259.0MB   3.8%       13.8%   json-iterator sortKeysMapEncoder     (#3)
+  175.5MB   2.6%         —     encoding/hex.EncodeToString          (#4)
+  166.5MB   2.5%        4.6%   reflect2 UnsafeMapType.UnsafeIterate (#3)
+  157.0MB   2.3%        6.2%   parse.buildRangeItemVarCtx           (#5)
+  153.0MB   2.3%         —     reflect.unsafe_New
+  143.2MB   2.1%       16.5%   json-iterator frozenConfig.Marshal   (#3)
+  139.8MB   2.1%       10.9%   diff.GenerateRangeStreamOperations   (#4)
+  136.0MB   2.0%       40.4%   parse.walkAST                        (#5)
+  134.1MB   2.0%       10.9%   keys.formatHashPart                  (#4)
 ```
 
-### LiveTemplate-Specific Allocations
+### Drift vs 2026-03 (full-suite snapshot, 2026-07-29, v0.22.0)
 
-```
- 5796.21MB 13.01%  github.com/livetemplate/livetemplate/internal/build.NewTreeNode
- 4318.53MB  9.69%  github.com/livetemplate/livetemplate/internal/build.NewTreeNodeWithStatics
- 3884.94MB  8.72%  github.com/livetemplate/livetemplate/internal/context.buildDataMapWithContext
- 1170.62MB  2.63%  github.com/livetemplate/livetemplate/internal/context.executeWithBuffer
- 1069.63MB  2.40%  github.com/livetemplate/livetemplate/internal/diff.CompareTreesAndGetChangesWithPath
-  941.70MB  2.11%  github.com/livetemplate/livetemplate/internal/build.(*TreeNode).MarshalJSON
-  895.65MB  2.01%  github.com/livetemplate/livetemplate/internal/diff.FindRangeConstructMatches
-  892.02MB  2.00%  github.com/livetemplate/livetemplate/internal/parse.walkAST
-  853.59MB  1.92%  github.com/livetemplate/livetemplate.(*Template).renderHTMLWithData
-  732.52MB  1.64%  github.com/livetemplate/livetemplate/internal/build.(*TreeNode).SetDynamic
-  611.01MB  1.37%  github.com/livetemplate/livetemplate/internal/build.hashStructureWithCircularDetection
-  607.27MB  1.36%  github.com/livetemplate/livetemplate/internal/parse.precomputeBuiltins
-  599.15MB  1.34%  github.com/livetemplate/livetemplate/internal/build.(*TreeNode).GetDynamics
-  592.03MB  1.33%  github.com/livetemplate/livetemplate/internal/parse.walkList
-  556.03MB  1.25%  github.com/livetemplate/livetemplate/internal/parse.newOrderedVars
-```
+The 2026-03 ranking held in shape — `NewTreeNode` still #1 — but three
+subsystems that did not exist in March are now top-10 allocators:
 
-### Allocations per Operation
+1. **Serialization** (~11% cum full-suite, 16.5% composite) — the
+   encoding/json → json-iterator migration moved the cost, and composite
+   workloads multiplied it per receiver. March: 2.1%.
+2. **Streaming-range hashing** (`keys.formatHashPart`, 7.7% cum full-suite,
+   10.9% composite) — from the 2026-05 rewrite.
+3. **Topics dispatch** (`dispatchToTopic`, 4.5% cum full-suite) — the pub/sub
+   build-out.
 
-**Initial Render (includes template parsing, one-time cost):**
-- Total allocations: ~3,911 allocs/op
-- Bytes allocated: ~421 KB/op
-- Example: BenchmarkTemplateExecute/initial-render-8 (1746355 ns/op, 421275 B/op, 3911 allocs/op)
+Reflection is materially DOWN (`buildDataMapWithContext` 8.7% → 2.5%) — the
+2026-03 dedup work held. A full-suite `os.readdir*` cluster (~3.7%) traces to
+template-file loading in error-path benches, not a hot path.
 
-**Subsequent Render (per-session, reuses parsed template):**
-- Total allocations: ~61 allocs/op
-- Bytes allocated: ~3 KB/op
-- Example: BenchmarkTemplateExecute/subsequent-render-8 (3025 ns/op, 3033 B/op, 61 allocs/op)
+## Allocations per Operation (2026-07-30 unless noted)
 
-**Small Update:**
-- Total allocations: ~46 allocs/op
-- Bytes allocated: ~2.2 KB/op
-- Example: BenchmarkTemplateExecuteUpdates/small-update-8 (2263 ns/op, 2201 B/op, 46 allocs/op)
+**Composite pipeline (real cycle, per interaction):**
+- Single interaction (`BenchmarkCompositeUpdate`): **97 allocs, 6.3 KB, 78.7 wireB**
+- Per-subscriber marginal in fan-out: **~92 allocs** (linear N=1→10000)
+- 100-action journey: `BenchmarkE2EUserJourney` (full pipeline, 9705 allocs)
+  vs `BenchmarkUserJourney_ExecuteUpdatesOnly` (the render+diff primitive the
+  pre-2026-07 bench of that E2E name actually measured, 5683 allocs) — the old
+  bench missed ~40% of allocations and ~60% of wall time per interaction.
 
-**Large Update:**
-- Total allocations: ~123 allocs/op
-- Bytes allocated: ~5.2 KB/op
-- Example: BenchmarkTemplateExecuteUpdates/large-update-8 (6789 ns/op, 5187 B/op, 123 allocs/op)
-
-**Range Diff Operations (per-call, N=100 items, refreshed 2026-05-01):**
-
-Legacy map-based (`BenchmarkRangeDiffUpdate/Insert/Remove`, items as `map[string]interface{}`):
-- Update / Insert / Remove: ~19 allocs/op, ~17.6 KB/op, ~11 µs/op
-
-Legacy TreeNode-based (`BenchmarkRangeDiff_TreeNode_*`, items as `*TreeNode`, het-range fallback path):
-- Update: 2056 allocs/op, 57.9 KB/op, 269 µs/op
-- Reorder: 4023 allocs/op, 103 KB/op, 514 µs/op
-- LargeList (N=1000) Update: 20065 allocs/op, 660 KB/op, 2.9 ms/op
-
-Stream-mode (`BenchmarkRangeDiff_Stream_*`, post-Phase-3 default for homogeneous ranges):
-- Append-1 / Update / Reorder at N=100: ~2030 allocs/op, ~60 KB/op, ~280 µs/op
-- Append-1 / Update / Reorder at N=10000: ~200k allocs/op, ~6.3 MB/op, ~28 ms/op
-
-Per-call allocation profiles for stream-mode and legacy-TreeNode are similar (both walk N items to build the new-side `rangeContext`); the **Phase 5 win is in retained memory between renders, not per-call diff cost** — see "Streaming Range Retention" below.
-
-**Complex User Journey (E2E):**
-- Total allocations: ~5,083 allocs/op
-- Bytes allocated: ~252 KB/op
-- Example: BenchmarkE2EUserJourney-8 (256978 ns/op, 251941 B/op, 5083 allocs/op)
+**Primitives (2026-03-22, Apple M2 — for continuity):**
+- Subsequent render: 61 allocs / ~3 KB; small update: 46 allocs / 2.2 KB;
+  large update: 123 allocs / 5.2 KB.
+- Range-diff per-call numbers (2026-05-01) are unchanged; see git history of
+  this file for the full tables.
 
 ### Streaming Range Retention (Phase 5, 2026-05-01)
 
-Per the [streaming range rendering proposal](../proposals/streaming-range-rendering-proposal.md), homogeneous ranges now retain a per-range snapshot (`RangeStreamState{Keys, Hashes, Fingerprint}`) instead of the full per-item `*TreeNode` slice. Measured by `internal/diff/range_memory_test.go` via `runtime.ReadMemStats` HeapAlloc delta over 8 retained trees with double-GC + warm-up:
+Homogeneous ranges retain a per-range snapshot (`RangeStreamState{Keys, Hashes,
+Fingerprint}`) instead of per-item `*TreeNode`s. Measured by
+`internal/diff/range_memory_test.go` (HeapAlloc delta, 8 retained trees,
+double-GC + warm-up):
 
 | N | Legacy retained (B/item) | Stream retained (B/item) | Drop |
 |---|---|---|---|
@@ -180,263 +245,80 @@ Per the [streaming range rendering proposal](../proposals/streaming-range-render
 | 1000 | ~256 | ~41 | ~6.2× |
 | 10000 | ~256 | ~41 | ~6.3× |
 
-**Strategic impact:** for a 10k-row table held by 100 concurrent connections, retained memory drops from ~250 MB to ~40 MB. This is the single largest memory win shipped since the 2026-03 PR #219/220/224 cluster, and it does not show up in the benchmark allocation tables above (which measure per-call diff cost, not retained `lastTree` cost).
-
-**CI gate:** `TestRangeRetainedMemory_LegacyVsStream` enforces per-N ratio floors (1.8× at N=10, 4× at N=100, 5× at N≥1k). Skipped under `-short`. Catches regressions in the retention path before they merge.
-
-**Wire cost trade-off:** worst-case single-field update on a 3-field item grows from synthetic legacy ~33 B to ~45-51 B on the wire (~1.4×, well below the projected 3× ceiling). Inserts/deletes/reorders are unchanged.
-
-### Cache Memory Usage
-
-**Parse Caches:**
-- Template parsing involves significant allocations in text/template and html/template
-- builtins: 557 MB (1.25% of total) — down from 4.1 GB after pre-computation
-- Template escaper operations: reduced after AST caching
-- newEvaluator: eliminated as allocator (builtins pre-computed in PR #219)
-- precomputeBuiltins: 515 MB (1.15%) — one-time cost per template parse
-
-**Fingerprint Cache:**
-- Lazy-computed per TreeNode via `GetStructureFingerprint()`
-- FNV-1a 128-bit hash truncated to 64 bits (16 hex chars)
-- No eviction needed — cached on the tree node itself, lifetime tied to node
-- Replaced the earlier `ClientStructureRegistry` (LRU, max 1000 entries), removed in PR #86
+For a 10k-row table held by 100 connections, retained memory drops ~250 MB →
+~40 MB. CI gate: `TestRangeRetainedMemory_LegacyVsStream` (ratio floors
+1.8×/4×/5×, skipped under `-short`). Wire trade-off: worst-case single-field
+update ~1.4× (well under the projected 3× ceiling). The per-CALL cost of the
+stream path is finding #4 above — the retention win stands; the hashing
+allocations are the follow-up.
 
 ## Optimization Priorities
 
-> **Diminishing Returns Note (2026-03-23):** After PRs #219, #220, #224, the remaining
-> allocation hotspots are dominated by Go runtime/stdlib costs (TreeNode struct heap
-> escapes, reflection, `text/template` internals) that cannot be eliminated without
-> replacing core Go mechanisms. TreeNode struct pooling via `sync.Pool` was investigated
-> and rejected — Go's GC may drop pool entries at any time (and clears them during
-> stop-the-world pauses), so in benchmarks and typical per-session usage
-> patterns, the pool is almost always cold and provides <3% improvement.
-> The library has reached a practical optimization floor for allocation-based improvements.
-
-Based on profiling data:
-
-1. **[Investigated — Not Viable] TreeNode Struct Pooling (Phase 2: Build)**
-   - Current: 5.8 GB in NewTreeNode (13.01%), 4.3 GB in NewTreeNodeWithStatics (9.69%)
-   - Combined: 22.7% of total — the dominant LiveTemplate hotspot
-   - **Investigated:** `sync.Pool` with recursive `ReleaseTree` at `lastTree` replacement point.
-     Implementation was correct (all tests + race detector passed), but benchmarks showed
-     only -2.7% geomean improvement. Root cause: Go's `sync.Pool` entries may be dropped at any time and are
-     cleared during GC. In micro-benchmarks and typical per-session render patterns, the pool is
-     cold — `Get` allocates a new struct anyway. The ~128-byte TreeNode struct is too small
-     for pool overhead to pay off vs direct allocation.
-   - **Conclusion:** Not worth the complexity. TreeNode allocation is an inherent cost of the
-     tree-based diffing architecture. Would require replacing `*TreeNode` with arena allocation
-     or a fundamentally different data structure to improve further.
-
-2. **[Low — Diminishing Returns] Reflection Overhead**
-   - Current: 3.9 GB in buildDataMapWithContext (8.72%)
-   - Current: 2.0 GB in reflect.unsafe_New (4.42%)
-   - Already deduplicated (PR #224) — reflection now runs once per render, not twice
-   - Further reduction would require code generation (`go generate` for typed data maps)
-     which adds build complexity for modest gains
-   - Impact: Theoretical ~12%, practical ~5% after accounting for stdlib reflection floor
-
-3. **[Low — stdlib Bound] Template Execution**
-   - Current: 1.4 GB in text/template.(*Template).execute (3.25%)
-   - Current: 1.2 GB in executeWithBuffer (2.63%)
-   - These are Go stdlib internals — cannot be optimized without replacing `html/template`
-   - `bytes.Buffer` already pooled (PR #224)
-
-4. **[Low] JSON Serialization (Phase 5: Send)**
-   - Current: 1.2 GB in JSON decoding (2.75%)
-   - Current: 942 MB in MarshalJSON (2.11%)
-   - Current: 674 MB in mapEncoder.encode (1.51%)
-   - Potential improvement: Evaluate faster JSON libraries (json-iterator, go-json)
-   - Impact: ~6% reduction in Send phase, but Send is not the bottleneck
-
-5. **[Low] Diff Operations (Phase 3: Diff)**
-   - Current: 1.1 GB in CompareTreesAndGetChangesWithPath (2.40%)
-   - Current: 896 MB in FindRangeConstructMatches (2.01%)
-   - Already optimized (pass-through result map in PR #224, rangeContext in commit b9faf28)
-   - Impact: ~4% of total allocations — further gains require algorithmic changes
+1. **[High — new 2026-07-30] Partial re-render / unchanged-subtree memoization**
+   (finding #1). The only fix that changes the O(total items)-per-action
+   ceiling. High effort, build-path invasive. Prerequisite: priority 2 makes
+   the memoization check nearly free.
+2. **[Medium — new 2026-07-30] Streaming-range hash allocation removal**
+   (finding #4). Self-contained in `internal/keys`/`internal/diff`; ~12% of
+   composite allocations.
+3. **[Medium — new 2026-07-30] Serialization: sorted-map encoder audit +
+   shared fan-out marshal** (finding #3). Up to N-1 redundant marshals per
+   publish removed.
+4. **[Investigated 2026-03 — Not Viable] TreeNode `sync.Pool`** — pool is cold
+   under GC; <3% gain. Superseded by priority 1.
+5. **[Low — Diminishing Returns] Reflection** — already deduplicated (PR #224);
+   code generation not worth the complexity (unchanged from 2026-03).
+6. **[Low — stdlib Bound] `html/template` execution floor** (~15% CPU cum) —
+   cannot improve without replacing the engine.
 
 ## Optimization Task List
 
-### High Priority Tasks
+### Completed
+- [x] Eliminate redundant HTML parsing + cache template AST *(2026-03-21, PR #219)*
+- [x] Dynamics map → slice *(2026-03-21, PR #220)*
+- [x] Shared statics, buffer pool, reflection dedup *(2026-03-21, PR #224)*
+- [x] FNV-1a fingerprinting *(2026-03-18, commit 1e351ca)*
+- [x] rangeContext range-diff optimization *(2026-03-19, commit b9faf28)*
+- [x] Streaming-range retention drop *(2026-05-01, PRs #361-365)*
+- [x] Faster JSON library *(shipped: encoding/json → json-iterator, commit
+      d1a8ba8d)* — the migration moved the floor; serialization is now 16.5%
+      cum of composite allocations (finding #3) and the follow-ups are the
+      sorted-map audit and shared fan-out marshal.
+- [~] TreeNode struct pooling *(investigated 2026-03-23 — not viable, see
+      Priorities)*
 
-- [x] **Eliminate Redundant HTML Parsing + Cache Template AST** *(Completed 2026-03-21, PR #219)*
-  - Location: `template.go`, `internal/parse/api.go`, `internal/compat/tree.go`
-  - Approach: (1) Eliminated redundant `ExtractTemplateContent` calls on main update path — html.Parse() now only runs on first render and rare fallback. (2) Cached `*parse.Template` AST after first parse, reused on subsequent renders. (3) Pre-computed evaluator builtins map once at parse time.
-  - Actual Impact: 50-57% allocation reduction per render. E2E user journey 16174→7084 allocs. Small update 154→66 allocs. ~3x faster update latency.
+### Open
+- [ ] **Partial re-render / unchanged-subtree memoization** (Priority 1 — finding #1) — [#526](https://github.com/livetemplate/livetemplate/issues/526)
+- [ ] **Streaming-range hash without string materialization** (Priority 2 — finding #4) — [#524](https://github.com/livetemplate/livetemplate/issues/524)
+- [ ] **Sorted-map encoder audit + shared fan-out marshal** (Priority 3 — finding #3) — [#525](https://github.com/livetemplate/livetemplate/issues/525)
+- [ ] Debug-mode warning on per-render re-keying of large ranges (finding #6, optional) — [#527](https://github.com/livetemplate/livetemplate/issues/527)
+- [ ] Allocation budget tests (`testing.AllocsPerRun` pinned to
+      `BenchmarkCompositeUpdate`'s 97 allocs/interaction) — [#528](https://github.com/livetemplate/livetemplate/issues/528)
+- [ ] Profile production workloads (pprof endpoints on a real consumer app) — [#529](https://github.com/livetemplate/livetemplate/issues/529)
 
-- [x] **Replace Dynamics map with []interface{} slice** *(Completed 2026-03-21, PR #220)*
-  - Location: `internal/build/types.go`, Phase 2 (Build)
-  - Approach: Replaced `map[string]interface{}` with `[]interface{}` for Dynamics. Index-based access via `PositionKey` cached string table. Updated all consumers (diff, build, send).
-  - Actual Impact: Eliminated map hash/bucket allocations. BuildTree/simple 27→14 allocs. CompareTreesLargeChange/100 12→2 allocs. Small update 66→46 allocs.
+**Last Updated:** 2026-07-31 (tracking-issue links; measurements unchanged from 2026-07-30)
 
-- [x] **Shared Statics, Buffer Pool, Reflection Dedup** *(Completed 2026-03-21, PR #224)*
-  - Location: `internal/build/`, `internal/context/`, Phase 2 (Build)
-  - Approach: (1) Shared sentinel empty `[]string{}` statics across TreeNodes. (2) `sync.Pool` for `bytes.Buffer` in JSON marshaling and HTML rendering. (3) `PositionKey` cached string table avoids repeated `strconv.Itoa`. (4) Deduplicated reflection lookups for controller/state dispatch.
-  - Actual Impact: Subsequent render 66→61 allocs, 7.5KB→3KB. E2E user journey 7084→5083 allocs.
+## Per-Subsystem Notes
 
-- [~] **Implement TreeNode Struct Pooling** *(Investigated 2026-03-23, not viable)*
-  - Location: `internal/build/types.go`, Phase 2 (Build)
-  - Goal: Reduce 9.5 GB allocations from TreeNode creation (22.7% combined)
-  - Approach: `sync.Pool` for TreeNode structs with recursive `ReleaseTree` at `lastTree` replacement
-  - **Result:** Implementation correct (all tests + race detector passed), but only -2.7% geomean
-    improvement. Go's `sync.Pool` is cleared every GC cycle, so the pool is cold in benchmarks
-    and typical per-session patterns. The ~128-byte TreeNode struct is too small for pool overhead
-    to pay off. Would require arena allocation or a different data structure to improve further.
-
-### Medium Priority Tasks
-
-- [x] **Replace MD5 Fingerprinting with FNV-1a** *(Completed 2026-03-18, commit 1e351ca)*
-  - Location: `internal/build/fingerprint.go`, Phase 2 (Build)
-  - Approach: Replaced `crypto/md5` with `hash/fnv` (FNV-1a 128-bit truncated to 64 bits). Thread-safe atomic.Value caching.
-  - Actual Impact: 43% faster small trees, 44% medium, 47% large, 17% deep-nested. Fingerprinting dropped from 5.93% CPU to <1%.
-
-- [x] **Implement Fingerprint Caching** *(Completed — lazy-cached on TreeNode)*
-  - Location: `internal/build/types.go:GetStructureFingerprint()`, Phase 2 (Build)
-  - Approach: Fingerprints are lazy-computed on first access and cached on the TreeNode itself
-  - Impact: O(1) structure comparison after first access; no separate cache data structure needed
-
-- [ ] **Evaluate Faster JSON Library**
-  - Location: `internal/send/message.go`, Phase 5 (Send)
-  - Goal: Reduce JSON marshaling allocations
-  - Approach: Benchmark `encoding/json` vs `github.com/json-iterator/go` vs `github.com/goccy/go-json`
-  - Expected Impact: 10-20% reduction in Send phase allocations and time
-  - Verification: Run `BenchmarkSendMessage` and compare marshal performance
-
-- [x] **Pre-compute Evaluator Builtins** *(Completed 2026-03-21, PR #219)*
-  - Location: `internal/parse/eval.go`, `internal/parse/api.go`, Phase 1 (Parse)
-  - Approach: `precomputeBuiltins()` merges cachedBuiltins + user FuncMap once at parse time, stored on `parse.Template`. Eliminates per-render map allocation in `newEvaluator`.
-  - Actual Impact: Eliminated 4.8 GB (5.90%) of allocations. BuildTree/simple 27→22 allocs.
-
-- [x] **Optimize TreeNode Map Allocations** *(Completed 2026-03-21, PR #220)*
-  - Location: `internal/build/types.go`, Phase 2 (Build)
-  - Approach: Replaced Dynamics map with `[]interface{}` slice — eliminates map allocation entirely
-  - Actual Impact: map replaced by slice, SetDynamic dropped from 6.13% to 1.56% of allocations
-
-- [ ] **Implement Custom Binary Format (Optional)**
-  - Location: `internal/send/`, Phase 5 (Send)
-  - Goal: Alternative to JSON for internal communication (non-wire format)
-  - Approach: Design compact binary format using `encoding/binary` or Protocol Buffers
-  - Expected Impact: 30-50% reduction in Send phase allocations (internal only)
-  - Verification: Add `BenchmarkSendBinary` and compare with JSON
-
-### Low Priority Tasks
-
-- [ ] **Optimize Diff Algorithm for Deep Trees**
-  - Location: `internal/diff/tree_compare.go`, Phase 3 (Diff)
-  - Goal: Reduce allocations in deeply nested tree comparisons
-  - Approach: Use iterative traversal instead of recursive, reuse comparison buffers
-  - Expected Impact: <1% reduction in total allocations
-  - Verification: Run `BenchmarkCompareTrees` with deeply nested structures
-
-- [x] **Reduce Range Diff Allocations** *(Completed 2026-03-19, commit b9faf28)*
-  - Location: `internal/diff/range_ops.go`, Phase 3 (Diff)
-  - Approach: `rangeContext` pre-computes key maps and positions once per range diff. DeepEqual fast paths for string, int, float64, bool. Package-level compiled regex for position field detection.
-  - Actual Impact: 59% faster (5332→2205 ns/op), 54% fewer allocs (37→17). E2E range operations improved 5-6x.
-
-- [x] **Streaming Range Rendering — Per-Connection Retention Drop** *(Completed 2026-05-01, PRs #361-365)*
-  - Location: `internal/diff/range_ops.go`, `internal/diff/transition.go`, `internal/build/types.go`, Phase 3 (Diff) + Phase 2 (Build)
-  - Approach: Replaced retained `RangeData.Items []*TreeNode` (per-item dynamics-only TreeNodes) with `RangeStreamState{Keys, Hashes, Fingerprint}` snapshot for homogeneous ranges. Stream-mode diff path uses FNV-1a 64-bit per-item content hashes for change detection; full-snapshot `["u"]` payloads on the wire (consumer replaces, does not merge).
-  - Actual Impact: Per-item retained heap drops 3.4-6.3× across N ∈ {10, 100, 1k, 10k} — for a 10k-row table held by 100 connections, retained memory drops from ~250 MB to ~40 MB. Wire-size cost: ~1.4× on worst-case single-field updates, identical on inserts/deletes/reorders. CI gate: `internal/diff/range_memory_test.go`.
-
-- [ ] **Reduce HTML Parsing Fallback Frequency**
-  - Location: `internal/parse/parser.go`, Phase 1 (Parse)
-  - Goal: Further reduce 1.4 GB allocations in `html.NewTokenizerFragment` fallback (3.05%, down from 29.52% after PR #219)
-  - Approach: Improve template construct coverage to avoid fallback to HTML parsing
-  - Expected Impact: 2-3% reduction if fallback usage decreases significantly
-  - Verification: Add logging to track fallback frequency, aim for <5% of templates
-
-### Monitoring & Validation Tasks
-
-- [~] **Establish Performance Regression Tests**
-  - Location: `.github/workflows/benchmark.yml`, `internal/diff/range_memory_test.go` (Phase 5)
-  - Goal: Automatically detect performance regressions in CI
-  - Approach: Benchmark workflow exists; Phase 5 added `TestRangeRetainedMemory_LegacyVsStream` as a per-N memory-ratio gate that runs in the standard test suite (not a separate workflow). Stricter benchmark thresholds (>5% warning, >10% failure) still pending.
-  - Expected Impact: Prevents performance degradation over time
-  - Verification: PR builds show benchmark comparison results; memory regression catches stream-retention regressions at test time
-
-- [ ] **Add Allocation Budget Tests**
-  - Location: `*_test.go` files
-  - Goal: Set hard limits on allocations per operation
-  - Approach: Use `testing.AllocsPerRun()` to enforce allocation budgets
-  - Expected Impact: Catches allocation regressions at test time
-  - Verification: Tests fail if allocations exceed defined budgets
-
-- [ ] **Profile Production Workloads**
-  - Location: Production environment
-  - Goal: Validate that benchmark bottlenecks match real-world usage
-  - Approach: Enable pprof HTTP endpoints, collect profiles from live traffic
-  - Expected Impact: Discover real-world bottlenecks not visible in benchmarks
-  - Verification: Compare production profiles with benchmark profiles
-
-## Task Tracking
-
-Update this section as tasks are completed:
-
-**Last Updated:** 2026-05-01
-**Completed Tasks:** 9/16 (1 investigated and rejected; 1 partially shipped)
-**In Progress:** 0
-**Blocked:** 0
-
-When completing a task:
-1. Mark checkbox with `[x]`
-2. Add completion date and PR link
-3. Update benchmarks and profiles
-4. Document actual vs expected impact
-
-## Phase-Specific Analysis
-
-### Phase 1: Parse
-- **Primary Bottleneck:** AST walking and ordered variable management
-- **Allocations:** walkAST 1.90%, walkList 1.39%, newOrderedVars 1.17%, precomputeBuiltins 1.15%
-- **Status:** `newEvaluator` eliminated as allocator (was 5.90%), builtins pre-computed once at parse time (PR #219)
-- **Recommendation:** Pool ordered variable maps, reduce AST walk allocations
-
-### Phase 2: Build
-- **Primary Bottleneck:** TreeNode struct allocations (dominant hotspot)
-- **Allocations:** ~9.5 GB (22.4% of total) — NewTreeNode 12.09%, NewTreeNodeWithStatics 9.18%, SetDynamic 1.56%
-- **Status:** Dynamics map→slice (PR #220) eliminated map overhead. SetDynamic dropped from 6.13% to 1.56%.
-- **CPU Time:** Fingerprinting <1% (FNV-1a). hashStructureWithCircularDetection 1.27%.
-- **Recommendation:** `sync.Pool` for TreeNode structs — the single highest-impact remaining optimization
-
-### Phase 3: Diff
-- **Primary Bottleneck:** Tree comparison and range construct matching
-- **Allocations:** ~1.8 GB (4.1% of total) — CompareTreesAndGetChangesWithPath 2.33%, FindRangeConstructMatches 1.77%
-- **Status:** Range diff operations 59% faster after `rangeContext` (commit b9faf28). Pass-through result map in findRangeConstructsRecursive (PR #224). Streaming-range refactor (PRs #361-365, 2026-05-01) drops retained per-connection range memory by 3.4-6.3× without changing per-call diff allocs.
-- **Recommendation:** Optimize comparison algorithms for deeply nested trees
-
-### Phase 4: Render
-- **Primary Bottleneck:** HTML parsing for fallback cases (reduced)
-- **Allocations:** html.NewTokenizerFragment 3.05% (was 29.52% — PR #219 eliminated redundant calls)
-- **Recommendation:** Continue reducing fallback to HTML parsing
-
-### Phase 5: Send
-- **Primary Bottleneck:** JSON marshaling and decoding
-- **Allocations:** MarshalJSON 1.94%, JSON decoding 2.79%, mapEncoder 1.49%
-- **Recommendation:** Consider faster JSON library or custom binary format
+- **`internal/session` (write path):** `Connection.Send` is the package's only
+  measurable allocator (one `wsMessage` per send; 74% of its own micro-profile);
+  the real-pump `BenchmarkAsyncSendThroughput` shows the pump adds no
+  allocations over enqueue. Not a bottleneck.
+- **`pubsub` (Redis relay):** per-relay allocations split between message
+  deserialize (`handleMessage`, 29% cum) and go-redis proto reads; ~91 allocs
+  per relay. miniredis itself contributes ~12% of the profile (in-process fake —
+  absent in production).
+- **Uploads:** see finding #8 — healthy.
 
 ## Regenerating Profiles
 
-To update this analysis after code changes:
-
 ```bash
-make profile-all
-go tool pprof -http=:8080 profiles/cpu.prof   # Interactive analysis
-go tool pprof -http=:8080 profiles/mem.prof
+make profile-all                          # root package, everything
+make profile-pkg PKG=./pubsub BENCH=...   # any non-root package
+go tool pprof -http=:8080 profiles/composite-cpu.prof
 ```
 
-Look for:
-- Hot paths in CPU profile (cumulative % column)
-- High allocation counts in memory profile
-- Lock contention in concurrent benchmarks
-
-### Quick Profile Commands
-
-```bash
-# Top CPU consumers
-go tool pprof -top -cum profiles/cpu.prof | head -20
-
-# Top memory allocators
-go tool pprof -top -alloc_space profiles/mem.prof | head -20
-
-# Filter for LiveTemplate functions
-go tool pprof -top -alloc_space profiles/mem.prof | grep livetemplate
-```
+Composite-only capture: see Profiling Methodology above. When updating this
+document, re-run the composite capture and refresh the two profile tables, the
+report rankings, and the header dates — and record Go version, CPU model, and
+machine load alongside any ns/op you quote.

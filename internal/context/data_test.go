@@ -69,7 +69,7 @@ func TestBuildDataMap_AllowSetScopesMethods(t *testing.T) {
 	state := CounterState{Value: 5}
 
 	// Only Doubled is referenced: Display must be skipped, the field stays.
-	dm := BuildDataMap(state, nil, false, nil, map[string]struct{}{"Doubled": {}}).(map[string]interface{})
+	dm := BuildDataMap(state, nil, false, nil, map[string]struct{}{"Doubled": {}}, false).(map[string]interface{})
 	if got, ok := dm["Doubled"].(int); !ok || got != 10 {
 		t.Errorf("Doubled should be precomputed, got %v", dm["Doubled"])
 	}
@@ -83,7 +83,7 @@ func TestBuildDataMap_AllowSetScopesMethods(t *testing.T) {
 
 func TestBuildDataMap_EmptyAllowSetSkipsAllMethods(t *testing.T) {
 	state := CounterState{Value: 5}
-	dm := BuildDataMap(state, nil, false, nil, map[string]struct{}{}).(map[string]interface{})
+	dm := BuildDataMap(state, nil, false, nil, map[string]struct{}{}, false).(map[string]interface{})
 	if _, exists := dm["Doubled"]; exists {
 		t.Error("empty allow-set must skip all methods (Doubled)")
 	}
@@ -97,7 +97,7 @@ func TestBuildDataMap_EmptyAllowSetSkipsAllMethods(t *testing.T) {
 
 func TestBuildDataMap_NilAllowSetPrecomputesAll(t *testing.T) {
 	state := CounterState{Value: 5}
-	dm := BuildDataMap(state, nil, false, nil, nil).(map[string]interface{})
+	dm := BuildDataMap(state, nil, false, nil, nil, false).(map[string]interface{})
 	if _, ok := dm["Doubled"]; !ok {
 		t.Error("nil allow-set must precompute all methods (Doubled missing)")
 	}
@@ -108,7 +108,7 @@ func TestBuildDataMap_NilAllowSetPrecomputesAll(t *testing.T) {
 
 func TestBuildDataMap_StructMethodsPreserved(t *testing.T) {
 	state := CounterState{Value: 5}
-	result := BuildDataMap(state, nil, false, nil, nil)
+	result := BuildDataMap(state, nil, false, nil, nil, false)
 
 	dataMap, ok := result.(map[string]interface{})
 	if !ok {
@@ -131,7 +131,7 @@ func TestBuildDataMap_StructMethodsPreserved(t *testing.T) {
 
 func TestBuildDataMap_StructMethodsWorkInTemplates(t *testing.T) {
 	state := CounterState{Value: 5}
-	dataMap := BuildDataMap(state, nil, false, nil, nil)
+	dataMap := BuildDataMap(state, nil, false, nil, nil, false)
 
 	tmpl, err := template.New("test").Parse(`Value={{.Value}} Doubled={{.Doubled}}`)
 	if err != nil {
@@ -158,7 +158,7 @@ func TestBuildDataMap_TodoMethodsInTemplates(t *testing.T) {
 		},
 		Filter: "active",
 	}
-	dataMap := BuildDataMap(state, nil, false, nil, nil)
+	dataMap := BuildDataMap(state, nil, false, nil, nil, false)
 
 	tmpl, err := template.New("test").Parse(`Active={{.ActiveCount}} Items={{len .FilteredItems}}`)
 	if err != nil {
@@ -178,7 +178,7 @@ func TestBuildDataMap_TodoMethodsInTemplates(t *testing.T) {
 
 func TestBuildDataMap_PointerMethodsPreserved(t *testing.T) {
 	state := &StateWithPointerMethod{Name: "World"}
-	dataMap := BuildDataMap(state, nil, false, nil, nil)
+	dataMap := BuildDataMap(state, nil, false, nil, nil, false)
 
 	dm, ok := dataMap.(map[string]interface{})
 	if !ok {
@@ -206,7 +206,7 @@ func TestBuildDataMap_FieldTakesPrecedenceOverMethod(t *testing.T) {
 	// A JSON tag can alias a field to a name that matches a method.
 	// The field value (via JSON tag) should win.
 	state := JSONTagCollision{Computed: "from-field"}
-	dataMap := BuildDataMap(state, nil, false, nil, nil)
+	dataMap := BuildDataMap(state, nil, false, nil, nil, false)
 
 	dm := dataMap.(map[string]interface{})
 	if v, ok := dm["Doubled"].(string); !ok || v != "from-field" {
@@ -229,7 +229,7 @@ func TestBuildDataMap_ErrorMethodOmittedWhenNonNil(t *testing.T) {
 	// When a method returns (T, error) and the error is non-nil,
 	// the method is silently omitted from the map.
 	state := FallibleState{OK: false}
-	dataMap := BuildDataMap(state, nil, false, nil, nil)
+	dataMap := BuildDataMap(state, nil, false, nil, nil, false)
 	dm := dataMap.(map[string]interface{})
 
 	if _, exists := dm["Name"]; exists {
@@ -239,7 +239,7 @@ func TestBuildDataMap_ErrorMethodOmittedWhenNonNil(t *testing.T) {
 
 func TestBuildDataMap_ErrorMethodIncludedWhenNil(t *testing.T) {
 	state := FallibleState{OK: true}
-	dataMap := BuildDataMap(state, nil, false, nil, nil)
+	dataMap := BuildDataMap(state, nil, false, nil, nil, false)
 	dm := dataMap.(map[string]interface{})
 
 	if v, ok := dm["Name"].(string); !ok || v != "ready" {
@@ -261,7 +261,7 @@ func (s PanickingState) OK() string {
 
 func TestBuildDataMap_PanickingMethodSkipped(t *testing.T) {
 	state := PanickingState{Safe: "value"}
-	dataMap := BuildDataMap(state, nil, false, nil, nil)
+	dataMap := BuildDataMap(state, nil, false, nil, nil, false)
 	dm := dataMap.(map[string]interface{})
 
 	if _, exists := dm["Boom"]; exists {
@@ -277,7 +277,7 @@ func TestBuildDataMap_PanickingMethodSkipped(t *testing.T) {
 
 func TestBuildDataMap_LvtContextAlwaysPresent(t *testing.T) {
 	state := CounterState{Value: 1}
-	dataMap := BuildDataMap(state, nil, true, nil, nil)
+	dataMap := BuildDataMap(state, nil, true, nil, nil, false)
 
 	dm := dataMap.(map[string]interface{})
 	lvt, ok := dm[TemplateContextKey]
@@ -293,7 +293,7 @@ func TestBuildDataMap_MethodsWithPointerReceiverOnValueInput(t *testing.T) {
 	// Pass by value — pointer receiver methods should still be captured
 	// because we create a pointer via reflect.New
 	state := StateWithPointerMethod{Name: "Value"}
-	dataMap := BuildDataMap(state, nil, false, nil, nil)
+	dataMap := BuildDataMap(state, nil, false, nil, nil, false)
 
 	dm := dataMap.(map[string]interface{})
 	if _, ok := dm["Greeting"]; !ok {
@@ -333,7 +333,7 @@ func TestGetMethodMeta_ValueIndexReceiverKinds(t *testing.T) {
 // input that has at least one pointer-receiver method must allocate the pointer
 // and route ALL calls through it, so the value-receiver method still resolves.
 func TestBuildDataMap_MixedReceiversOnValueInput(t *testing.T) {
-	dm := BuildDataMap(MixedReceiverState{Name: "x"}, nil, false, nil, nil).(map[string]interface{})
+	dm := BuildDataMap(MixedReceiverState{Name: "x"}, nil, false, nil, nil, false).(map[string]interface{})
 
 	if got := dm["ValueGreeting"]; got != "value x" {
 		t.Errorf("ValueGreeting: got %v, want %q", got, "value x")

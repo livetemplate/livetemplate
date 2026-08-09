@@ -320,26 +320,53 @@ func (a *ActionData) GetBool(key string) bool {
 }
 
 // GetBoolOk extracts a bool value with explicit success indicator.
-// Returns (value, true) if key exists and value is a bool or boolean string.
-// Returns (false, false) if key doesn't exist or value cannot be parsed as bool.
+// Returns (value, true) if key exists and carries something an HTML form can
+// mean by "boolean". Returns (false, false) if the key doesn't exist or the
+// value is not one of those.
 //
-// This method handles both boolean values and string values "true"/"false"
-// from HTML form submissions (HTTP path uses strings, WebSocket uses booleans).
-// String comparison is case-insensitive to handle variations like "True", "TRUE", etc.
+// One checkbox arrives here as three different Go types depending on how the
+// form was submitted, so all three are accepted:
+//
+//   - bool — the WebSocket path. The client serializes a lone checkbox as
+//     input.checked and discards its value attribute.
+//   - "1" / "on" / "true" — the no-JS POST path, where every field is a string.
+//     A browser posts a checked box as its value attribute, or as "on" when it
+//     has none. An unchecked box is not posted at all and so lands here as an
+//     absent key, correctly yielding (false, false).
+//   - 1 / 0 — a hidden or text input whose value looks numeric. The client's
+//     parseValue() coerces it to a JSON number, which unmarshals to float64.
+//     Every Go numeric width GetFloatOk accepts is read the same way, since
+//     Session.TriggerAction takes a map[string]interface{} a caller fills
+//     with native values. NaN and ±Inf are rejected rather than read as true.
+//
+// The set has to span all of them for progressive enhancement to hold: one
+// handler stays correct whether or not the browser ran the client, and the two
+// transports do not agree on the type.
+//
+// String matching is case-insensitive, so "On" and "TRUE" work.
 func (a *ActionData) GetBoolOk(key string) (bool, bool) {
-	// Handle bool values directly (from WebSocket + parseValue)
-	if v, ok := a.raw[key].(bool); ok {
+	switch v := a.raw[key].(type) {
+	case bool:
 		return v, true
-	}
-	// Handle string values from HTTP form submissions (case-insensitive)
-	if v, ok := a.raw[key].(string); ok {
-		lowerV := strings.ToLower(v)
-		if lowerV == "true" {
+	case string:
+		switch strings.ToLower(v) {
+		case "true", "1", "on":
 			return true, true
-		}
-		if lowerV == "false" {
+		case "false", "0", "off":
 			return false, true
 		}
+		// Any other string is data, not a flag: "2" parses as a number, but
+		// reading it as true would be guessing at a field whose author plainly
+		// did not mean a boolean. Stop here rather than fall through.
+		return false, false
+	}
+
+	// Numbers, in every width GetFloatOk accepts. Non-zero is true, which is
+	// how 1/0 flags read everywhere else. NaN and ±Inf are rejected: NaN != 0
+	// is true in Go, so without this guard a corrupt value would arrive
+	// looking exactly like a ticked box.
+	if f, ok := a.GetFloatOk(key); ok && !math.IsNaN(f) && !math.IsInf(f, 0) {
+		return f != 0, true
 	}
 	return false, false
 }

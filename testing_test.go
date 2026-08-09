@@ -232,7 +232,7 @@ func TestStateMethodsInTemplates(t *testing.T) {
 		Items:  []string{"alpha", "beta", ""},
 		Filter: "a",
 	}
-	dataMap := lvtcontext.BuildDataMap(state, nil, false, nil, nil)
+	dataMap := lvtcontext.BuildDataMap(state, nil, false, nil, nil, false)
 
 	tmpl, err := template.New("test").Parse(
 		`Count={{.ActiveCount}} Filtered={{len .FilteredItems}} Items={{len .Items}}`)

@@ -396,6 +396,8 @@ These execute client-side with no server round-trip.
 </button>
 ```
 
+> For choosing between client-owned pending (`lvt-el:*:on:pending`) and server-owned loading (`{{if .Loading}}`), see [Loading States](../guides/progressive-complexity.md#7-loading-states) in the Progressive Complexity Guide.
+
 **Form Reset on Success:**
 
 ```html
@@ -864,6 +866,26 @@ Any form element that currently has focus is skipped during morphdom updates, pr
 
 To override this for a specific input — e.g., when a server-controlled value must always win — add `data-lvt-force-update` to the element.
 
+### Client-Applied Classes and Attributes (`lvt-el:`)
+
+Classes and attributes applied by the five state-mutating [`lvt-el:` actions](#reactive-attributes) — `addClass`, `removeClass`, `toggleClass`, `setAttr`, `toggleAttr` — are **client-owned**. The client records what it applied and re-applies that record onto the incoming element before morphdom compares them, so a server re-render does not wipe it.
+
+```html
+<!-- Stays open across an unrelated server re-render -->
+<div lvt-el:toggleClass:on:click="open" class="menu">…</div>
+```
+
+The rules:
+
+- **The client overlay wins on conflict.** A `removeClass` of a class the server still emits also survives — which is what makes click-away dismissal work.
+- **The server re-owns on agreement.** Once the server's own output matches what the client applied, the record self-cleans. Toggling back likewise retires the entry.
+- **It is not gated on the directive still being present.** This is persistent state, not a one-shot latch — a `data-lvt-target`-ed binding lands on an element carrying no `lvt-el:*` attribute at all, and its state is still preserved.
+- **Element identity is required.** The `replaceWith` / `replaceChildren` paths destroy the node, so client-owned state legitimately dies with it.
+
+You do **not** need `lvt-ignore-attrs` here — see the note under [Manual Preservation](#manual-preservation-with-lvt-ignore) for why it never worked for this case.
+
+**Requires `@livetemplate/client` v0.18.1 or newer.**
+
 ### Overriding with `data-lvt-force-update`
 
 All automatic preservation behaviors can be overridden by adding `data-lvt-force-update` to the element in the server template. When present, the server's value wins over the client-side state. The client strips the attribute from the live DOM after applying the update; because it lives in the server template, the server re-sends it on every render, so it continuously forces the server value.
@@ -879,6 +901,7 @@ All automatic preservation behaviors can be overridden by adding `data-lvt-force
 | Dialog `open` | morphdom update skipped while dialog is open | `data-lvt-force-update` on the dialog |
 | Datalist dropdown | Entire morphdom pass deferred while datalist input focused | `data-lvt-force-update` on the connected `<input>` (overrides deferral for the entire pass) |
 | Focused input elements | morphdom update skipped | `data-lvt-force-update` on the input |
+| Client-applied `lvt-el:` classes/attrs | Overlay record re-applied to the incoming element before morphdom | Server re-owns automatically once its output agrees; the record self-cleans |
 
 ### Manual Preservation with `lvt-ignore`
 
@@ -887,6 +910,8 @@ For cases where automatic preservation doesn't cover your needs, two attributes 
 - **`lvt-ignore`** — Skips the element and its entire subtree during morphdom diff. Use this for third-party widgets (maps, rich-text editors) whose DOM is managed by external JavaScript. Checked on the live DOM element, so it can be set from templates or client JS. Equivalent to Phoenix LiveView's `phx-update="ignore"`.
 
 - **`lvt-ignore-attrs`** — Skips attribute diffing but still diffs children. Use this when client-set attributes (e.g., `open` on `<details>`) need to survive server updates while child content remains server-managed.
+
+  > **Not the tool for `lvt-el:` state.** `lvt-ignore-attrs` only copies attributes the incoming element *lacks*, and any element using `toggleClass` already carries a server-emitted base `class` — so `class` was always skipped and the client's token was lost anyway. Classes and attributes applied by `lvt-el:` are preserved automatically; see [Client-Applied Classes and Attributes](#client-applied-classes-and-attributes-lvt-el).
 
 Both can be overridden by `data-lvt-force-update` when the server needs to take control — adding it to an `lvt-ignore` element re-enables morphdom for that subtree for the current update.
 
@@ -916,8 +941,12 @@ Handle file uploads with progress tracking.
 | Attribute | Description |
 |-----------|-------------|
 | `lvt-upload` | Upload identifier for tracking |
+| `lvt-upload-with` | Send this field along with an upload fired from the same form. Opt-in — unmarked fields never reach the upload endpoint |
 
-Files are automatically uploaded when the form is submitted, with progress events emitted.
+Uploads fire on file selection, not on form submit, and progress events are
+emitted as the bytes move. Because there is no submit for the user to review,
+nothing else in the form travels with the upload unless it is marked
+`lvt-upload-with` — see [Sending form fields with an upload](uploads.md#sending-form-fields-with-an-upload).
 
 ---
 
@@ -1044,13 +1073,14 @@ Directives use CSS custom properties for configuration: `--lvt-scroll-behavior`,
 | Attribute | Description | Example |
 |-----------|-------------|---------|
 | `lvt-upload` | File upload identifier | `lvt-upload="avatar"` |
+| `lvt-upload-with` | Send this field along with an upload fired from the same form. Opt-in — unmarked fields never reach the upload endpoint. Multipart path only; see [Upload Reference](uploads.md) | `<input type="hidden" name="id" lvt-upload-with>` |
 
 ### Preservation Attributes
 
 | Attribute | Description | Example |
 |-----------|-------------|---------|
 | `lvt-ignore` | Skip this element and its entire subtree during morphdom diff. Checked on the live DOM (`fromEl`), usable from both templates and client JS. Equivalent to Phoenix LiveView's `phx-update="ignore"` | `<div lvt-ignore class="map-widget">` |
-| `lvt-ignore-attrs` | Skip attribute diffing but still diff children. Preserves client-set attributes (e.g. `open` on `<details>`) while keeping child content server-managed | `<details lvt-ignore-attrs>` |
+| `lvt-ignore-attrs` | Skip attribute diffing but still diff children. Preserves client-set attributes (e.g. `open` on `<details>`) while keeping child content server-managed. Not needed for `lvt-el:`-applied classes/attrs, which are preserved automatically | `<details lvt-ignore-attrs>` |
 | `data-lvt-force-update` | Override all preservation (automatic, `lvt-ignore`, and `lvt-ignore-attrs`); server value wins. Client strips it after processing; server re-sends it each render | `<input type="checkbox" data-lvt-force-update>` |
 
 ### Identity Attributes

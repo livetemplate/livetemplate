@@ -10,6 +10,15 @@ type (
 	RangeData    = build.RangeData
 	TreeMetadata = build.TreeMetadata
 	Context      = build.Context
+	WrapperKind  = build.WrapperKind
+)
+
+// Re-export the wrapper kinds so parse can tag nodes without importing build
+// at every wrapper site.
+const (
+	WrapperNone        = build.WrapperNone
+	WrapperConditional = build.WrapperConditional
+	WrapperInvocation  = build.WrapperInvocation
 )
 
 // Re-export build functions for convenience within parse package

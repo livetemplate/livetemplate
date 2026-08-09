@@ -90,18 +90,19 @@ func (k ConnectKind) String() string {
 // - Action methods(state, ctx) - user interactions
 type Context struct {
 	context.Context
-	action      string
-	submitter   string // SubmitEvent.submitter.name; distinct from action under lvt-on:submit routing
-	data        *ActionData
-	userID      string
-	groupID     string
-	session     Session
-	uploads     UploadAccessor
-	flashSetter FlashSetter
-	formSchema  *FormSchema
-	topicSub    topicSubscriber
-	topicPubs   []topicPublish
-	connectKind ConnectKind
+	action       string
+	submitter    string // SubmitEvent.submitter.name; distinct from action under lvt-on:submit routing
+	data         *ActionData
+	userID       string
+	groupID      string
+	session      Session
+	uploads      UploadAccessor
+	flashSetter  FlashSetter
+	formSchema   *FormSchema
+	topicSub     topicSubscriber
+	topicPubs    []topicPublish
+	pendingAsync []asyncContinuation
+	connectKind  ConnectKind
 
 	// HTTP context (nil for WebSocket actions)
 	w          http.ResponseWriter
@@ -744,4 +745,13 @@ func (c *Context) ClearAllFlash() {
 	if c.flashSetter != nil {
 		c.flashSetter.clearAllFlash()
 	}
+}
+
+// pendingAsyncOps returns and clears pending Async continuations. Drained by
+// the event loop after render #1, so the spinner-on frame reaches the client
+// before the goroutine starts.
+func (c *Context) pendingAsyncOps() []asyncContinuation {
+	ops := c.pendingAsync
+	c.pendingAsync = nil
+	return ops
 }

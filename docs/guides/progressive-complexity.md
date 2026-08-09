@@ -222,6 +222,20 @@ The framework fetches the page via `fetch()`, extracts the wrapper content, and 
 
 ## 7. Loading States
 
+LiveTemplate offers three loading models. Pick the simplest one that fits your use case:
+
+| I want… | Accepts `lvt-*` attrs? | Path | Go boilerplate |
+|---|---|---|---|
+| Grey out the form | N/A | **7.1 — Auto** (`<fieldset>` + CSS) | 0 lines, 0 attrs |
+| Custom loading UX (spinner, text) | Yes | **7.2 — Client-owned pending** (`lvt-el:*:on:pending`) | 0 lines, 2 attrs |
+| Custom loading UX (spinner, text) | **No** | **7.3 — Server-owned loading** with `Async` + `{{.lvt.Pending}}` | ~7 lines, 0 attrs |
+| Loading fans out to peers / survives reconnect | Either | **7.3 — Server-owned loading** with `Async` + a `Loading` field | ~9 lines, 0 attrs |
+| Work starts in `Mount`/`OnConnect`, or reports progress repeatedly | Either | **7.3 — Escape hatch**: manual two-action pattern | ~15 lines, 0 attrs |
+
+**Rule of thumb:** start with 7.1. Move to 7.2 or 7.3 only when you need custom UX (spinners, text changes, progress indicators) or loading that is real application state. Within 7.3, reach for the manual two-action pattern only when `Async` is unavailable — it is not the default any more.
+
+### 7.1 Automatic Form Loading (Tier 1)
+
 During form submission, the framework automatically:
 
 1. Sets `aria-busy="true"` on the form
@@ -244,7 +258,178 @@ During form submission, the framework automatically:
 </style>
 ```
 
-No `lvt-*` attributes needed. The `<fieldset>` wrapping is the signal.
+No `lvt-*` attributes needed, no Go code. The `<fieldset>` wrapping is the signal. This covers the "grey out the whole form" case. For custom loading UX beyond grey-out, see 7.2 or 7.3.
+
+### 7.2 Client-Owned Pending (Tier 2)
+
+When you need custom loading UX (spinners, text changes, visual feedback) and are willing to use `lvt-*` attributes, `lvt-el:*:on:pending` gives you instant feedback with zero Go code:
+
+```html
+<button name="save"
+    lvt-el:toggleAttr:on:pending="disabled"
+    lvt-el:addClass:on:pending="opacity-50"
+    lvt-el:removeClass:on:done="opacity-50">
+    Save
+</button>
+```
+
+```go
+// Just the business logic — no loading scaffolding
+func (c *Controller) Save(state State, ctx *livetemplate.Context) (State, error) {
+    time.Sleep(700 * time.Millisecond) // simulate slow work
+    state.Name = ctx.GetString("Name")
+    return state, nil
+}
+```
+
+The `pending` state fires instantly on click (before the server even receives the message) and clears on `done`. This is the most concise option for custom loading UX.
+
+**Trade-offs:** the pending state is client-only — it does not fan out to peer tabs, does not survive reconnect, and cannot drive server-side logic. The action blocks the event loop for its duration (no other clicks or peer pushes until it returns). For loading that is real application state, use 7.3.
+
+It *does* survive a server re-render. Since `@livetemplate/client` v0.18.1 the classes and attributes applied by `lvt-el:` are client-owned: the morph pass re-applies them after each server patch, so re-rendering the element does not wipe the pending class. You do not need `lvt-ignore-attrs` to protect them.
+
+See the [Client Attributes Reference — Reactive Attributes](../references/client-attributes.md#reactive-attributes) for the full `lvt-el:*` pattern.
+
+### 7.3 Server-Owned Loading (Tier 1)
+
+When loading is real application state — it needs to survive reconnect, fan out to peers, or drive server-side logic — model it on the server and render it with ordinary template conditionals. This keeps everything in Tier 1 (no `lvt-*` attributes).
+
+`livetemplate.Async` is the primitive. It runs slow work off the event loop, then re-enters the loop to apply the result to the current state and re-render — one method, no manual goroutine, no dispatch plumbing:
+
+```go
+func Async[S any, R any](
+    ctx *Context,
+    work  func(context.Context) (R, error),
+    apply func(s S, result R, err error) (S, error),
+)
+```
+
+**Scope:** `Async` is supported only inside **action handlers** (e.g. `Greet`, `Save`) that run on the per-connection WebSocket event loop. Calling it from `Mount()`, `OnConnect()`, dispatched actions, server-initiated actions, upload handlers, or HTTP POST handlers logs a warning and drops the operation — there is no event loop to re-enter. Those cases need the [manual two-action pattern](#escape-hatch-the-manual-two-action-pattern) below.
+
+#### The default: `Async` + `{{.lvt.Pending}}`
+
+When the loading indicator is purely visual, you do not need a `Loading` field at all. `{{.lvt.Pending}}` is a framework-provided template variable — `true` on the render that registered async work, `false` on every other render (including the completion render):
+
+```go
+func (c *Controller) Greet(state State, ctx *livetemplate.Context) (State, error) {
+    name := strings.TrimSpace(ctx.GetString("name"))
+    livetemplate.Async(ctx,
+        func(ctx context.Context) (string, error) {
+            time.Sleep(700 * time.Millisecond) // simulate slow work
+            return name, nil
+        },
+        func(s State, name string, err error) (State, error) {
+            s.Name = name
+            return s, nil
+        },
+    )
+    return state, nil
+}
+```
+
+```html
+<button name="greet" {{if .lvt.Pending}}disabled{{end}}>
+    {{if .lvt.Pending}}Loading...{{else}}Greet{{end}}
+</button>
+```
+
+No `Loading` field, no `lvt-*` attributes, one method — pure Go and standard HTML templates.
+
+`{{.lvt.Pending}}` has **per-render** semantics: if another action or a peer dispatch triggers a render on the same connection while the work is still in flight, that render sees `Pending=false`. For an indicator that must stay visible across interleaved renders, use an explicit field — next section.
+
+#### When loading is real state: `Async` + a `Loading` field
+
+Keep a `Loading` field when the loading state has to do more than paint the screen — drive a re-entrancy guard, fan out to peers, or survive a reconnect:
+
+```go
+type State struct {
+    Name    string
+    Loading bool
+}
+
+func (c *Controller) Greet(state State, ctx *livetemplate.Context) (State, error) {
+    state.Loading = true
+    name := strings.TrimSpace(ctx.GetString("name"))
+    livetemplate.Async(ctx,
+        func(ctx context.Context) (string, error) {
+            time.Sleep(700 * time.Millisecond) // simulate slow work
+            return name, nil
+        },
+        func(s State, name string, err error) (State, error) {
+            s.Name = name
+            s.Loading = false
+            return s, nil
+        },
+    )
+    return state, nil // render #1: Loading=true
+    // render #2 happens when work completes: Loading=false
+}
+```
+
+```html
+<button name="greet" {{if .Loading}}disabled{{end}}>
+    {{if .Loading}}Loading...{{else}}Greet{{end}}
+</button>
+```
+
+The key guarantees:
+- **`apply` sees the current state**, not a snapshot — any actions that ran during the async window are visible. Mutate only the fields you own.
+- **`work` must not touch session state** — only its own inputs. It receives a `context.Context` tied to the connection's lifetime.
+- **Connection-scoped** — only the originating connection gets the completion render. To fan out to peers, capture `session := ctx.Session()` *before* defining `apply` and call `session.TriggerAction()` from inside it; `ctx` itself is not in scope there.
+- **Lifetime-bound** — if the connection closes before `work` completes, the goroutine is cancelled and `apply` never runs.
+
+If the indicator must survive a **reconnect**, the field has to carry the `lvt:"persist"` tag. Unpersisted fields reset to their zero value on reconnect, so a guard reading an untagged `Loading` never fires on the new connection.
+
+See the [Async API reference](../references/api-reference.md#async) for the full contract.
+
+#### Escape hatch: the manual two-action pattern
+
+Before `Async`, server-owned loading required two methods: one to set `Loading=true` and spawn the work, another to apply the result. You still need that shape when:
+
+- **the work starts where `Async` is illegal** — `Mount`, `OnConnect`, upload handlers, HTTP POST handlers (see *Scope* above);
+- **the work reports progress repeatedly** rather than completing once. `Async` is one-shot — one `work`, one `apply` — so a ticker, a progress bar, or a streaming job still spawns a goroutine that calls `TriggerAction` per update;
+- **you are re-spawning in-flight work after a reconnect**, which by definition begins in `OnConnect`.
+
+```go
+type State struct {
+    Name    string
+    Loading bool
+}
+
+// Action 1: set Loading=true, spawn the slow work off the event loop
+func (c *Controller) Greet(state State, ctx *livetemplate.Context) (State, error) {
+    if state.Loading {
+        return state, nil // re-entrancy guard: ignore clicks while loading
+    }
+    session := ctx.Session()
+    if session == nil {
+        return state, nil // nil check: no session on initial HTTP render
+    }
+    name := strings.TrimSpace(ctx.GetString("name"))
+    state.Loading = true
+    go func() {
+        time.Sleep(700 * time.Millisecond) // simulate slow work
+        _ = session.TriggerAction("finishGreet", map[string]any{"name": name})
+    }()
+    return state, nil // render #1: spinner on
+}
+
+// Action 2: clear Loading, apply the result
+func (c *Controller) FinishGreet(state State, ctx *livetemplate.Context) (State, error) {
+    state.Name = ctx.GetString("name")
+    state.Loading = false
+    return state, nil // render #2: spinner off
+}
+```
+
+**Why two methods?** LiveTemplate's event loop processes one action per render cycle. To show a spinner *and later* clear it, the slow work must return early (render #1: spinner on) and re-enter the event loop via `Session.TriggerAction` (render #2: spinner off). `Async` does exactly this for you — the two renders are the same, only the bookkeeping moves into the framework.
+
+**Four things to get right** (all of them handled for you by `Async`):
+
+1. **Re-entrancy guard** (`if state.Loading { return }`): prevents double-clicks from spawning duplicate goroutines. The `{{if .Loading}}disabled{{end}}` on the button is the UI-level guard; the Go check is the server-level backup.
+2. **Session nil-check** (`if session == nil`): `ctx.Session()` returns nil during initial HTTP renders (before WebSocket connects). The goroutine + `TriggerAction` pattern requires a live session.
+3. **Goroutine lifetime**: the goroutine should be short-lived. If the connection drops, `TriggerAction` returns `ErrSessionDisconnected` — the goroutine exits cleanly.
+4. **Second action name**: the `FinishGreet` method name must match the string passed to `TriggerAction`. A typo silently fails (the action dispatches but no method handles it).
 
 ---
 

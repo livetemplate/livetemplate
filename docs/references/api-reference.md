@@ -109,6 +109,70 @@ handler := tmpl.Handle(&TodoController{DB: db}, livetemplate.AsState(&TodoState{
 
 ---
 
+## Validate
+
+```go
+func Validate(templateText string, opts ...ValidateOption) ([]Diagnostic, error)
+```
+
+Parses `templateText` the way the live renderer does — against the framework's real function set and any supplied component templates — and returns the problems found. An empty slice means the template parses cleanly and will be served rather than silently dropped.
+
+**Why this exists:** `Execute` and `ExecuteUpdates` catch a first-render failure and fall back to an HTML-structure tree. A malformed template — an unclosed `{{range}}`, an unknown function, an unresolved `{{template}}` — therefore renders *degraded* and returns no error. A tool that wants to reject a bad template **before** serving it had nothing to call. `Validate` is that call.
+
+```go
+type Diagnostic struct {
+    Line     int      // 1-based line in the supplied text; 0 if the parser reported none
+    Severity Severity // SeverityError today; SeverityWarning is reserved
+    Message  string
+}
+```
+
+| Severity | Meaning |
+|---|---|
+| `SeverityError` | A problem that prevents the template from being served: the block is dropped at serve time and renders nothing. |
+| `SeverityWarning` | Reserved for problems that degrade a template rather than break it — the home for the data-dependent checks a future sample-data mode would surface. Not emitted today. |
+
+**Diagnostics are not errors.** The returned `error` is reserved for infrastructure failures — a component set that itself fails to parse, or an internal fault. A template that does not parse is *always* reported as a `Diagnostic`, never as an `error`. This mirrors the shape of a linter: problems in the input are data, not errors.
+
+```go
+diags, err := livetemplate.Validate(text)
+if err != nil {
+    return fmt.Errorf("validation could not run: %w", err) // infrastructure fault
+}
+for _, d := range diags {
+    fmt.Printf("%s:%d: %s: %s\n", path, d.Line, d.Severity, d.Message)
+}
+if len(diags) > 0 {
+    return errors.New("template rejected")
+}
+```
+
+**What it checks:** the syntax and composition layer — unclosed or malformed actions (`{{range}}`, `{{if}}`, `{{with}}`), unknown functions (checked against the framework's own builtins, which a downstream caller cannot enumerate, so this check cannot be reproduced outside the module), and unresolved component or composition templates.
+
+**What it does not check:** data-dependent problems that only surface when the template is executed against a value. Those are out of scope until a sample-data mode is added.
+
+**At most one diagnostic per call today.** The underlying parser stops at the first error rather than recovering, so the slice has length 0 or 1. The slice shape anticipates the multi-error reporting a recovering pass could add.
+
+### Validating templates that use components
+
+```go
+func WithValidateComponents(sets ...*TemplateSet) ValidateOption
+```
+
+Makes the given component template sets available, so a template invoking `{{template "ns:name" .}}` resolves the same way it does at serve time. Pass the same sets you pass to `New(WithComponentTemplates(...))`; **without them a component reference is reported — correctly — as an unresolved template.**
+
+```go
+diags, err := livetemplate.Validate(text,
+    livetemplate.WithValidateComponents(uiKit),
+)
+```
+
+Each call re-parses the supplied component sets from their `fs.FS`. That suits pre-serve and dev-time validation rather than per-keystroke use against a large component library.
+
+> **Line-number caveat:** HTML comments are stripped before parsing (matching serve), so a diagnostic below a multi-line HTML comment can report a line shifted by the comment's height.
+
+---
+
 ## Controller+State Pattern
 
 For patterns, examples, and usage guide, see [Controller+State Pattern](controller-pattern.md).
@@ -206,8 +270,21 @@ Primarily useful in tests. In production, Context is created internally and pass
 | `GetString` | `(key string) string` | Get a string value from action data |
 | `GetInt` | `(key string) int` | Get an integer value |
 | `GetFloat` | `(key string) float64` | Get a float value |
-| `GetBool` | `(key string) bool` | Get a boolean value |
+| `GetBool` | `(key string) bool` | Get a boolean value — this is the accessor for checkbox state (see below) |
 | `Has` | `(key string) bool` | Check if a key exists in action data |
+
+**Reading a checkbox.** Use `GetBool`, not `GetString`. The same box reaches the
+handler as a different type depending on how the form was submitted: over the
+WebSocket the client sends `input.checked` (a bool — the `value` attribute is
+discarded), while a plain POST carries the `value` attribute as a string
+(`"1"`, or `"on"` when the input has no `value`). An unchecked box is not
+posted at all, so the key is simply absent. `GetBool` accepts all of these and
+reads an absent key as `false`, which is what lets one handler serve both
+transports:
+
+```go
+enabled := ctx.GetBool("notifications")  // correct with and without JS
+```
 | `Get` | `(key string) interface{}` | Get a raw value |
 | `Bind` | `(v interface{}) error` | Unmarshal action data into a struct |
 | `BindAndValidate` | `(v interface{}, validate *validator.Validate) error` | Bind and validate in one step |
@@ -288,6 +365,92 @@ can be captured and used from background goroutines. See
 
 ---
 
+## Async
+
+```go
+func Async[S any, R any](
+    ctx *Context,
+    work  func(context.Context) (R, error),
+    apply func(s S, result R, err error) (S, error),
+)
+```
+
+Runs `work` off the connection event loop, then re-enters the loop to apply
+its result to the **current** session state and re-render the originating
+connection. Reduces the [manual two-action loading pattern](../guides/progressive-complexity.md#73-server-owned-loading-tier-1)
+from ~15 lines / 2 methods to ~7 lines / 1 method.
+
+- **`work`** runs in a supervised goroutine. It receives a `context.Context`
+  tied to the connection's lifetime (cancelled on disconnect). It must not
+  touch session state — only its own inputs.
+- **`apply`** runs **on the event loop** against the latest state at
+  completion time, not a snapshot from when `work` started. Any state
+  changes from other actions during the async window are visible. Mutate
+  only the fields you own.
+- If the connection closes before `work` completes, the goroutine is
+  cancelled and `apply` never runs.
+- Render scope is **per-connection** — only the connection that called
+  `Async` gets the completion render. For group-wide fan-out, capture
+  `session := ctx.Session()` before defining `apply`, then call
+  `session.TriggerAction()` from within the `apply` closure (`ctx`
+  itself is not in scope inside `apply`).
+- **`apply` receives only `(state, result, err)`** — there is no `*Context`,
+  so the completion render cannot set a flash, write a cookie, or navigate.
+  Anything that needs `ctx` on the *second* render has to arrive as a real
+  action: keep the manual two-action pattern, or capture the session and
+  `TriggerAction` from inside `apply`. State changes are unaffected — those
+  are what `apply` returns.
+
+**Example:**
+
+```go
+func (c *Controller) Greet(state State, ctx *livetemplate.Context) (State, error) {
+    state.Loading = true
+    name := strings.TrimSpace(ctx.GetString("name"))
+    livetemplate.Async(ctx,
+        func(ctx context.Context) (string, error) {
+            time.Sleep(700 * time.Millisecond) // simulate slow work
+            return name, nil
+        },
+        func(s State, name string, err error) (State, error) {
+            s.Name = name
+            s.Loading = false
+            return s, nil
+        },
+    )
+    return state, nil // render #1: Loading=true (spinner on)
+    // render #2 happens automatically when work completes: Loading=false
+}
+```
+
+**Scope:** `Async` is supported only inside **action handlers** (e.g.
+`Greet`, `Save`) that run on the per-connection WebSocket event loop.
+Calling `Async` in `Mount()`, `OnConnect()`, dispatched actions, server-
+initiated actions, upload handlers, or HTTP POST handlers logs a warning
+and drops the operation — there is no persistent connection or event loop
+to re-enter.
+
+**`{{.lvt.Pending}}`:** A framework-provided template variable that is `true`
+on the render that registered async work and `false` on all other renders.
+It has **per-render** semantics: if another action or a peer dispatch
+triggers a render on the same connection while async work is still in
+flight, that render will see `Pending=false` (it did not register async
+work). For loading indicators that must stay visible across interleaved
+renders, use an explicit `Loading bool` field in your state instead.
+Use `{{.lvt.Pending}}` when the loading indicator is purely visual and
+single-action flows are the norm:
+
+```html
+<button name="greet" {{if .lvt.Pending}}disabled{{end}}>
+    {{if .lvt.Pending}}Loading...{{else}}Greet{{end}}
+</button>
+```
+
+See [Loading States §7.3](../guides/progressive-complexity.md#73-server-owned-loading-tier-1)
+for the full comparison of loading approaches.
+
+---
+
 ## LiveHandler
 
 ```go
@@ -295,6 +458,8 @@ type LiveHandler interface {
     http.Handler
     Shutdown(ctx context.Context) error
     MetricsHandler() http.Handler
+    Publish(topic, action string, data map[string]interface{}) error
+    Func() http.HandlerFunc
 }
 ```
 
@@ -305,6 +470,54 @@ Returned by `Template.Handle()`. Serves both HTTP and WebSocket requests.
 | `ServeHTTP` | Handles HTTP requests and WebSocket upgrades |
 | `Shutdown` | Gracefully drains connections with context timeout |
 | `MetricsHandler` | Returns Prometheus metrics endpoint handler |
+| `Publish` | Fans a topic action out to subscribers from outside an action handler ([PubSub](pubsub.md)) |
+| `Func` | Returns `ServeHTTP` as an `http.HandlerFunc` |
+
+### Standard library integration
+
+A `LiveHandler` is an ordinary `net/http` handler — one `ServeHTTP` serves the
+initial GET render, form-action POSTs, and the WebSocket upgrade. It composes
+with `net/http` routing directly, and `Func()` covers the entry points that take
+a function instead of an `http.Handler`:
+
+```go
+handler := tmpl.Handle(&CounterController{}, livetemplate.AsState(&CounterState{}))
+
+http.Handle("/counter", handler)                  // http.Handler
+mux.Handle("/counter", handler)                   // ServeMux
+http.HandleFunc("/counter", handler.Func())       // http.HandlerFunc
+mux.HandleFunc("GET /counter", handler.Func())    // Go 1.22+ method patterns
+mux.HandleFunc("POST /counter", handler.Func())   // form actions still dispatch
+```
+
+`Func()` is exactly `handler.ServeHTTP` — neither form is preferred, and taking
+it does not give up `Shutdown`, `Publish` or `MetricsHandler`, which stay on the
+`LiveHandler` it came from.
+
+Mounting under a subtree with `http.StripPrefix` is supported; the handler reads
+the request path as rewritten.
+
+**Middleware must forward `http.Hijacker`.** A WebSocket upgrade takes over the
+raw connection, so it needs the `http.ResponseWriter` to implement
+`http.Hijacker`. Middleware that only observes the request is fine; middleware
+that *wraps* the writer (logging, gzip, status capture) hides `Hijack` unless it
+forwards the method:
+
+```go
+// Breaks the upgrade: embedding promotes Write/Header/WriteHeader, not Hijack.
+type wrapped struct{ http.ResponseWriter }
+```
+
+The failure is partial and easy to miss — GET and POST keep rendering, only the
+upgrade is refused with a 500 — so a failed upgrade logs a `hint` naming
+middleware whenever the writer is not hijackable. To keep such middleware,
+either forward `Hijack` to the underlying writer, or leave the writer unwrapped
+when `livetemplate.WSIsUpgrade(r)` is true.
+
+The hint is attached on the writer's own defect, which need not be what the
+accompanying `error` reports — an upgrader can reject a handshake earlier (a
+disallowed `Origin`, say) and never reach the hijack. Read it as a second
+failure the upgrade would have hit regardless, not as the reported cause.
 
 ---
 

@@ -45,20 +45,31 @@ const (
 //
 // OnUpload runs during the multipart body read, before the action handler, so
 // ctx does NOT carry typed state. It DOES carry request identity — ctx.UserID()
-// and ctx.GroupID() — and the form fields parsed *before* this file part, read
-// via ctx.GetString(...). Because parts stream in body order, a field is visible
-// only if its input precedes the file input in the form, so order an input you
-// need mid-stream (e.g. the record id to associate the bytes with) ahead of the
-// file input. Use SetResult to hand the stored reference to the follow-on action
-// (read there via ctx.GetCompletedUploads). Caveat: if a `data` JSON-envelope
-// field precedes the file part, individual plain fields are folded into that
-// envelope and are not separately addressable via ctx.GetString — mirroring how
-// the follow-on action sees the same values.
-// ctx is upload-scoped: ctx.Publish / ctx.With* calls made inside OnUpload do
-// NOT propagate to the follow-on action handler (which builds its own context).
+// and ctx.GroupID() — and any form fields the upload was told to carry, read via
+// ctx.GetString(...).
+//
+// A field travels only when marked lvt-upload-with. A Proxied upload auto-fires
+// on file selection rather than on an explicit submit, so nothing from the
+// enclosing form is sent unless the author asked for it — an unmarked field
+// reaches OnUpload as an empty value, not as a silent tag-along. Two rules apply
+// on top of the marking: parts stream in body order, so a marked field is
+// readable here only if its input precedes the file input; and if a `data`
+// JSON-envelope field precedes the file part, individual plain fields are folded
+// into that envelope and are not separately addressable via ctx.GetString —
+// mirroring how the follow-on action sees the same values.
+//
+// Use SetResult to hand the stored reference to the follow-on action (read there
+// via ctx.GetCompletedUploads). ctx is upload-scoped: ctx.Publish / ctx.With*
+// calls made inside OnUpload do NOT propagate to the follow-on action handler
+// (which builds its own context).
+//
+//	<form>
+//	  <input type="hidden" name="id" value="{{.Record.ID}}" lvt-upload-with />
+//	  <input type="file" lvt-upload="scan" />
+//	</form>
 //
 //	func (c *C) OnUpload(part *livetemplate.UploadPart, ctx *livetemplate.Context) error {
-//	    // "id" must be ordered ahead of the file input in the form.
+//	    // "id" is marked lvt-upload-with and ordered ahead of the file input.
 //	    ref, err := myBackend.Put(ctx, ctx.GetString("id"), part.Filename, part)
 //	    if err != nil {
 //	        return err
