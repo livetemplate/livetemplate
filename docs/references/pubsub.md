@@ -167,7 +167,7 @@ Neither layer alone is sufficient. Transport isolation limits what data *reaches
 
 ## Topic Subscribe / Publish API
 
-`ctx.Subscribe(topic)` opts the calling connection into a topic; `ctx.Publish(topic, action, data)` fans out a named action to every connection subscribed to that topic. The complete primer is in the [Controller+State Pattern reference](controller-pattern.md#cross-tab-updates-with-subscribe--publish); this section documents the wire-level + operator contracts that controllers and operators need to know about.
+`ctx.Subscribe(topic)` opts the calling connection into a topic; `ctx.Publish(topic, action, data)` fans out a named action to every connection subscribed to that topic. The complete primer is in the [Controller+State Pattern reference](controller-pattern.md#cross-tab-updates-with-subscribe--publish); what follows is the wire-level and operator contract.
 
 ### Topic Grammar
 

@@ -2,7 +2,7 @@
 
 Ephemeral components are UI elements that appear briefly, deliver information, and then disappear — toasts, banners, alerts, and confirmation flashes. They have no meaningful persistent state from the server's perspective.
 
-This guide explains why these components should live **entirely on the client** and how to implement that pattern correctly.
+They belong **entirely on the client**. Below is why, and how to build them that way.
 
 ---
 

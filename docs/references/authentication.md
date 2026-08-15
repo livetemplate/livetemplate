@@ -1,6 +1,6 @@
 # Authentication Reference
 
-Authentication in LiveTemplate handles two key responsibilities: **user identification** and **session grouping**. This guide covers the Authenticator interface, built-in implementations, HTTP methods for auth flows, and patterns for custom authentication.
+Authentication in LiveTemplate handles two key responsibilities: **user identification** and **session grouping**. Below: the Authenticator interface, the built-in implementations, the HTTP methods for auth flows, and how to write your own.
 
 ## Overview
 

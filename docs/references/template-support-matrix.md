@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document provides a comprehensive matrix of Go template patterns and their support status in LiveTemplate's AST-based template parser. All patterns have been systematically tested through 6 phases of fuzz testing with 60+ explicit test seeds and 2150+ baseline coverage patterns.
+Which Go template patterns the AST-based parser supports, and which it doesn't. All patterns have been systematically tested through 6 phases of fuzz testing with 60+ explicit test seeds and 2150+ baseline coverage patterns.
 
 **Test Coverage**: ~95% of Go template features
 **Fuzz Testing**: Multi-layer infrastructure with TypeScript oracle validation, mutation testing, and invariant checking
@@ -344,12 +344,12 @@ Use intermediate variables instead.
 
 ## Summary
 
-LiveTemplate's parser provides **comprehensive support** for Go template patterns with:
+The parser covers the Go template patterns below:
 
 - ✅ **60+ explicitly tested patterns** across all Go template constructs
 - ✅ **Full template composition** via automatic AST flattening
 - ✅ **Variable declarations** including `$c := .` context aliasing
 - ✅ **Multi-layer fuzz testing** with TypeScript oracle validation
-- ✅ **Production-ready** with extensive testing and 0 crashes
+- ✅ Extensively tested, with 0 crashes across the fuzz corpus
 
 All standard Go template patterns are supported, including template composition (`{{define}}`/`{{template}}`/`{{block}}`). Performance is excellent across all tested scenarios.
