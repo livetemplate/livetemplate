@@ -5,6 +5,16 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.25.0] - 2026-08-15
+
+### Changes
+
+- docs: rewrite the guide and reference openers (#533) (c922f83a)
+- test(census): pin associated-template coverage for separately-parsed sources (#473) (be26cab3)
+- feat(census): advertise template lvt-* attributes so unhandled ones can warn (#473) (6f1bb1c1)
+
+
+
 ## [v0.24.0] - 2026-08-03
 
 ### Fixed
