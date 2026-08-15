@@ -249,6 +249,7 @@ type Template struct {
 	wiredCollisionWarned   *sync.Map           // action -> struct{}: dedups the Publish symmetry-collision slog.Warn to once per action name; shared by pointer across per-session clones so the warning is app-global, not per-connection
 	precomputeAllow        map[string]struct{} // Superset of identifiers referenced by the parsed templates; immutable after parse; scopes eager method precompute in BuildDataMap so unreferenced State methods are never called
 	pending                bool                // True when the current render has pending Async work; set per-render by the event loop, consumed by buildTree
+	attributeCensus        []string            // Sorted set of lvt-* attribute names appearing in templateStr; immutable after parse; advertised on initial render so the client can warn about attributes no handler claims (attribute_census.go)
 }
 
 // Funcs registers a template.FuncMap that will be applied to all template parsing and execution.
@@ -1133,6 +1134,7 @@ func (t *Template) Clone() (*Template, error) {
 	wiredActions := t.wiredActions
 	wiredCollisionWarned := t.wiredCollisionWarned
 	precomputeAllow := t.precomputeAllow
+	attributeCensus := t.attributeCensus
 	t.mu.RUnlock()
 
 	// Share immutable data from master instead of re-creating per clone.
@@ -1158,6 +1160,7 @@ func (t *Template) Clone() (*Template, error) {
 		wiredActions:         wiredActions,         // Share extracted wired-action set (immutable)
 		wiredCollisionWarned: wiredCollisionWarned, // Share dedup store by pointer (app-global once-per-action warn)
 		precomputeAllow:      precomputeAllow,      // Share referenced-identifier set (immutable after parse)
+		attributeCensus:      attributeCensus,      // Share extracted lvt-* attribute census (immutable)
 		// Don't copy lastData, lastHTML, lastTree, etc. - start fresh per session
 	}
 
@@ -1288,6 +1291,7 @@ func (t *Template) parseInternal(text string, baseTemplate *template.Template) (
 	t.recursionDefines = recursionDefines
 	t.formSchema = extractFormSchemaFromTemplateStr(text)
 	t.precomputeAllow = parse.CollectReferencedIdentsFromTemplate(tmpl)
+	t.attributeCensus = extractAttributeNames(text)
 	t.wiredActions = extractWiredActionNames(text)
 	if t.wiredActions != nil {
 		t.wiredCollisionWarned = &sync.Map{}
@@ -1837,6 +1841,7 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 	}
 
 	mountCfg.Capabilities = detectCapabilities(controller, state.Inner(), &mountCfg)
+	mountCfg.Attributes = t.attributeCensus
 	validateLifecycleSignatures(controller, state.Inner())
 
 	limits := session.NewConnectionLimits(mountCfg.MaxConnections, mountCfg.MaxConnectionsPerGroup)

@@ -18,6 +18,12 @@ type ResponseMetadata struct {
 	Errors       map[string]string `json:"errors"`
 	Action       string            `json:"action,omitempty"`       // only on action responses
 	Capabilities []string          `json:"capabilities,omitempty"` // only on initial render
+	// Attributes lists the lvt-* attribute names present in the template, sent
+	// only on initial render so the client can warn about any the registry has
+	// no handler for. Distinct from Capabilities by design: a capability is a
+	// server feature the client changes behavior for (see dispatch.go), whereas
+	// this is a template fact nothing branches on.
+	Attributes []string `json:"attributes,omitempty"`
 }
 
 // PrepareUpdate wraps a tree with metadata for action responses.
