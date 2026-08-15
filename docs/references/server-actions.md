@@ -329,7 +329,7 @@ func NotifyUser(userID string, message string) {
 `Session.TriggerAction` targets **one** session group, so refreshing many
 connections at once tempts you to keep a registry of `Session` handles and
 iterate it (the pattern above) — which then needs `OnConnect`/`OnDisconnect`
-bookkeeping and dead-handle pruning. You don't need any of that. Two primitives
+bookkeeping and dead-handle pruning. You don't need any of that. Two calls
 compose into a registry-free fan-out:
 
 1. **Join in `Mount`** with `ctx.Subscribe(topic)`. Because it runs in `Mount`,

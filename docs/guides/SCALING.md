@@ -8,7 +8,7 @@
 
 ## Overview
 
-This guide covers scaling LiveTemplate applications from **single-host prototypes** to **production systems handling millions of concurrent WebSocket connections**.
+Scaling a LiveTemplate application, from a **single-host prototype** up to **millions of concurrent WebSocket connections**.
 
 ---
 
@@ -191,7 +191,7 @@ handler := livetemplate.Mount(rootStore,
 
 ## Migration Guide: Memory to Redis Session Store
 
-This guide walks through migrating from in-memory session storage to Redis-backed storage for horizontal scaling.
+Moving session storage from memory to Redis, so you can run more than one host.
 
 ### When to Migrate
 
@@ -529,7 +529,7 @@ spec:
 2. **Readiness Probe** (`/health/ready`):
    - **Always use** for all deployments
    - Should check external dependencies (Redis, DB)
-   - Allows application to temporarily become "not ready" without restart
+   - Lets the application go "not ready" for a while without a restart
    - Example: Redis connection lost → readiness fails → no new connections → Redis recovers → readiness passes → traffic resumes
 
 3. **Startup Probe** (`/health/live`):
@@ -617,7 +617,7 @@ func setupHealthChecks(sessionStore *livetemplate.RedisSessionStore, db *sql.DB)
 
 **Advanced Database Health Checks:**
 
-For production deployments with databases, implement comprehensive health checks that verify not just connectivity, but also connection pool health and query performance.
+In production with a database, check more than connectivity: the connection pool and query latency fail separately, and each one takes the app down on its own.
 
 ```go
 package main
@@ -1399,7 +1399,7 @@ See [session.md](../references/session.md) for the Session API guide on server-i
 
 ## Capacity Planning
 
-This section provides formulas and guidelines for estimating resource requirements based on your expected load.
+Formulas for estimating what a given load will cost you in resources.
 
 ### Memory Estimation
 

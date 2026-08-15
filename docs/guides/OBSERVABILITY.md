@@ -2,7 +2,7 @@
 
 ## Overview
 
-LiveTemplate provides production-ready observability through two complementary systems:
+Observability comes from two systems that work together:
 
 - **Structured logging** via Go's standard `log/slog` package (used directly throughout the codebase)
 - **Operational metrics** via `internal/observe` package (counters, gauges, histograms with Prometheus export)

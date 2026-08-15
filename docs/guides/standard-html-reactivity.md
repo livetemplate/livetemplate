@@ -1,8 +1,8 @@
 # Standard HTML Reactivity
 
-LiveTemplate makes standard HTML reactive by default. A plain `<form method="POST">` with `<button name="add">` is interactive at every transport level — no framework-specific attributes required. This guide explains how it works, how it compares to other frameworks, and the tradeoffs involved.
+LiveTemplate makes standard HTML reactive by default. A plain `<form method="POST">` with `<button name="add">` is interactive at every transport level — no framework-specific attributes required. How it works, how it compares to the alternatives, and what it costs you.
 
-> **Recent reinforcement:** As of client v0.8.38, the TypeScript client and the generated templates went through a deliberate "attribute reduction" pass that removed `lvt-*` attributes from anything HTML can already express. Tier 1 standard HTML is now the default everywhere; Tier 2 attributes are reserved for behaviors HTML genuinely cannot express (timing, keyboard shortcuts, reactive DOM).
+> **Recent reinforcement:** As of client v0.8.38, the TypeScript client and the generated templates went through a deliberate "attribute reduction" pass that removed `lvt-*` attributes from anything HTML can already express. Tier 1 standard HTML is now the default everywhere; Tier 2 attributes are reserved for behaviors HTML cannot express (timing, keyboard shortcuts, reactive DOM).
 
 ---
 
@@ -183,7 +183,7 @@ See the [Progressive Complexity Guide](progressive-complexity.md) for the comple
 **Advantages of LiveTemplate's approach:**
 - Standard HTML works at all transport levels (no-JS, fetch, WebSocket)
 - No framework vocabulary to learn for common interactions
-- Progressive enhancement works out of the box
+- Progressive enhancement needs no extra wiring
 - Less markup to write
 
 **Disadvantages:**

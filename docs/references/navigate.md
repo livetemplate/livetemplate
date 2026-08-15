@@ -106,7 +106,7 @@ For a counter-template-sized handler (two slots: `Selected`, `MountCount`), the 
 
 ## Verification
 
-The load-bearing test is `TestNavigateActionReMountsWithNewQueryData` in `navigate_test.go`. It:
+The test that proves this is `TestNavigateActionReMountsWithNewQueryData` in `navigate_test.go`. It:
 
 1. Connects a WebSocket with `?s=alpha`.
 2. Confirms the rendered tree shows `state.Selected == "alpha"` and `MountCount == 1`.

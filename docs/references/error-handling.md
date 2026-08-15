@@ -18,7 +18,7 @@ Complete guide to error handling in LiveTemplate applications.
 
 ## Overview
 
-LiveTemplate provides a comprehensive error handling system that automatically propagates validation errors from the server to the client and displays them in templates.
+Return an error from an action and it travels to the client and renders in the template. You write no serialization code for it.
 
 ### Error Flow
 

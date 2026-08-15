@@ -1,6 +1,6 @@
 # Session Reference
 
-Session infrastructure in LiveTemplate handles state storage, connection management, and WebSocket configuration. This guide covers state safety guarantees, session stores, connection management, and performance tuning for production deployments.
+Session infrastructure in LiveTemplate handles state storage, connection management, and WebSocket configuration. Below: the state safety guarantees, the session stores, connection management, and what to tune before production.
 
 For pushing updates from server-side code, see [Server Actions Reference](server-actions.md).
 

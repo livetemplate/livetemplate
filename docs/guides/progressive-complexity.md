@@ -5,7 +5,7 @@ LiveTemplate follows a two-tier progressive complexity model:
 - **Tier 1: Standard HTML** — forms, buttons, links, dialogs, validation. No custom attributes.
 - **Tier 2: `lvt-*` Attributes** — debounce, reactive DOM, lifecycle hooks. Only when HTML can't express it.
 
-This guide walks through Tier 1 from the simplest case to full-featured applications.
+What follows is Tier 1, from the simplest case up to a full application.
 
 ---
 
