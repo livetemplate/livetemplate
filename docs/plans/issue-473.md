@@ -32,7 +32,7 @@ Today the client hardcodes ~20 `handleXDirectives()` calls, so nobody can add an
 |---|----------|--------|
 | L1 | New `meta.attributes []string` **beside** `capabilities`, not a struct array replacing it | § Server-side 1 |
 | L2 | Census computed at parse (sibling of `extractWiredActionNames`), set at **both** initial-render sites — WS and HTTP | § Server-side 1 |
-| L3 | Keep the three run categories: `always` / `fire-on-change` / `wire-idempotent`. **Derived** for declarative handlers from which callbacks are supplied; required for low-level ones | § Choosing a category |
+| L3 | Two run categories: `fire-on-change` / `wire-idempotent` (`always` cut in Phase 1 — no consumer). **Derived** for declarative handlers from which callbacks are supplied; low-level defaults to `fire-on-change` | § Choosing a category |
 | L4 | **Two-layer registration**: declare `attribute: "lvt-x:copy"` + per-element callbacks (most authors), or `selectors` + `setup()` (cross-element state). The declarative layer also *resolves* the old "`selectors` has no consumer" problem — the framework owns the scan, so the declared name is authoritative for both warnings by construction | § Design 2, § Writing your own attribute |
 | L5 | Bracket expansion generalized to **any** `lvt-` prefix, so custom attributes get syntax parity | § Server-side 2 |
 | L6 | Built-ins register first; duplicate-selector warning is **unconditional**; third parties advised off `lvt-fx:`/`lvt-el:`/`lvt-form:` | § OQ3 |
@@ -280,6 +280,8 @@ Two consequences for the design:
 
 Optional refinement (not required for correctness once (2) lands): make `autoInit` also defer when readyState is `"interactive"`, so a `defer`-ordered second bundle registers before the first connect and skips the catch-up scan. ESM consumers who `import` both entries get pre-init registration for free via import ordering; the IIFE/CDN path is the one that needs (2).
 
+**Correction (Phase 3 audit):** the above holds for *external* scripts only. An inline `<script>` ignores `defer` and runs before the deferred client, when no global exists yet — Phase 3 adds the `window.lvtAttributes` queue and a connect-time pass for it (see Phase 3 Decisions).
+
 **The post-render loop becomes:**
 
 ```typescript
@@ -408,7 +410,9 @@ A copy-to-clipboard button. No `category` — it's derived (`onElementAdded` onl
 ```html
 <script src="{{ lvtClientScriptURL }}" defer></script>
 <script>
-  LiveTemplateClient.registerAttribute({
+  // Queue, not LiveTemplateClient.registerAttribute: an inline script ignores
+  // `defer`, so it runs BEFORE the deferred client and the global is undefined.
+  (window.lvtAttributes ||= []).push({
     attribute: "lvt-x:copy",          // plain name — the framework builds the selector
     onElementAdded(el, ctx) {         // once per element, not once per render
       el.addEventListener("click", () => navigator.clipboard.writeText(ctx.value));
@@ -510,7 +514,6 @@ An author who never leaves the declarative layer cannot make any of them.
 |----------|------|----------|
 | `fire-on-change` | every render | the handler reacts to a *value* changing on an existing element (highlight flash, scroll-to, a re-read of the attribute's value) |
 | `wire-idempotent` | only when nodes were added or a directive attribute was touched | the handler walks many descendants to attach listeners — skipping saves ~150–200 ms per render at 80k nodes |
-| `always` | every render, unconditionally | the handler must process *removals* too, not just current matches |
 
 **Declarative handlers normally don't set this** — it's derived from which callbacks you supply:
 
@@ -519,9 +522,9 @@ An author who never leaves the declarative layer cannot make any of them.
 | `onElement` (with or without the others) | `fire-on-change` | you're reacting to a value that can change on an existing element |
 | only `onElementAdded` / `onElementRemoved` | `wire-idempotent` | you're wiring new elements; re-running on an unchanged DOM would do nothing |
 
-An explicit `category` always wins — set it when the derivation is wrong for you, most often `always` when the handler must see removals on every render regardless.
+An explicit `category` always wins — set it when the derivation is wrong for you. (Removals need no category: a declarative handler's sweep runs every render regardless.)
 
-For a **low-level** handler, `category` is required and there is nothing to derive from. When unsure, start with `fire-on-change` and a cheap attribute selector — that's what most built-ins do, and an empty `querySelectorAll` on a 10k-row table costs 1–3 ms.
+For a **low-level** handler there is nothing to derive from, so an omitted `category` means `fire-on-change`. When unsure, start with `fire-on-change` and a cheap attribute selector — that's what most built-ins do, and an empty `querySelectorAll` on a 10k-row table costs 1–3 ms.
 
 ### Testing a custom attribute
 
@@ -795,14 +798,14 @@ The cost of (b) is real and unchanged (prereview has no JS toolchain). What chan
 
 ### State
 
-Done: Phase 2's **livetemplate half only** (census extractor, `meta.attributes` on both initial-render transports, bracket-namespace generalization, docs). Next: **Phase 1** (client repo) — it is the prerequisite for Phase 2's client half and for the E2E bar Phase 2 could not meet. Phases 1, 3 and 4 are client-repo work and cannot be delivered from a livetemplate branch.
+Done: Phase 1 (client #159, lvt #344, merged 2026-08-31); Phase 2's livetemplate half (#532, v0.25.0). Next: **Phase 3**, which now also owns Phase 2's client half (the census warning).
 
 ### Progress tracker
 
 | # | Phase | Milestone | Repos touched | Status |
 |---|-------|-----------|---------------|--------|
-| 1 | Registry + core handler migration | M1 | client | ☐ not started |
-| 2 | Attribute census + diagnostics | M1 | livetemplate, client | ◐ **server half done** — client half blocked on Phase 1 |
+| 1 | Registry + core handler migration | M1 | client | ☑ done — client #159, lvt #344 |
+| 2 | Attribute census + diagnostics | M1 | livetemplate, client | ◐ **server half done** — client half moved into Phase 3 |
 | 3 | Public API surface + authoring docs | M1 | client, docs, tinkerdown | ☐ not started |
 | 4 | Extraction — relocate prereview's handlers | M2 | client, prereview | ☐ not started |
 | 5 | Downstream lockstep release | M2 | livetemplate, prereview, tinkerdown | ☐ not started |
@@ -841,23 +844,23 @@ Applies to every phase; defined once here rather than repeated per block. Precon
 **Design refs:** § Design 2 (Attribute handler registry, incl. Bootstrap timing), § Scope boundaries, § Migration table (core rows only), § Design 1 (Event spec).
 
 **Audit** *(do first)*
-- [ ] Read the current post-render block in `livetemplate-client.ts` end-to-end; confirm the fire-on-change / wire-idempotent split matches the comment block that documents it, and that nothing else has crept in since.
-- [ ] Confirm the ordering constraints: `hydrateRedactedTokens` and `uploadHandler.hydratePreviews` run *before* the sweep and are order-sensitive; `changeAutoWirer.wireElements()` runs unconditionally after. Decide `always`-category vs stays-in-place for the auto-wirer and record which.
-- [ ] **Decide how low-level handlers report what they claim** (§ Design 2, "What the registry knows it handles"). Declarative handlers answer this for free via `attribute`; low-level `selectors` is author-supplied and unverified. Either the loop consults `selectors` to dispatch, or low-level handlers are excluded from the census comparison and the plan says so. Phase 2's diagnostics depend on the answer, so it cannot be deferred past this phase.
-- [ ] Verify `autoInit`'s call site and readyState branch still match § 2's description before building the static-registration design on it.
-- [ ] Confirm `CSS.escape` produces a working attribute selector for every `lvt-` name shape in use (the colon is the case that matters: `lvt-x:copy` → `[lvt-x\:copy]`). If any built-in's selector isn't a plain attribute-presence match, it stays on the low-level layer — that's expected, not a failure.
-- [ ] **Enumerate the 9 core handlers' selectors and confirm no two overlap.** The duplicate-selector warning ships in this phase and fires at registration — if e.g. `setupFxDOMEventTriggers` and `setupDOMEventTriggerDelegation` both claim `lvt-el:`/`lvt-fx:` territory, the warning needs a scope narrower than "same selector string" before it ships, or this phase's own E2E bar (zero new console warnings) fails against its own new feature.
+- [x] Read the current post-render block in `livetemplate-client.ts` end-to-end; confirm the fire-on-change / wire-idempotent split matches the comment block that documents it, and that nothing else has crept in since.
+- [x] Confirm the ordering constraints: `hydrateRedactedTokens` and `uploadHandler.hydratePreviews` run *before* the sweep and are order-sensitive; `changeAutoWirer.wireElements()` runs unconditionally after. Decide `always`-category vs stays-in-place for the auto-wirer and record which.
+- [x] **Decide how low-level handlers report what they claim** (§ Design 2, "What the registry knows it handles"). Declarative handlers answer this for free via `attribute`; low-level `selectors` is author-supplied and unverified. Either the loop consults `selectors` to dispatch, or low-level handlers are excluded from the census comparison and the plan says so. Phase 2's diagnostics depend on the answer, so it cannot be deferred past this phase.
+- [x] Verify `autoInit`'s call site and readyState branch still match § 2's description before building the static-registration design on it.
+- [x] Confirm `CSS.escape` produces a working attribute selector for every `lvt-` name shape in use (the colon is the case that matters: `lvt-x:copy` → `[lvt-x\:copy]`). If any built-in's selector isn't a plain attribute-presence match, it stays on the low-level layer — that's expected, not a failure.
+- [x] **Enumerate the 9 core handlers' selectors and confirm no two overlap.** The duplicate-selector warning ships in this phase and fires at registration — if e.g. `setupFxDOMEventTriggers` and `setupDOMEventTriggerDelegation` both claim `lvt-el:`/`lvt-fx:` territory, the warning needs a scope narrower than "same selector string" before it ships, or this phase's own E2E bar (zero new console warnings) fails against its own new feature.
 
 **Implementation**
-- [ ] `attribute-registry.ts`: `AttributeHandler` (declarative + low-level variants), `SetupContext`, `ElementContext`, `SendFn`, module-level registry. **Every extension point is an optional member** — the interface is public and semver'd from day one (H6), so future hooks (morphdom predicates, `delegatedEvents`) must be addable as a minor. Sealing it now buys nothing and costs a major bump later
-- [ ] `event-spec.ts`: formalize the lifecycle contract (§ Design 1)
-- [ ] Static `LiveTemplateClient.registerAttribute()` reading/writing the module registry
-- [ ] Late-registration catch-up: registering after a client exists immediately runs the handler against each live wrapper — `setup()` for a low-level handler, a full scan + `onElementAdded` pass for a declarative one
-- [ ] **Declarative layer**: `attribute` + `onElementAdded` / `onElement` / `onElementRemoved`, with the framework owning selector escaping (`CSS.escape`), the scan, per-element match tracking, empty-value rejection, and sweep-on-removal. Reject a handler supplying both `attribute` and `selectors`
-- [ ] Replace the hardcoded sequence with the registry loop; loop reads the registry live, not a construction-time snapshot
-- [ ] Migrate the 9 core-destination handlers (§ Migration table) to handler objects
-- [ ] Wire and unit-test the `needsServerChannel` / `send()` path with a test-only handler — no core handler exercises it, and Phase 4 must not be debugging the extraction and an untried contract simultaneously
-- [ ] Duplicate-selector warning on registration (§ Open questions 3), unconditional
+- [x] `attribute-registry.ts`: `AttributeHandler` (declarative + low-level variants), `SetupContext`, `ElementContext`, `SendFn`, module-level registry. **Every extension point is an optional member** — the interface is public and semver'd from day one (H6), so future hooks (morphdom predicates, `delegatedEvents`) must be addable as a minor. Sealing it now buys nothing and costs a major bump later
+- [x] `event-spec.ts`: formalize the lifecycle contract (§ Design 1)
+- [x] Static `LiveTemplateClient.registerAttribute()` reading/writing the module registry
+- [x] Late-registration catch-up: registering after a client exists immediately runs the handler against each live wrapper — `setup()` for a low-level handler, a full scan + `onElementAdded` pass for a declarative one
+- [x] **Declarative layer**: `attribute` + `onElementAdded` / `onElement` / `onElementRemoved`, with the framework owning selector escaping (`CSS.escape`), the scan, per-element match tracking, empty-value rejection, and sweep-on-removal. Reject a handler supplying both `attribute` and `selectors`
+- [x] Replace the hardcoded sequence with the registry loop; loop reads the registry live, not a construction-time snapshot
+- [x] Migrate the 9 core-destination handlers (§ Migration table) to handler objects
+- [x] Wire and unit-test the `needsServerChannel` / `send()` path with a test-only handler — no core handler exercises it, and Phase 4 must not be debugging the extraction and an untried contract simultaneously
+- [x] Duplicate-selector warning on registration (§ Open questions 3), unconditional
 
 **Acceptance criteria**
 - **Simplify:** `/simplify` over the diff before tests are assessed.
@@ -865,7 +868,10 @@ Applies to every phase; defined once here rather than repeated per block. Precon
 - **Integration:** full `npm test` in the client repo green.
 - **E2E:** chromedp in `lvt/e2e/` — a page using `lvt-fx:scroll` + `lvt-fx:highlight` + `lvt-scroll-sentinel` behaves identically pre/post refactor. Capture browser console, server stderr, WS frames, rendered HTML. **Zero new console warnings** is part of the bar.
 
-**Learn** — surprises; plan drift fixed in this commit; feed-forward to Phase 2's audit; new/changed risks.
+**Learn** *(reconciled after the fact from client #159's PR body — the plan was not updated when it merged)*
+- **Drift:** `always` category cut (no consumer; adding a union member is a minor, removing one a major). `delegatedEvents` not shipped — added in Phase 3 with its consumer. Low-level handlers are excluded from the census comparison and the duplicate warning (their `selectors` are descriptive; two built-ins scan `*`); `name` is required on them instead. Built-in `dispose()` hook added for module-global cleanup.
+- **Surprise:** `ctx.send` captured via a getter was still stale-by-construction (`onElementAdded` fires once); now resolved through a WeakMap. A severed array literal silently registered 4 of 18 handlers with every test green — only the bundle size moved; `tests/builtin-handlers.test.ts` now pins the set and order.
+- **Feed-forward to Phase 3:** the census warning; connect-time arming as a lifecycle phase (`url-hash` and `initializeFileInputs` are hardcoded at connect); whether handler order needs expressing (no non-commuting pair known).
 
 ---
 
@@ -915,27 +921,60 @@ Applies to every phase; defined once here rather than repeated per block. Precon
 
 **Design refs:** § Writing your own attribute (all three examples — they are this phase's acceptance spec), § Server-side changes 3 (tiers 2 and 3, and their six requirements), § Open questions 3, § Open questions 5 (the correction).
 
-**Audit** *(do first)*
-- [ ] Confirm the package's `main` / `types` / `browser` entries actually expose the registry to both an ESM `import` and an IIFE global consumer. If `dist/livetemplate-client.js` doesn't re-export it, that's added work.
-- [ ] Check whether the IIFE `--global-name=LiveTemplateClient` shape lets a third-party script call `registerAttribute` without reaching into internals.
-- [ ] Confirm the delegation asymmetry still holds: `DELEGATED_EVENT_TYPES` closed (17 entries) vs `isDOMEventTrigger()` being a denylist. If `lvt-on:` has since gained dynamic event types, `delegatedEvents` is unnecessary — drop it rather than adding a redundant knob.
-- [ ] Enumerate what tinkerdown's `vocabulary.go` would need to admit an app-defined attribute — is an extension hook viable, or does it need a config surface?
+**Decisions** *(settled 2026-11-08, before the branch — user-confirmed where marked)*
+- **One phase, delivered as back-to-back PRs** in order: client → lvt e2e → release (via `release.sh`) → docs → tinkerdown. *(user)*
+  alternative: split into 3a/3b/3c phases
+  because: the docs example pins the *published* client, so docs can only follow a release — the PRs are sequenced, not separate phases.
+- **Pre-load queue global `window.lvtAttributes`** — `(window.lvtAttributes ||= []).push(handler)`; core drains it at module evaluation and replaces `push` with `registerAttribute`, so later pushes register immediately. `registerAttribute` stays the API for code that runs after core. *(user)*
+  alternative: document `<script type="module">` or a `DOMContentLoaded` wrapper
+  because: an inline `<script>` ignores `defer`, so Example 1 as originally written ran *before* the client and threw — probed, not reasoned.
+- **Connect-time pass for declarative handlers.** When a client attaches its root at connect, every declarative handler runs a catch-up scan over the SSR'd DOM. Low-level handlers opt in via an optional `runOnConnect?: boolean`; `url-hash` and `initializeFileInputs` migrate onto it and their hardcoded connect calls go.
+  alternative: keep connect-time arming hardcoded (#159's state)
+  because: queued handlers register before `connect()`, and page load runs no `updateDOM` — without this a queued handler never touches server-rendered markup.
+- **Claims travel with the handler.** Declarative handlers claim their `attribute`; low-level handlers gain optional `claims?: string[]` (exact names, or prefixes ending in `:`). Mechanisms outside the registry (event delegation, morphdom hooks, reactive listeners — `lvt-on:`/`lvt-mod:`/`lvt-nav:`/`lvt-key`/`lvt-ignore`/…) claim via one static core list, because they never relocate.
+  alternative: one static allowlist of all 46 census names
+  because: Phase 4 moves prereview's handlers out; a static list would keep their names claimed and the warning would never fire for a page missing prereview's bundle — the exact break it exists to catch.
+- **Census diff runs once, after both `meta.attributes` arrives and `window` `load` has fired**; case-folds both sides; warns once per unclaimed name using the server's authored spelling.
+  alternative: diff on receipt of the initial frame
+  because: a tier-2 `async`/external bundle can still be fetching when the WS frame lands; `load` waits for every script in the document.
+- **`delegatedEvents?: string[]`** on any handler — the delegator's listener set becomes live (built-ins ∪ registered), read by both setup and `teardownForWrapper`; late registration attaches the new types to existing wrappers.
+  alternative: auto-discover event names from `lvt-on:<event>` attributes in the DOM
+  because: none considered beyond that; discovery would need a DOM scan on every render for a set that changes only at registration.
+- `ctx.send` stays optional in the types; examples use `ctx.send?.(…)`.
+  alternative: discriminate `DeclarativeHandler` on `needsServerChannel: true` to make `send` non-optional
+  because: doubles the public union for a one-character saving; revisitable as a minor.
+- **Handler ordering stays unexpressed** — no non-commuting pair is known (#159).
+  alternative: none considered
+- **tinkerdown:** an app-declared attribute list in tinkerdown's existing config/frontmatter, merged into `knownAttributes`/`knownPrefixes` for `validate`.
+  alternative: accept the whole `lvt-x:` prefix
+  because: reopens the hallucinated-attribute hole `vocabulary.go` exists to close. *Assumption to verify: tinkerdown has a config surface this fits; if not, record a defer with that consequence.*
+
+**Audit** *(done 2026-11-08)*
+- [x] ESM/IIFE exposure — done in Phase 1: types re-exported from `livetemplate-client.ts`, both `registerAttribute` spellings pinned by `tests/public-api-surface.test.ts`, `tsconfig` emits `declaration`.
+- [x] Delegation asymmetry still holds: `DELEGATED_EVENT_TYPES` is a closed 17-entry const (`dom/event-delegation.ts`), `isDOMEventTrigger` a denylist. `delegatedEvents` stays.
+- [x] tinkerdown `vocabulary.go`: hand-maintained `knownAttributes` map + `knownPrefixes` slice, no extension hook.
+- [x] Probe: the three § Writing your own attribute examples compile under `tsc --strict` against the emitted `.d.ts` (with `ctx.send!` and an `e.target` cast). Stale text (`always`, "category required for low-level", Example 1's load order) fixed in this commit.
 
 **Implementation**
-- [ ] Export `AttributeHandler` (both variants), `SetupContext`, `ElementContext`, `SendFn` as public TS types
-- [ ] `registerAttribute` reachable as a named export *and* on the global; the global's name documented as API
-- [ ] **`delegatedEvents`**: a handler may declare extra DOM event types; the delegator adds them to its document-level listener set at registration. Closes the `lvt-on:` / `lvt-el:` asymmetry (§ Scope boundaries) — no new routing, no second delegator
-- [ ] **Semver commitment** for the registry contract, written down: what may change in a minor, what forces a major, how a deprecation is announced
-- [ ] Authoring guide: the three tiers, the load-order rules from § 2, category selection, the sweep-and-rearm discipline and its three failure modes, namespace guidance (avoid `lvt-fx:`/`lvt-el:`/`lvt-form:`), and the SRI + trust note for tier 2
-- [ ] **A runnable example app in `../docs/examples/`** covering all three shapes from § Writing your own attribute: visual-only (`lvt-x:copy`), server-dispatching (`lvt-x:rating` + its Controller action), and the stateful sweep-and-rearm pattern. Feature work ships an example, not just an interface
-- [ ] Promote § Writing your own attribute into the docs authoring guide — the worked examples in this plan are its spec, so they must compile against the shipped types rather than drift into pseudocode
-- [ ] tinkerdown allowlist extension mechanism (or a written decision to defer it, with the consequence stated)
+- [ ] client: queue drain + `push` replacement (`window.lvtAttributes`)
+- [ ] client: connect-time declarative pass; `runOnConnect` on `LowLevelHandler`; migrate `url-hash` + `initializeFileInputs` onto it
+- [ ] client: `claims` on `LowLevelHandler`; built-ins declare theirs; static core list for non-registry mechanisms
+- [ ] client: census diff + one-shot warning (Phase 2's client half)
+- [ ] client: `delegatedEvents` — live listener set in setup, teardown and late registration
+- [ ] client: semver commitment for the registry contract (README § Attribute handlers): optional members may be added in a minor; removing/renaming a member, adding a required one, or changing a callback's arguments is a major; deprecations warn for one minor before removal
+- [ ] lvt e2e: extend #344's suite for queue registration on SSR'd markup, the census warning, and `delegatedEvents`
+- [ ] release core → client (`release.sh`)
+- [ ] docs: authoring guide (tiers, load-order rules incl. the queue, categories, sweep-and-rearm and its three failure modes, namespace guidance, SRI + trust note for tier 2) promoted from § Writing your own attribute
+- [ ] docs: runnable example in `../docs/examples/` with all three shapes (`lvt-x:copy`, `lvt-x:rating` + Controller action, sweep-and-rearm)
+- [ ] tinkerdown: app-declared attribute list (or written defer)
 
 **Acceptance criteria**
-- **Simplify:** `/simplify` over the diff.
-- **Unit:** each of the three worked examples, copied verbatim from § Writing your own attribute, compiles against the built `.d.ts` and passes a jsdom test — not against internal source paths. If an example doesn't compile, the interface is wrong, not the example.
-- **Integration:** the docs example builds and runs against the published client (GOWORK=off in worktrees).
-- **E2E:** chromedp against the docs example — a tier-3 handler registered from an inline `<script>` after the client tag takes effect on the *current* render (proving late-registration catch-up), and again on the next render. Plus: a custom element emitting `my-widget-change` reaches a server action via `lvt-on:my-widget-change` once its handler declares `delegatedEvents`. Plus the `lvt-x:rating` round trip: click dispatches, the Controller action runs, the re-render lands. Capture console + server stderr + WS frames.
+- **Simplify:** `/simplify` over each PR's diff.
+- **Unit (client):** queue pushed before core loads → registered at evaluation; push after → registered immediately. Declarative handler registered pre-connect fires `onElementAdded` on SSR'd markup with no render. Unregistered-claims test: drop a built-in from the registry and its names start warning. Go-shaped payload `meta.attributes: ["lvt-el:addClass"]` produces zero warnings (case fold); `lvt-on:my-thing` claimed by prefix. `teardownForWrapper` removes `delegatedEvents` listeners. Existing suite passes unedited.
+- **Unit (docs):** the three worked examples, verbatim, compile against the built `.d.ts` and pass a jsdom test.
+- **Integration:** client `npm test`; docs example builds and runs against the published client (`GOWORK=off`).
+- **E2E (lvt, local bundle, `-count=1`):** an inline queue push before the deferred client tag takes effect on SSR'd markup and on the next render; a template with mixed-case `lvt-el:` and every core namespace logs **zero** census warnings; an unknown `lvt-x:nope` logs exactly one; a custom element emitting `my-widget-change` reaches a server action via `lvt-on:my-widget-change` once a handler declares `delegatedEvents`. Capture console, server stderr, WS frames, rendered HTML.
+- **E2E (docs, chromedp):** the `lvt-x:rating` round trip — click dispatches, the Controller action runs, the re-render lands.
 
 **Learn** — as above. **Also expand Phase 6's outline into full detail if M3 is still wanted.**
 
