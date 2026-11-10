@@ -61,5 +61,6 @@ jobs:
           # — none of which is answerable from a diff alone. Reaching for a tool that
           # is not listed is a denial, and a denial ends the run as a failure, so the
           # omission cost whole reviews rather than degrading them.
+          show_full_output: true
           claude_args: '--allowed-tools "Read,Grep,Glob,Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"'
 
