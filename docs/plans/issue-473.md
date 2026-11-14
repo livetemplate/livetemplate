@@ -798,7 +798,7 @@ The cost of (b) is real and unchanged (prereview has no JS toolchain). What chan
 
 ### State
 
-Done: Phase 1 (client #159, lvt #344, merged 2026-08-31); Phase 2's livetemplate half (#532, v0.25.0). Next: **Phase 3**, which now also owns Phase 2's client half (the census warning).
+Done: Phase 1 (client #159, lvt #344, merged 2026-08-31); Phase 2's livetemplate half (#532, v0.25.0); Phase 3 client + lvt e2e (in review: client #163, lvt #346 draft, lvt #345 generator fix). Next: Phase 3 release → docs → tinkerdown.
 
 ### Progress tracker
 
@@ -956,17 +956,17 @@ Applies to every phase; defined once here rather than repeated per block. Precon
 - [x] Probe: the three § Writing your own attribute examples compile under `tsc --strict` against the emitted `.d.ts` (with `ctx.send!` and an `e.target` cast). Stale text (`always`, "category required for low-level", Example 1's load order) fixed in this commit.
 
 **Implementation**
-- [ ] client: queue drain + `push` replacement (`window.lvtAttributes`)
-- [ ] client: connect-time declarative pass; `runOnConnect` on `LowLevelHandler`; migrate `url-hash` + `initializeFileInputs` onto it
-- [ ] client: `claims` on `LowLevelHandler`; built-ins declare theirs; static core list for non-registry mechanisms
-- [ ] client: census diff + one-shot warning (Phase 2's client half)
-- [ ] client: `delegatedEvents` — live listener set in setup, teardown and late registration
-- [ ] client: semver commitment for the registry contract (README § Attribute handlers): optional members may be added in a minor; removing/renaming a member, adding a required one, or changing a callback's arguments is a major; deprecations warn for one minor before removal
-- [ ] lvt e2e: extend #344's suite for queue registration on SSR'd markup, the census warning, and `delegatedEvents`
+- [x] client: queue drain + `push` replacement (`window.lvtAttributes`)
+- [x] client: connect-time declarative pass; `runOnConnect` on `LowLevelHandler`; migrate `url-hash` + `initializeFileInputs` onto it. **Drift:** the pass runs inside `attachRegistryRoot`, and `RegistryRoot` gained optional `handlers()` so the client's instance-bound `lvt-upload` handler is covered by the same call rather than a second one in `connect()`.
+- [x] client: `claims` on `LowLevelHandler`; static `CORE_CLAIMS` (`attribute-census.ts`) for non-registry mechanisms. **Drift:** built-ins claim their `name` by default (in `registerBuiltinHandlers`, not the public rule); three opt out with `claims: []`.
+- [x] client: census diff + one-shot warning (Phase 2's client half)
+- [x] client: `delegatedEvents` — live listener set in setup, teardown and late registration; live clients re-run delegation only when the set grows
+- [x] client: semver commitment (client README § Attribute handlers)
+- [x] lvt e2e: `TestE2E_AttributeLifecycle` (new file, real livetemplate server — #344's fixture has no WS endpoint, so it cannot carry `meta.attributes`). **Drift, three lvt changes this required:** livetemplate pin v0.19.0 → v0.25.0 (first version with `meta.attributes`); `LVT_LOCAL_CLIENT_JS` honoured by `e2etest.GetClientLibraryJS` so the *whole* browser suite runs an unreleased client (a first version in `ServeClientLibrary` only reached a minority of tests — most load via `GetClientLibraryJS`); and, as a **separate lvt PR** so it can merge before the release, an unrelated pre-existing break — `GenerateAuth` fetched `chromedp@latest`, which now has a generic `Action` that `lvt/testing` cannot compile against, so every newly generated auth app failed to build (`TestGeneratedAppFullFlow` red on lvt main). Review then showed dropping it needed `GenerateAuth` to run `go mod tidy` itself — the integration test had been tidying for it, hiding that a real `lvt gen auth` left chromedp and go-mail out of the module graph.
 - [ ] release core → client (`release.sh`)
 - [ ] docs: authoring guide (tiers, load-order rules incl. the queue, categories, sweep-and-rearm and its three failure modes, namespace guidance, SRI + trust note for tier 2) promoted from § Writing your own attribute
 - [ ] docs: runnable example in `../docs/examples/` with all three shapes (`lvt-x:copy`, `lvt-x:rating` + Controller action, sweep-and-rearm)
-- [ ] tinkerdown: app-declared attribute list (or written defer)
+- [ ] tinkerdown: app-declared attribute list (or written defer); **and** claim tinkerdown's own `lvt-*` attributes in its client bundle before upgrading the client, or every page warns
 
 **Acceptance criteria**
 - **Simplify:** `/simplify` over each PR's diff.
@@ -976,7 +976,13 @@ Applies to every phase; defined once here rather than repeated per block. Precon
 - **E2E (lvt, local bundle, `-count=1`):** an inline queue push before the deferred client tag takes effect on SSR'd markup and on the next render; a template with mixed-case `lvt-el:` and every core namespace logs **zero** census warnings; an unknown `lvt-x:nope` logs exactly one; a custom element emitting `my-widget-change` reaches a server action via `lvt-on:my-widget-change` once a handler declares `delegatedEvents`. Capture console, server stderr, WS frames, rendered HTML.
 - **E2E (docs, chromedp):** the `lvt-x:rating` round trip — click dispatches, the Controller action runs, the re-render lands.
 
-**Learn** — as above. **Also expand Phase 6's outline into full detail if M3 is still wanted.**
+**Learn** *(client + lvt e2e PRs)*
+- **The census found real dead attributes on its first run:** `lvt-click`, `lvt-change`, `lvt-data-*` survive in an lvt golden and docs pages. The warning is doing its job; expect it in downstream apps on upgrade.
+- **`CORE_CLAIMS` had silently missed the lifecycle hooks** (`lvt-mounted`/`lvt-updated`/`lvt-destroyed`), which would have been reported as doing nothing. A test now scans the client source for every `lvt-*` literal and selector and fails unless each is claimed or listed as a non-attribute; it found these on its first run. `lvt-change`/`lvt-input` stay unclaimed on purpose — removed in v0.8.13, though the auto-wirer still skips them.
+- **tinkerdown will warn on every page** for its own `lvt-source`/`lvt-chart`/… attributes once it ships this client, unless its upgrade PR claims them (a claims-only low-level handler from its bundle). Folded into the tinkerdown item.
+- The server already collapses `lvt-fx:<effect>:on:<event>` to `lvt-fx:<effect>`, so effect handlers' exact claims cover the trigger syntax — no prefix claim on `lvt-fx:`, which would have hidden invented effects.
+
+**Learn (later sub-PRs)** — as above. **Also expand Phase 6's outline into full detail if M3 is still wanted.**
 
 ---
 
