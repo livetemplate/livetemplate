@@ -798,7 +798,7 @@ The cost of (b) is real and unchanged (prereview has no JS toolchain). What chan
 
 ### State
 
-Done: Phase 1 (client #159, lvt #344); Phase 2's livetemplate half (#532, v0.25.0); Phase 3 client + lvt e2e (in review: client #163, lvt #346 draft, lvt #345 generator fix). Next: Phase 3 release → docs → tinkerdown.
+Done: Phase 1 (client #159, lvt #344, merged 2026-08-31); Phase 2's livetemplate half (#532, v0.25.0); Phase 3 client + lvt e2e (in review: client #163, lvt #346 draft, lvt #345 generator fix). Next: Phase 3 release → docs → tinkerdown.
 
 ### Progress tracker
 
