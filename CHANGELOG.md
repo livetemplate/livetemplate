@@ -5,6 +5,21 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **`ClientScriptURL`, `ClientStyleURL` and their template funcs now serve `@livetemplate/client`
+  0.25.3, up from 0.20.0.** The pin had stayed at 0.20.0 through v0.21.0 to
+  v0.25.0, so apps that load the client through these helpers never got the
+  client releases in between. This bump brings them all, including livetemplate#473's
+  attribute handlers: registration from inline scripts (`window.lvtAttributes`),
+  handlers armed at connect, `delegatedEvents`, and a console warning for
+  `lvt-*` attributes nothing handles. Expect that warning to surface dead
+  attributes in existing templates, such as `lvt-click` or `lvt-change`. See the
+  [client CHANGELOG](https://github.com/livetemplate/client/blob/main/CHANGELOG.md)
+  for v0.21.0 through v0.25.3.
+
 ## [v0.25.0] - 2026-08-15
 
 ### Changes
