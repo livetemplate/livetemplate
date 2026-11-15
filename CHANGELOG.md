@@ -5,6 +5,19 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`ClientScriptURL` and `ClientStyleURL` now serve `@livetemplate/client`
+  0.25.6, up from 0.25.5.** That client release adds `ctx.signal` to a
+  declarative attribute handler's context, an `AbortSignal` that aborts when
+  the element disarms. Before it, a listener added in `onElementAdded`
+  outlived the attribute: the element kept reacting after the server removed
+  it, and re-adding the attribute stacked a second listener. Pass the signal to
+  the listener: `addEventListener(type, fn, { signal: ctx.signal })`
+  (livetemplate/client#166).
+
 ## [v0.25.3] - 2026-11-15
 
 ### Changed
