@@ -40,7 +40,7 @@ An empty value (`lvt-x:copy=""`) counts as no attribute. The client logs a warni
 
 ## Load order: always use the queue
 
-The script pushes onto `window.lvtAttributes` instead of calling the client directly. That is on purpose. An inline `<script>` ignores `defer`, so it runs before the deferred client has loaded, and there is no `LiveTemplateClient` global to call yet. The queue works in any order. When the client loads it registers whatever was queued, then replaces `push` so later pushes register immediately.
+The script pushes onto `window.lvtAttributes` instead of calling the client directly. That is on purpose. An inline `<script>` ignores `defer`, so it runs before the deferred client has loaded, and there is no `LiveTemplateClient` global to call yet. The queue works in any order. The script can sit in `<head>` or anywhere in `<body>`; inside `<body>` it also survives a host page that inlines only the app's body, as the docs site's live embeds do. When the client loads it registers whatever was queued, then replaces `push` so later pushes register immediately.
 
 Code that runs after the client, such as a deferred bundle or an ES module import, can call `LiveTemplateClient.registerAttribute(handler)` instead. The queue still works there too, so there is little reason to switch.
 
@@ -95,11 +95,14 @@ Keyboard shortcuts are the first case. One `keydown` listener serves every eleme
 
 ```js
 (() => {
-  let keys = new Map();
+  const keysByRoot = new Map();
   const onKey = (e) => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.target.closest?.("input, textarea, select, [contenteditable]")) return;
-    keys.get(e.key)?.click();
+    for (const keys of keysByRoot.values()) {
+      const el = keys.get(e.key);
+      if (el) return el.click();
+    }
   };
   (window.lvtAttributes ||= []).push({
     name: "lvt-x:hotkey",
@@ -107,11 +110,15 @@ Keyboard shortcuts are the first case. One `keydown` listener serves every eleme
     claims: ["lvt-x:hotkey"],
     runOnConnect: true,
     setup({ wrapperRoot }) {
-      keys = new Map();
+      const keys = new Map();
       for (const el of wrapperRoot.querySelectorAll("[lvt-x\\:hotkey]")) {
         keys.set(el.getAttribute("lvt-x:hotkey"), el);
       }
+      keysByRoot.set(wrapperRoot, keys);
       document.addEventListener("keydown", onKey);
+    },
+    teardown(root) {
+      keysByRoot.delete(root);
     },
     dispose() {
       document.removeEventListener("keydown", onKey);
@@ -120,7 +127,7 @@ Keyboard shortcuts are the first case. One `keydown` listener serves every eleme
 })();
 ```
 
-`setup()` runs after every render, and `runOnConnect: true` adds one run when the page connects. Everything the declarative form did for you is now yours: the escaped selector, the scan, and the guarantees below. `name` is required here, since a selector list cannot identify the handler in a warning. `claims` tells the census which attribute names the handler owns.
+`setup()` runs after every render, and `runOnConnect: true` adds one run when the page connects. Handlers are shared by every client on the page, and `setup()` runs for each one, so state that belongs to a client is keyed by its `wrapperRoot`. A single map would let one client's render wipe another's keys. `teardown(root)` drops a client's entry when it goes, and `dispose()` removes the document listener once the last client has. Everything the declarative form did for you is now yours: the escaped selector, the scan, and the guarantees below. `name` is required here, since a selector list cannot identify the handler in a warning. `claims` tells the census which attribute names the handler owns.
 
 ### Three mistakes, and why the declarative form cannot make them
 
@@ -130,7 +137,7 @@ Keyboard shortcuts are the first case. One `keydown` listener serves every eleme
 | Setup that is not idempotent | `setup()` runs after every render, so a plain `addEventListener` adds one more listener each time | `onElementAdded` fires once per arming |
 | A `send` captured once | after a reconnect, actions go to a dead connection | `ctx.send` resolves the live connection when read |
 
-The hotkey handler avoids all three. It rebuilds its map on every run, so a key whose attribute the server removed simply drops out. That rebuild is the sweep. It adds the same `onKey` function each time, and the DOM ignores an identical listener added twice, so nothing stacks. And it calls `el.click()` instead of sending an action itself, so it never holds a connection at all. A handler that does send should read `send` from each `setup()` call, never from the first.
+The hotkey handler avoids all three. It rebuilds its client's map on every run, so a key whose attribute the server removed simply drops out. That rebuild is the sweep. It adds the same `onKey` function each time, and the DOM ignores an identical listener added twice, so nothing stacks. And it calls `el.click()` instead of sending an action itself, so it never holds a connection at all. A handler that does send should read `send` from each `setup()` call, never from the first.
 
 ## Choosing a category
 
