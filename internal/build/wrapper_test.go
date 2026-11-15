@@ -758,11 +758,11 @@ func TestInjectWrapperDiv_PropertyDecoys(t *testing.T) {
 	}
 }
 
-// TestLocateBodyAndFirstScript_OffsetCoverage proves the offset accounting in
-// locateBodyAndFirstScript is exact: every byte of input is consumed by
+// TestLocateBodyAndTrailingScripts_OffsetCoverage proves the offset accounting in
+// locateBodyAndTrailingScripts is exact: every byte of input is consumed by
 // exactly one token's Raw(). If this ever drifts, every byte offset returned
 // by the helper is wrong.
-func TestLocateBodyAndFirstScript_OffsetCoverage(t *testing.T) {
+func TestLocateBodyAndTrailingScripts_OffsetCoverage(t *testing.T) {
 	inputs := []string{
 		`<!DOCTYPE html><html><head><title>X</title></head><body><div>Hello</div></body></html>`,
 		`<html><body><div>{{.X}}</div><script>console.log("ok")</script></body></html>`,
@@ -790,12 +790,12 @@ func TestLocateBodyAndFirstScript_OffsetCoverage(t *testing.T) {
 	}
 }
 
-// TestLocateBodyAndFirstScript_NestedBody_BehaviorPin pins the strings.LastIndex
+// TestLocateBodyAndTrailingScripts_NestedBody_BehaviorPin pins the strings.LastIndex
 // semantics for </body> in malformed nested-body input, preserving backward
 // compatibility with the previous string-based implementation.
-func TestLocateBodyAndFirstScript_NestedBody_BehaviorPin(t *testing.T) {
+func TestLocateBodyAndTrailingScripts_NestedBody_BehaviorPin(t *testing.T) {
 	input := `<html><body><body>Content</body></body></html>`
-	bodyOpen, _, bodyClose, _ := locateBodyAndFirstScript(input)
+	bodyOpen, _, bodyClose, _ := locateBodyAndTrailingScripts(input)
 
 	if want := strings.Index(input, "<body>"); bodyOpen != want {
 		t.Errorf("bodyOpen = %d, want %d (first <body> wins)", bodyOpen, want)
@@ -805,16 +805,16 @@ func TestLocateBodyAndFirstScript_NestedBody_BehaviorPin(t *testing.T) {
 	}
 }
 
-// TestLocateBodyAndFirstScript_NoscriptDecoyPin pins that html.Tokenizer
+// TestLocateBodyAndTrailingScripts_NoscriptDecoyPin pins that html.Tokenizer
 // treats <noscript> content as RAWTEXT in its default scripting-enabled mode,
 // so a literal "<body>" inside <noscript> is text and the real <body> outside
 // is the first start tag returned. If Go ever changes this default (e.g.,
 // gains a scripting-disabled mode that becomes the default), this pin breaks
 // loudly and the property-decoy list in this file must be updated.
-func TestLocateBodyAndFirstScript_NoscriptDecoyPin(t *testing.T) {
+func TestLocateBodyAndTrailingScripts_NoscriptDecoyPin(t *testing.T) {
 	input := `<head><noscript><body></noscript></head><body>real</body>`
 
-	bodyOpenStart, _, _, _ := locateBodyAndFirstScript(input)
+	bodyOpenStart, _, _, _ := locateBodyAndTrailingScripts(input)
 
 	// The real <body> is the SECOND "<body>" textually in input — the first
 	// is inside <noscript> RAWTEXT and must not match.
@@ -825,13 +825,13 @@ func TestLocateBodyAndFirstScript_NoscriptDecoyPin(t *testing.T) {
 	}
 }
 
-// TestLocateBodyAndFirstScript_TemplateDirectiveInAttrValue_Safe pins the
+// TestLocateBodyAndTrailingScripts_TemplateDirectiveInAttrValue_Safe pins the
 // safe template-directive case: a {{...}} inside a quoted attribute value
 // is opaque to html.Tokenizer, and the body open tag is located correctly.
-func TestLocateBodyAndFirstScript_TemplateDirectiveInAttrValue_Safe(t *testing.T) {
+func TestLocateBodyAndTrailingScripts_TemplateDirectiveInAttrValue_Safe(t *testing.T) {
 	input := `<html><head></head><body class="{{.Theme}}"><div>x</div></body></html>`
 
-	bodyOpenStart, bodyOpenEnd, bodyCloseStart, _ := locateBodyAndFirstScript(input)
+	bodyOpenStart, bodyOpenEnd, bodyCloseStart, _ := locateBodyAndTrailingScripts(input)
 
 	if got, want := bodyOpenStart, strings.Index(input, "<body"); got != want {
 		t.Errorf("bodyOpenStart = %d, want %d", got, want)
@@ -845,15 +845,15 @@ func TestLocateBodyAndFirstScript_TemplateDirectiveInAttrValue_Safe(t *testing.T
 	}
 }
 
-// TestLocateBodyAndFirstScript_TemplateDirectiveInBodyTag_LimitationPin pins
+// TestLocateBodyAndTrailingScripts_TemplateDirectiveInBodyTag_LimitationPin pins
 // today's behavior on a pathological template directive that emits attribute-
 // like text in the body open tag itself. Behavior matches the previous
 // string-based implementation; a robust fix would require Go-template-aware
 // preprocessing, intentionally out of scope here.
-func TestLocateBodyAndFirstScript_TemplateDirectiveInBodyTag_LimitationPin(t *testing.T) {
+func TestLocateBodyAndTrailingScripts_TemplateDirectiveInBodyTag_LimitationPin(t *testing.T) {
 	input := `<html><body {{if .Dark}}class="dark"{{end}}><div>x</div></body></html>`
 
-	bodyOpenStart, bodyOpenEnd, _, _ := locateBodyAndFirstScript(input)
+	bodyOpenStart, bodyOpenEnd, _, _ := locateBodyAndTrailingScripts(input)
 
 	if got, want := bodyOpenStart, strings.Index(input, "<body"); got != want {
 		t.Errorf("bodyOpenStart drift: got %d, want %d", got, want)
@@ -868,15 +868,15 @@ func TestLocateBodyAndFirstScript_TemplateDirectiveInBodyTag_LimitationPin(t *te
 	}
 }
 
-// TestLocateBodyAndFirstScript_GoTemplateComment_LimitationPin pins the
+// TestLocateBodyAndTrailingScripts_GoTemplateComment_LimitationPin pins the
 // documented residual limitation: html.Tokenizer is unaware of Go template
 // comments {{/* ... */}}, so a literal "<body>" inside one still matches as
 // a tag. Fixing this would require Go-template-syntax stripping before
 // tokenization, intentionally out of scope here.
-func TestLocateBodyAndFirstScript_GoTemplateComment_LimitationPin(t *testing.T) {
+func TestLocateBodyAndTrailingScripts_GoTemplateComment_LimitationPin(t *testing.T) {
 	input := `<html><head>{{/* <body> */}}</head><body>real</body></html>`
 
-	bodyOpen, _, _, _ := locateBodyAndFirstScript(input)
+	bodyOpen, _, _, _ := locateBodyAndTrailingScripts(input)
 
 	// Tokenizer sees the inner literal "<body>" as a start tag — this PINS
 	// the known limitation. If a future change adds Go-template-comment
@@ -885,5 +885,72 @@ func TestLocateBodyAndFirstScript_GoTemplateComment_LimitationPin(t *testing.T) 
 	if bodyOpen != want {
 		t.Errorf("limitation drift: bodyOpen = %d, want %d (first textual <body>, including inside {{/* */}})",
 			bodyOpen, want)
+	}
+}
+
+// TestInjectWrapperDiv_OnlyTrailingScriptsLeaveWrapper pins which body scripts
+// go after the wrapper: only the trailing run; a script with content after it
+// stays inside, in place.
+func TestInjectWrapperDiv_OnlyTrailingScriptsLeaveWrapper(t *testing.T) {
+	cases := []struct {
+		name           string
+		body           string
+		insideWrapper  []string
+		outsideWrapper []string
+	}{
+		{
+			name:          "leading script",
+			body:          `<script>var a = 1;</script><main>Content</main>`,
+			insideWrapper: []string{`<script>var a = 1;</script>`, `<main>Content</main>`},
+		},
+		{
+			name:          "script between blocks",
+			body:          `<p>One</p><script>var b = 2;</script><p>Two</p>`,
+			insideWrapper: []string{`<p>One</p>`, `<script>var b = 2;</script>`, `<p>Two</p>`},
+		},
+		{
+			name:           "interleaved and trailing",
+			body:           `<script>var c = 3;</script><p>Body</p>` + "\n" + `<script src="client.js" defer></script>`,
+			insideWrapper:  []string{`<script>var c = 3;</script>`, `<p>Body</p>`},
+			outsideWrapper: []string{`<script src="client.js"`},
+		},
+		{
+			name:           "script nested in an element is content",
+			body:           `<div><script>var d = 4;</script></div><script src="client.js"></script>`,
+			insideWrapper:  []string{`<div><script>var d = 4;</script></div>`},
+			outsideWrapper: []string{`<script src="client.js"></script>`},
+		},
+	}
+	for _, tc := range cases {
+		// A {{ }} directive in the input routes InjectWrapperDiv to its
+		// string-based path; without one it parses the document.
+		for name, prefix := range map[string]string{"parsed": "", "string-based": `<p>{{.X}}</p>`} {
+			t.Run(tc.name+"/"+name, func(t *testing.T) {
+				out := InjectWrapperDiv(`<html><head></head><body>`+prefix+tc.body+`</body></html>`, "lvt-test", true)
+				doc, err := html.Parse(strings.NewReader(out))
+				if err != nil {
+					t.Fatalf("parse output: %v", err)
+				}
+				wrapper := FindElementByDataLvtID(doc, "lvt-test")
+				if wrapper == nil {
+					t.Fatalf("no wrapper in output:\n%s", out)
+				}
+				wrapped := ExtractTemplateContent(out, "lvt-test")
+				var after strings.Builder
+				for c := wrapper.NextSibling; c != nil; c = c.NextSibling {
+					_ = html.Render(&after, c)
+				}
+				for _, want := range tc.insideWrapper {
+					if !strings.Contains(wrapped, want) {
+						t.Errorf("want %q inside the wrapper\nwrapper: %s\nfull: %s", want, wrapped, out)
+					}
+				}
+				for _, want := range tc.outsideWrapper {
+					if strings.Contains(wrapped, want) || !strings.Contains(after.String(), want) {
+						t.Errorf("want %q after the wrapper\nfull: %s", want, out)
+					}
+				}
+			})
+		}
 	}
 }

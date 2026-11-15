@@ -5,6 +5,19 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A `<script>` early in `<body>` no longer pushes the page out of the
+  wrapper.** The wrapper excluded body scripts by splitting at the first one,
+  so everything after a leading or mid-body `<script>` was server-rendered
+  outside the `data-lvt-id` wrapper. The first client render then filled the
+  wrapper with a second copy of the page, and the stale server-rendered copy
+  stayed visible after it. Now only the trailing run of top-level scripts (the
+  client bundle at the end of `<body>`, typically) goes after the wrapper; a
+  script with content after it stays in place.
+
 ## [v0.25.4] - 2026-11-15
 
 ### Fixed
