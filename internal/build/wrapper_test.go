@@ -897,6 +897,7 @@ func TestInjectWrapperDiv_OnlyTrailingScriptsLeaveWrapper(t *testing.T) {
 		body           string
 		insideWrapper  []string
 		outsideWrapper []string
+		noScriptInside bool
 	}{
 		{
 			name:          "leading script",
@@ -913,6 +914,24 @@ func TestInjectWrapperDiv_OnlyTrailingScriptsLeaveWrapper(t *testing.T) {
 			body:           `<script>var c = 3;</script><p>Body</p>` + "\n" + `<script src="client.js" defer></script>`,
 			insideWrapper:  []string{`<script>var c = 3;</script>`, `<p>Body</p>`},
 			outsideWrapper: []string{`<script src="client.js"`},
+		},
+		{
+			name:          "no scripts",
+			body:          `<main>Content</main>`,
+			insideWrapper: []string{`<main>Content</main>`},
+		},
+		{
+			name:           "comment between trailing scripts",
+			body:           `<p>Body</p><script src="a.js"></script><!-- b --><script src="b.js"></script>`,
+			insideWrapper:  []string{`<p>Body</p>`},
+			outsideWrapper: []string{`<script src="a.js"`, `<script src="b.js"`},
+		},
+		{
+			name:           "self-closing script opens a script",
+			body:           `<p>Body</p><script/></script><script src="b.js"></script>`,
+			insideWrapper:  []string{`<p>Body</p>`},
+			outsideWrapper: []string{`<script src="b.js"`},
+			noScriptInside: true,
 		},
 		{
 			name:           "script nested in an element is content",
@@ -944,6 +963,9 @@ func TestInjectWrapperDiv_OnlyTrailingScriptsLeaveWrapper(t *testing.T) {
 					if !strings.Contains(wrapped, want) {
 						t.Errorf("want %q inside the wrapper\nwrapper: %s\nfull: %s", want, wrapped, out)
 					}
+				}
+				if tc.noScriptInside && strings.Contains(wrapped, "<script") {
+					t.Errorf("want no script inside the wrapper\nwrapper: %s", wrapped)
 				}
 				for _, want := range tc.outsideWrapper {
 					if strings.Contains(wrapped, want) || !strings.Contains(after.String(), want) {

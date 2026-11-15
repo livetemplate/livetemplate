@@ -148,7 +148,8 @@ func FindBodyNode(n *html.Node) *html.Node {
 // previous string-based implementation on malformed nested-body input. All
 // offsets are -1 when not found. Tolerant of {{...}} in text/attribute-value
 // positions. Any other tag (including the end tag of an element a script is
-// nested in) or non-whitespace text resets the run.
+// nested in) or non-whitespace text resets the run. A {{...}} directive
+// between scripts counts as text, so the scripts before it stay inside.
 func locateBodyAndTrailingScripts(htmlDoc string) (int, int, int, int) {
 	bodyOpenStart, bodyOpenEnd, bodyCloseStart, trailingStart := -1, -1, -1, -1
 	inScript := false
@@ -170,7 +171,9 @@ func locateBodyAndTrailingScripts(htmlDoc string) (int, int, int, int) {
 					bodyOpenStart = offset
 					bodyOpenEnd = offset + len(raw)
 				}
-			case string(name) == "script" && tt == html.StartTagToken:
+			case string(name) == "script":
+				// HTML ignores the slash on <script/>: it opens a script
+				// element like <script> does.
 				inScript = true
 				if inBody && trailingStart < 0 {
 					trailingStart = offset
