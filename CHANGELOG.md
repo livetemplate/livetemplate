@@ -5,6 +5,18 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **`ClientScriptURL` and `ClientStyleURL` now serve `@livetemplate/client`
+  0.25.5, up from 0.25.4.** That client release changes how
+  `lvt-fx:region-select` handles a box drawn over an HTML preview's empty
+  space: when the box touches no content block, the smallest enclosing wrapper
+  block answers instead of the selection doing nothing. Preview bridges opt in
+  by marking wrapper blocks `wrap: true`. Blocks without the flag behave as
+  before (livetemplate/client#165).
+
 ## [v0.25.2] - 2026-11-15
 
 ### Fixed
