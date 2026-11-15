@@ -798,7 +798,7 @@ The cost of (b) is real and unchanged (prereview has no JS toolchain). What chan
 
 ### State
 
-Done: Phase 1 (client #159, lvt #344, merged 2026-08-31); Phase 2's livetemplate half (#532, v0.25.0); Phase 3 client + lvt e2e (in review: client #163, lvt #346 draft, lvt #345 generator fix). Next: Phase 3 release → docs → tinkerdown.
+Done: Phase 1 (client #159, lvt #344, merged 2026-08-31); Phase 2's livetemplate half (#532, v0.25.0); Phase 3 client + lvt e2e (client #163, lvt #345 + #346, merged 2026-11-14), released as client v0.25.3 + livetemplate v0.25.1. Next: Phase 3 docs (site release on v0.25.1, then the authoring guide + example) → tinkerdown.
 
 ### Progress tracker
 
@@ -892,7 +892,7 @@ Applies to every phase; defined once here rather than repeated per block. Precon
 - [x] Cache on the `Template` beside `t.wiredActions`; copy into `mountCfg` beside `mountCfg.Capabilities = detectCapabilities(…)`. **Plus, not in the plan: the `Clone()` field copy** — production renders through per-session clones, so a master-only field is invisible in the real path.
 - [x] `Attributes []string` on `ResponseMetadata` (`omitempty`)
 - [x] Set it at **both** initial-render sites in `mount.go`
-- [ ] Client: diff `meta.attributes` against the registry beside the existing `response.meta?.capabilities` handling; `console.warn` once per unhandled attribute, naming the likely cause — **blocked on Phase 1: there is no registry to diff against yet.**
+- [x] Client: diff `meta.attributes` against the registry beside the existing `response.meta?.capabilities` handling; `console.warn` once per unhandled attribute, naming the likely cause — done in Phase 3 (client #163).
 - [x] Generalize the bracket-expansion regex + tests for custom prefixes
 - [x] Document both census limitations where the warning is documented — `docs/references/client-attributes.md` § Attribute Census
 
@@ -963,7 +963,7 @@ Applies to every phase; defined once here rather than repeated per block. Precon
 - [x] client: `delegatedEvents` — live listener set in setup, teardown and late registration; live clients re-run delegation only when the set grows
 - [x] client: semver commitment (client README § Attribute handlers)
 - [x] lvt e2e: `TestE2E_AttributeLifecycle` (new file, real livetemplate server — #344's fixture has no WS endpoint, so it cannot carry `meta.attributes`). **Drift, three lvt changes this required:** livetemplate pin v0.19.0 → v0.25.0 (first version with `meta.attributes`); `LVT_LOCAL_CLIENT_JS` honoured by `e2etest.GetClientLibraryJS` so the *whole* browser suite runs an unreleased client (a first version in `ServeClientLibrary` only reached a minority of tests — most load via `GetClientLibraryJS`); and, as a **separate lvt PR** so it can merge before the release, an unrelated pre-existing break — `GenerateAuth` fetched `chromedp@latest`, which now has a generic `Action` that `lvt/testing` cannot compile against, so every newly generated auth app failed to build (`TestGeneratedAppFullFlow` red on lvt main). Review then showed dropping it needed `GenerateAuth` to run `go mod tidy` itself — the integration test had been tidying for it, hiding that a real `lvt gen auth` left chromedp and go-mail out of the module graph.
-- [ ] release core → client (`release.sh`)
+- [x] release core → client (`release.sh`). **Drift: the order flipped to client → core**, as client v0.25.3 then livetemplate v0.25.1. Core's release guard refused to run because `ClientVersion` was still 0.20.0. It had been overridden through v0.21.0 to v0.25.0, so `ClientScriptURL` apps got no client release after 0.20.0. A client patch is allowed against core 0.25, and core v0.25.1 then pins it. That takes one round, where core minor first would need three releases and leave the pin trailing in between. lvt now requires v0.25.1.
 - [ ] docs: authoring guide (tiers, load-order rules incl. the queue, categories, sweep-and-rearm and its three failure modes, namespace guidance, SRI + trust note for tier 2) promoted from § Writing your own attribute
 - [ ] docs: runnable example in `../docs/examples/` with all three shapes (`lvt-x:copy`, `lvt-x:rating` + Controller action, sweep-and-rearm)
 - [ ] tinkerdown: app-declared attribute list (or written defer); **and** claim tinkerdown's own `lvt-*` attributes in its client bundle before upgrading the client, or every page warns
@@ -981,6 +981,7 @@ Applies to every phase; defined once here rather than repeated per block. Precon
 - **`CORE_CLAIMS` had silently missed the lifecycle hooks** (`lvt-mounted`/`lvt-updated`/`lvt-destroyed`), which would have been reported as doing nothing. A test now scans the client source for every `lvt-*` literal and selector and fails unless each is claimed or listed as a non-attribute; it found these on its first run. `lvt-change`/`lvt-input` stay unclaimed on purpose — removed in v0.8.13, though the auto-wirer still skips them.
 - **tinkerdown will warn on every page** for its own `lvt-source`/`lvt-chart`/… attributes once it ships this client, unless its upgrade PR claims them (a claims-only low-level handler from its bundle). Folded into the tinkerdown item.
 - The server already collapses `lvt-fx:<effect>:on:<event>` to `lvt-fx:<effect>`, so effect handlers' exact claims cover the trigger syntax — no prefix claim on `lvt-fx:`, which would have hidden invented effects.
+- **Check `ClientVersion` before every core release.** The pin guard had been overridden from v0.21.0 to v0.25.0, so the client the docs described was not the one `ClientScriptURL` served. The docs site's own examples pin livetemplate v0.22.0, which serves client 0.20.0, so the site needs its own bump before it shows Phase 3.
 
 **Learn (later sub-PRs)** — as above. **Also expand Phase 6's outline into full detail if M3 is still wanted.**
 
