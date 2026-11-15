@@ -798,7 +798,7 @@ The cost of (b) is real and unchanged (prereview has no JS toolchain). What chan
 
 ### State
 
-Done: Phase 1 (client #159, lvt #344, merged 2026-08-31); Phase 2's livetemplate half (#532, v0.25.0); Phase 3 client + lvt e2e (client #163, lvt #345 + #346, merged 2026-11-14), released as client v0.25.3 + livetemplate v0.25.1. Next: Phase 3 docs (site release on v0.25.1, then the authoring guide + example) → tinkerdown.
+Done: Phase 1 (client #159, lvt #344, merged 2026-08-31); Phase 2's livetemplate half (#532, v0.25.0); Phase 3 client + lvt e2e (client #163, lvt #345 + #346, merged 2026-11-14), released as client v0.25.3 + livetemplate v0.25.1, then client v0.25.4 + livetemplate v0.25.2 (a #164 tree fix); docs site on livetemplate v0.25.2 (docs #148, released as docs v0.6.0, 2026-11-15). Next: lvt release on livetemplate v0.25.2 → Phase 3 authoring guide + example → tinkerdown.
 
 ### Progress tracker
 
@@ -981,7 +981,7 @@ Applies to every phase; defined once here rather than repeated per block. Precon
 - **`CORE_CLAIMS` had silently missed the lifecycle hooks** (`lvt-mounted`/`lvt-updated`/`lvt-destroyed`), which would have been reported as doing nothing. A test now scans the client source for every `lvt-*` literal and selector and fails unless each is claimed or listed as a non-attribute; it found these on its first run. `lvt-change`/`lvt-input` stay unclaimed on purpose — removed in v0.8.13, though the auto-wirer still skips them.
 - **tinkerdown will warn on every page** for its own `lvt-source`/`lvt-chart`/… attributes once it ships this client, unless its upgrade PR claims them (a claims-only low-level handler from its bundle). Folded into the tinkerdown item.
 - The server already collapses `lvt-fx:<effect>:on:<event>` to `lvt-fx:<effect>`, so effect handlers' exact claims cover the trigger syntax — no prefix claim on `lvt-fx:`, which would have hidden invented effects.
-- **Check `ClientVersion` before every core release.** The pin guard had been overridden from v0.21.0 to v0.25.0, so the client the docs described was not the one `ClientScriptURL` served. The docs site's own examples pin livetemplate v0.22.0, which serves client 0.20.0, so the site needs its own bump before it shows Phase 3.
+- **Check `ClientVersion` before every core release.** The pin guard had been overridden from v0.21.0 to v0.25.0, so the client the docs described was not the one `ClientScriptURL` served. The docs site's own examples pinned livetemplate v0.22.0, which served client 0.20.0, so the site needed its own bump (docs #148) before it showed Phase 3.
 
 **Learn (later sub-PRs)** — as above. **Also expand Phase 6's outline into full detail if M3 is still wanted.**
 
