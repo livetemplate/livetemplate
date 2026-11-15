@@ -981,8 +981,7 @@ Applies to every phase; defined once here rather than repeated per block. Precon
 - **`CORE_CLAIMS` had silently missed the lifecycle hooks** (`lvt-mounted`/`lvt-updated`/`lvt-destroyed`), which would have been reported as doing nothing. A test now scans the client source for every `lvt-*` literal and selector and fails unless each is claimed or listed as a non-attribute; it found these on its first run. `lvt-change`/`lvt-input` stay unclaimed on purpose — removed in v0.8.13, though the auto-wirer still skips them.
 - **tinkerdown will warn on every page** for its own `lvt-source`/`lvt-chart`/… attributes once it ships this client, unless its upgrade PR claims them (a claims-only low-level handler from its bundle). Folded into the tinkerdown item.
 - The server already collapses `lvt-fx:<effect>:on:<event>` to `lvt-fx:<effect>`, so effect handlers' exact claims cover the trigger syntax — no prefix claim on `lvt-fx:`, which would have hidden invented effects.
-
-- **Check `ClientVersion` before every core release.** The pin guard had been overridden through five releases, so the client the docs described was not the one `ClientScriptURL` served. The docs site's own examples pin livetemplate v0.22.0, which serves client 0.20.0, so the site needs its own bump before it shows Phase 3.
+- **Check `ClientVersion` before every core release.** The pin guard had been overridden from v0.21.0 to v0.25.0, so the client the docs described was not the one `ClientScriptURL` served. The docs site's own examples pin livetemplate v0.22.0, which serves client 0.20.0, so the site needs its own bump before it shows Phase 3.
 
 **Learn (later sub-PRs)** — as above. **Also expand Phase 6's outline into full detail if M3 is still wanted.**
 
