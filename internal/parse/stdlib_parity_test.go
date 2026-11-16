@@ -881,9 +881,10 @@ func TestStdlibParity_RangeItemsMixWith(t *testing.T) {
 		{"with, no else", `{{range .Items}}<li>{{with .D}}<i>{{.}}</i>{{end}}<b>{{.S}}</b></li>{{end}}`},
 		{"with + else", `{{range .Items}}<li>{{with .D}}<i>{{.}}</i>{{else}}<u>none</u>{{end}}<b>{{.S}}</b></li>{{end}}`},
 		{"if then with", `{{range .Items}}<li>{{if .S}}<em>{{.S}}</em>{{end}}{{with .D}}<i>{{.}}</i>{{end}}<b>{{.S}}</b></li>{{end}}`},
+		{"with inside with", `{{range .Items}}<li>{{with .S}}<s>{{with $.Flag}}<i>{{.}}</i>{{end}}</s>{{end}}{{with .D}}<i>{{.}}</i>{{end}}<b>{{.S}}</b></li>{{end}}`},
 	}
 	// Empty first, then set: the first item fixes the shared statics.
-	data := map[string]interface{}{"Items": []Item{{S: "a"}, {D: "x", S: "b"}, {S: "c"}}}
+	data := map[string]interface{}{"Flag": "on", "Items": []Item{{S: "a"}, {D: "x", S: "b"}, {S: "c"}}}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			want := stdlibRender(t, tt.tmpl, data, nil)

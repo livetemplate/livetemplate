@@ -261,3 +261,34 @@ func TestSoleNestedChild(t *testing.T) {
 		t.Error("a node whose dynamics are all strings must yield none")
 	}
 }
+
+// TestWalkList_WithWrappedKeyedItem: a {{with}} body is one WrapperConditional slot,
+// like an {{if}} branch, so a keyed item inside it must still be keyed by its
+// data-key, at one level (with) and two (if → with), not fall back to a content hash.
+func TestWalkList_WithWrappedKeyedItem(t *testing.T) {
+	type file struct{ Name, Path string }
+	type item struct {
+		F    *file
+		Show bool
+	}
+	data := struct{ Items []item }{Items: []item{{F: &file{Name: "a.go", Path: "/a.go"}, Show: true}}}
+	for _, src := range []string{
+		`{{range .Items}}{{with .F}}<li data-key="{{.Path}}">{{.Name}}</li>{{end}}{{end}}`,
+		`{{range .Items}}{{if .Show}}{{with .F}}<li data-key="{{.Path}}">{{.Name}}</li>{{end}}{{end}}{{end}}`,
+	} {
+		tmpl, err := Parse(src, nil)
+		if err != nil {
+			t.Fatalf("parse %s: %v", src, err)
+		}
+		tree, err := BuildTree(tmpl, data, build.NewContext())
+		if err != nil {
+			t.Fatalf("build %s: %v", src, err)
+		}
+		if tree.Range == nil || len(tree.Range.Items) != 1 {
+			t.Fatalf("%s: expected a one-item range, got %#v", src, tree.Range)
+		}
+		if item, _ := tree.Range.Items[0].(*TreeNode); item == nil || item.AutoKey != "/a.go" {
+			t.Errorf("%s: the item must be keyed by its data-key through the with, got %#v", src, tree.Range.Items[0])
+		}
+	}
+}
