@@ -32,11 +32,11 @@ That is the whole handler. You name the attribute, and the client finds the elem
 
 Two members of `ctx` carry most of the weight.
 
-**`ctx.value` is read when you touch it.** The listener is attached once and fires later, possibly many renders later, and `{{.ShareURL}}` can change in between. `ctx.value` re-reads the attribute, so the click copies the current link. A destructured `const { value } = ctx` would freeze the link as it was when the button was wired.
+**`ctx.value` is read when you touch it.** The handler attaches the listener once and it fires later, possibly many renders later, and `{{.ShareURL}}` can change in between. `ctx.value` re-reads the attribute, so the click copies the current link. A destructured `const { value } = ctx` would freeze the link as it was when the button was wired.
 
 **`ctx.signal` undoes the wiring.** It aborts when the element stops being armed: the server removes the attribute or renders it empty, the element leaves the page, or the client shuts down. Pass it to every listener `onElementAdded` adds. Leave it out and two things go wrong. The button keeps copying after the server took the attribute away. And if the attribute comes back, `onElementAdded` runs again and the button gets a second listener.
 
-An empty value (`lvt-x:copy=""`) counts as no attribute. The client logs a warning and skips the element. The value is the handler's configuration, so an empty one is treated as a template bug.
+An empty value (`lvt-x:copy=""`) counts as no attribute. The client logs a warning and skips the element. The value is the handler's configuration, so the client treats an empty one as a template bug.
 
 ## Load order: always use the queue
 
@@ -127,7 +127,7 @@ Keyboard shortcuts are the first case. One `keydown` listener serves every eleme
 })();
 ```
 
-`setup()` runs after every render, and `runOnConnect: true` adds one run when the page connects. Handlers are shared by every client on the page, and `setup()` runs for each one, so state that belongs to a client is keyed by its `wrapperRoot`. A single map would let one client's render wipe another's keys. `teardown(root)` drops a client's entry when it goes, and `dispose()` removes the document listener once the last client has. Everything the declarative form did for you is now yours: the escaped selector, the scan, and the guarantees below. `name` is required here, since a selector list cannot identify the handler in a warning. `claims` tells the census which attribute names the handler owns.
+`setup()` runs after every render, and `runOnConnect: true` adds one run when the page connects. Handlers are shared by every client on the page, and `setup()` runs for each one, so key any state that belongs to a client by its `wrapperRoot`. A single map would let one client's render wipe another's keys. `teardown(root)` drops a client's entry when it goes, and `dispose()` removes the document listener once the last client has. Everything the declarative form did for you is now yours: the escaped selector, the scan, and the guarantees below. `name` is required here, since a selector list cannot identify the handler in a warning. `claims` tells the census which attribute names the handler owns.
 
 ### Three mistakes, and why the declarative form cannot make them
 
@@ -148,7 +148,7 @@ A handler's category decides when it runs.
 | `fire-on-change` | every render | the handler reacts to a value changing on an element that already exists |
 | `wire-idempotent` | only when a render added nodes or gave an element an `lvt-*` attribute it lacked | the handler attaches listeners, and an unchanged page has nothing new to attach |
 
-A declarative handler rarely sets this. It is derived from the callbacks you supply. Supply `onElement`, which runs on every render for every matching element, and you get `fire-on-change`. Supply only `onElementAdded` and `onElementRemoved`, and you get `wire-idempotent`. An explicit `category` always wins. Removals ignore the category: the client checks for disarmed elements on every render regardless.
+A declarative handler rarely sets this. The client derives it from the callbacks you supply. Supply `onElement`, which runs on every render for every matching element, and you get `fire-on-change`. Supply only `onElementAdded` and `onElementRemoved`, and you get `wire-idempotent`. An explicit `category` always wins. Removals ignore the category: the client checks for disarmed elements on every render regardless.
 
 `onElement` sees the same `ctx` and the same `signal` on every render, so read in it and wire nothing. A listener added in `onElement` stacks.
 
@@ -183,7 +183,7 @@ Everything so far is a handler that lives in one app's template. To publish one,
   crossorigin="anonymous"></script>
 ```
 
-A handler runs with the page's full privileges. It reads the DOM, it can send any action, and it sees whatever the user types. So a third-party handler is trusted exactly as much as any other script on the page. Pin the version, check the hash, and keep authorizing every action on the server.
+A handler runs with the page's full privileges. It reads the DOM, it can send any action, and it sees whatever the user types. So trust a third-party handler exactly as much as any other script on the page. Pin the version, check the hash, and keep authorizing every action on the server.
 
 ## Testing a handler
 
@@ -209,7 +209,7 @@ expect(sent).toHaveLength(1);
 
 Type the stub as `Partial<ElementContext>` and cast it. The client may add members to its context types in any release, and a full stub would stop compiling.
 
-A low-level handler is called the same way the client calls it: `setup({ scanRoot, wrapperRoot, send })`. Anything that depends on the real browser, such as the clipboard, pointer capture or key events, belongs in a browser test. The recipe's test drives all three handlers through a real Chrome.
+Call a low-level handler the same way the client does: `setup({ scanRoot, wrapperRoot, send })`. Anything that depends on the real browser, such as the clipboard, pointer capture or key events, belongs in a browser test. The recipe's test drives all three handlers through a real Chrome.
 
 ## Stability
 
