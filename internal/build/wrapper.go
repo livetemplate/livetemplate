@@ -1,6 +1,7 @@
 package build
 
 import (
+	"bytes"
 	cryptorand "crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -24,7 +25,10 @@ func GenerateRandomID() string {
 }
 
 // InjectWrapperDiv injects a wrapper div around body content with the specified ID.
-// Excludes <script> tags from the wrapper to prevent them from being part of the dynamic content.
+// The trailing run of top-level <script> tags stays after the wrapper, so the
+// client bundle a page loads at the end of <body> is not dynamic content. A
+// script with content after it is content itself and stays inside, in place:
+// moving it out would also move everything after it out of the wrapper.
 // Uses proper HTML parsing to handle all script tag variants and malformed HTML gracefully.
 func InjectWrapperDiv(htmlDoc string, wrapperID string, loadingDisabled bool) string {
 	// If input contains Go template directives, use string-based approach to avoid mangling them
@@ -47,14 +51,26 @@ func InjectWrapperDiv(htmlDoc string, wrapperID string, loadingDisabled bool) st
 		return htmlDoc
 	}
 
-	// Separate script tags from other content
-	var contentNodes, scriptNodes []*html.Node
-	for child := bodyNode.FirstChild; child != nil; child = child.NextSibling {
-		if child.Type == html.ElementNode && child.Data == "script" {
-			scriptNodes = append(scriptNodes, child)
-		} else {
-			contentNodes = append(contentNodes, child)
+	// Walk back from the last child to find where the trailing script run starts.
+	var trailing *html.Node
+	for c := bodyNode.LastChild; c != nil; c = c.PrevSibling {
+		isScript := c.Type == html.ElementNode && c.Data == "script"
+		if !isScript && !isIgnorableTrailingNode(c) {
+			break
 		}
+		if isScript {
+			trailing = c
+		}
+	}
+	var contentNodes, scriptNodes []*html.Node
+	for c := bodyNode.FirstChild; c != nil; c = c.NextSibling {
+		if c == trailing {
+			for ; c != nil; c = c.NextSibling {
+				scriptNodes = append(scriptNodes, c)
+			}
+			break
+		}
+		contentNodes = append(contentNodes, c)
 	}
 
 	// Remove all children from body
@@ -99,6 +115,18 @@ func InjectWrapperDiv(htmlDoc string, wrapperID string, loadingDisabled bool) st
 	return buf.String()
 }
 
+// isIgnorableTrailingNode reports whether n can sit among the trailing scripts
+// without making them content: whitespace and comments.
+func isIgnorableTrailingNode(n *html.Node) bool {
+	switch n.Type {
+	case html.CommentNode:
+		return true
+	case html.TextNode:
+		return strings.TrimSpace(n.Data) == ""
+	}
+	return false
+}
+
 // FindBodyNode recursively finds the body element in an HTML document tree.
 func FindBodyNode(n *html.Node) *html.Node {
 	if n.Type == html.ElementNode && n.Data == "body" {
@@ -112,14 +140,19 @@ func FindBodyNode(n *html.Node) *html.Node {
 	return nil
 }
 
-// locateBodyAndFirstScript walks htmlDoc once with html.Tokenizer, returning
-// byte offsets for the body open start, body open end, body close start, and
-// first <script> inside body content. body close uses LastIndex semantics to
-// match the previous string-based implementation on malformed nested-body
-// input. All offsets are -1 when not found. Tolerant of {{...}} in
-// text/attribute-value positions.
-func locateBodyAndFirstScript(htmlDoc string) (int, int, int, int) {
-	bodyOpenStart, bodyOpenEnd, bodyCloseStart, firstScriptStart := -1, -1, -1, -1
+// locateBodyAndTrailingScripts walks htmlDoc once with html.Tokenizer,
+// returning byte offsets for the body open start, body open end, body close
+// start, and the start of the trailing run of <script> elements inside body
+// content: scripts followed by nothing but whitespace, comments and more
+// scripts up to </body>. body close uses LastIndex semantics to match the
+// previous string-based implementation on malformed nested-body input. All
+// offsets are -1 when not found. Tolerant of {{...}} in text/attribute-value
+// positions. Any other tag (including the end tag of an element a script is
+// nested in) or non-whitespace text resets the run. A {{...}} directive
+// between scripts counts as text, so the scripts before it stay inside.
+func locateBodyAndTrailingScripts(htmlDoc string) (int, int, int, int) {
+	bodyOpenStart, bodyOpenEnd, bodyCloseStart, trailingStart := -1, -1, -1, -1
+	inScript := false
 	z := html.NewTokenizer(strings.NewReader(htmlDoc))
 	offset := 0
 	for {
@@ -128,33 +161,46 @@ func locateBodyAndFirstScript(htmlDoc string) (int, int, int, int) {
 			break
 		}
 		raw := z.Raw()
+		inBody := bodyOpenEnd >= 0 && bodyCloseStart < 0
 		switch tt {
-		case html.StartTagToken:
+		case html.StartTagToken, html.SelfClosingTagToken:
 			name, _ := z.TagName()
-			switch string(name) {
-			case "body":
+			switch {
+			case string(name) == "body":
 				if bodyOpenStart < 0 {
 					bodyOpenStart = offset
 					bodyOpenEnd = offset + len(raw)
 				}
-			case "script":
-				if firstScriptStart < 0 && bodyOpenEnd >= 0 {
-					firstScriptStart = offset
+			case string(name) == "script":
+				// HTML ignores the slash on <script/>: it opens a script
+				// element like <script> does.
+				inScript = true
+				if inBody && trailingStart < 0 {
+					trailingStart = offset
 				}
+			default:
+				trailingStart = -1
 			}
 		case html.EndTagToken:
 			name, _ := z.TagName()
-			if string(name) == "body" {
+			switch string(name) {
+			case "body":
 				bodyCloseStart = offset
+			case "script":
+				inScript = false
+			default:
+				if inBody {
+					trailingStart = -1
+				}
+			}
+		case html.TextToken:
+			if !inScript && len(bytes.TrimSpace(raw)) != 0 {
+				trailingStart = -1
 			}
 		}
 		offset += len(raw)
 	}
-	// Drop a tracked script that ended up after </body> in malformed input.
-	if firstScriptStart >= 0 && bodyCloseStart >= 0 && firstScriptStart >= bodyCloseStart {
-		firstScriptStart = -1
-	}
-	return bodyOpenStart, bodyOpenEnd, bodyCloseStart, firstScriptStart
+	return bodyOpenStart, bodyOpenEnd, bodyCloseStart, trailingStart
 }
 
 // injectWrapperDivStringBased is the string-based implementation used when
@@ -163,7 +209,7 @@ func locateBodyAndFirstScript(htmlDoc string) (int, int, int, int) {
 // detection so that '<body' / '<script' substrings inside head content
 // don't fool it.
 func injectWrapperDivStringBased(htmlDoc string, wrapperID string, loadingDisabled bool) string {
-	bodyOpenStart, bodyOpenEnd, bodyCloseStart, scriptStart := locateBodyAndFirstScript(htmlDoc)
+	bodyOpenStart, bodyOpenEnd, bodyCloseStart, scriptStart := locateBodyAndTrailingScripts(htmlDoc)
 	if bodyOpenStart < 0 || bodyCloseStart < 0 || bodyOpenEnd > bodyCloseStart {
 		return htmlDoc
 	}
@@ -190,7 +236,7 @@ func injectWrapperDivStringBased(htmlDoc string, wrapperID string, loadingDisabl
 
 // ExtractTemplateBodyContent extracts only the body content from a full HTML
 // template. Handles body tags with or without attributes (e.g., <body>,
-// <body class="dark">). Uses html.Tokenizer (see locateBodyAndFirstScript)
+// <body class="dark">). Uses html.Tokenizer (see locateBodyAndTrailingScripts)
 // to avoid being fooled by '<body' substrings in head content.
 //
 // This is purely a slice between the body tags and knows nothing about what
@@ -218,7 +264,7 @@ func ExtractTemplateBodyContent(templateStr string) string {
 // or rescanning for "{{define" is how this function ended up encoding
 // FlattenTemplate's output layout in the first place (issue #496).
 func ExtractTemplateBodyContentSliced(templateStr string) (body string, sliced bool) {
-	bodyOpenStart, bodyOpenEnd, bodyCloseStart, _ := locateBodyAndFirstScript(templateStr)
+	bodyOpenStart, bodyOpenEnd, bodyCloseStart, _ := locateBodyAndTrailingScripts(templateStr)
 	if bodyOpenStart < 0 {
 		return templateStr, false
 	}
