@@ -16,16 +16,22 @@ func handleIf(node *parse.IfNode, eval *evaluator, data interface{}, varCtx *var
 		}
 	}
 
-	branch := selectBranch(node, isTrue(val))
+	return walkBranch(selectBranch(node, isTrue(val)), eval, data, varCtx, ctx)
+}
+
+// walkBranch renders the chosen branch of an {{if}} or {{with}} as ONE wrapped slot,
+// or an empty wrapper when there is no branch to take. Every outcome has the same
+// shape, which is what lets range items that took different branches share one
+// statics array.
+func walkBranch(branch *parse.ListNode, eval *evaluator, data interface{}, varCtx *varContext, ctx *Context) (*TreeNode, error) {
 	if branch == nil {
 		return createEmptyConditionalWrapper(ctx), nil
 	}
-
-	branchTree, err := walkAST(branch, eval, data, varCtx, ctx)
+	tree, err := walkAST(branch, eval, data, varCtx, ctx)
 	if err != nil {
 		return nil, err
 	}
-	return createWrapper(branchTree, ctx, WrapperConditional), nil
+	return createWrapper(tree, ctx, WrapperConditional), nil
 }
 
 // selectBranch chooses which branch of an if/else to execute.

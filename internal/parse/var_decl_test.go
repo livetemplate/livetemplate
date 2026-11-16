@@ -170,33 +170,8 @@ func TestVarDeclaration_WithWith(t *testing.T) {
 	tmplStr := `{{$c := .}}{{with $c.Inner}}<div class="{{$c.Style}}">{{.Value}}</div>{{end}}`
 	data := Data{Style: "bold", Inner: &Inner{Value: "content"}}
 
-	tmpl, err := Parse(tmplStr, nil)
-	if err != nil {
-		t.Fatalf("Parse error: %v", err)
-	}
-
-	ctx := build.NewContext()
-	tree, err := BuildTree(tmpl, data, ctx)
-	if err != nil {
-		t.Fatalf("BuildTree error: %v", err)
-	}
-
-	// With blocks don't wrap -- their content merges into the parent tree.
-	// $c.Style and .Value should appear as direct dynamics.
-	d0, ok := tree.GetDynamic(0)
-	if !ok {
-		t.Fatal("missing dynamic 0 (style)")
-	}
-	if d0 != "bold" {
-		t.Errorf("dynamic 0 (style) = %v, want bold", d0)
-	}
-
-	d1, ok := tree.GetDynamic(1)
-	if !ok {
-		t.Fatal("missing dynamic 1 (value)")
-	}
-	if d1 != "content" {
-		t.Errorf("dynamic 1 (value) = %v, want content", d1)
+	if got, want := lvtRender(t, tmplStr, data, nil), `<div class="bold">content</div>`; got != want {
+		t.Errorf("rendered %q, want %q", got, want)
 	}
 }
 

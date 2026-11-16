@@ -122,23 +122,8 @@ func TestVarEval_RootVariable(t *testing.T) {
 		"Item":  map[string]interface{}{"Name": "child"},
 	}
 
-	tmpl, err := Parse(tmplStr, nil)
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
-	}
-
-	ctx := build.NewContext()
-	tree, err := BuildTree(tmpl, data, ctx)
-	if err != nil {
-		t.Fatalf("BuildTree failed: %v", err)
-	}
-
-	d0, ok := tree.GetDynamic(0)
-	if !ok {
-		t.Fatal("missing dynamic 0")
-	}
-	if d0 != "rootValue" {
-		t.Errorf("dynamic 0 = %v, want rootValue", d0)
+	if got, want := lvtRender(t, tmplStr, data, nil), "rootValue"; got != want {
+		t.Errorf("rendered %q, want %q", got, want)
 	}
 }
 
@@ -151,31 +136,8 @@ func TestVarEval_MixedRootAndVars(t *testing.T) {
 		"Item":  map[string]interface{}{"Name": "child"},
 	}
 
-	tmpl, err := Parse(tmplStr, nil)
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
-	}
-
-	ctx := build.NewContext()
-	tree, err := BuildTree(tmpl, data, ctx)
-	if err != nil {
-		t.Fatalf("BuildTree failed: %v", err)
-	}
-
-	d0, ok := tree.GetDynamic(0)
-	if !ok {
-		t.Fatal("missing dynamic 0 ($x)")
-	}
-	if d0 != "42" {
-		t.Errorf("dynamic 0 = %v, want 42", d0)
-	}
-
-	d1, ok := tree.GetDynamic(1)
-	if !ok {
-		t.Fatal("missing dynamic 1 ($.Title)")
-	}
-	if d1 != "Root Title" {
-		t.Errorf("dynamic 1 = %v, want Root Title", d1)
+	if got, want := lvtRender(t, tmplStr, data, nil), "42 Root Title"; got != want {
+		t.Errorf("rendered %q, want %q", got, want)
 	}
 }
 
@@ -189,31 +151,8 @@ func TestVarEval_DotContextMerging(t *testing.T) {
 			"Item":       map[string]interface{}{"Type": "button"},
 		}
 
-		tmpl, err := Parse(tmplStr, nil)
-		if err != nil {
-			t.Fatalf("Parse failed: %v", err)
-		}
-
-		ctx := build.NewContext()
-		tree, err := BuildTree(tmpl, data, ctx)
-		if err != nil {
-			t.Fatalf("BuildTree failed: %v", err)
-		}
-
-		d0, ok := tree.GetDynamic(0)
-		if !ok {
-			t.Fatal("missing dynamic 0 ($c)")
-		}
-		if d0 != "ctrl" {
-			t.Errorf("dynamic 0 ($c) = %v, want ctrl", d0)
-		}
-
-		d1, ok := tree.GetDynamic(1)
-		if !ok {
-			t.Fatal("missing dynamic 1 (.Type)")
-		}
-		if d1 != "button" {
-			t.Errorf("dynamic 1 (.Type) = %v, want button", d1)
+		if got, want := lvtRender(t, tmplStr, data, nil), "ctrl button"; got != want {
+			t.Errorf("rendered %q, want %q", got, want)
 		}
 	})
 
@@ -229,23 +168,8 @@ func TestVarEval_DotContextMerging(t *testing.T) {
 		tmplStr := `{{$c := .Controller}}{{with .Item}}{{$c}} {{.Type}}{{end}}`
 		data := Data{Controller: "ctrl", Item: &Inner{Type: "input"}}
 
-		tmpl, err := Parse(tmplStr, nil)
-		if err != nil {
-			t.Fatalf("Parse failed: %v", err)
-		}
-
-		ctx := build.NewContext()
-		tree, err := BuildTree(tmpl, data, ctx)
-		if err != nil {
-			t.Fatalf("BuildTree failed: %v", err)
-		}
-
-		d1, ok := tree.GetDynamic(1)
-		if !ok {
-			t.Fatal("missing dynamic 1 (.Type)")
-		}
-		if d1 != "input" {
-			t.Errorf("dynamic 1 (.Type) = %v, want input", d1)
+		if got, want := lvtRender(t, tmplStr, data, nil), "ctrl input"; got != want {
+			t.Errorf("rendered %q, want %q", got, want)
 		}
 	})
 }
@@ -307,31 +231,8 @@ func TestVarEval_DotContextAccess(t *testing.T) {
 		"Item":  map[string]interface{}{"Type": "button"},
 	}
 
-	tmpl, err := Parse(tmplStr, nil)
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
-	}
-
-	ctx := build.NewContext()
-	tree, err := BuildTree(tmpl, data, ctx)
-	if err != nil {
-		t.Fatalf("BuildTree failed: %v", err)
-	}
-
-	d0, ok := tree.GetDynamic(0)
-	if !ok {
-		t.Fatal("missing dynamic 0 ($cls)")
-	}
-	if d0 != "primary" {
-		t.Errorf("dynamic 0 ($cls) = %v, want primary", d0)
-	}
-
-	d1, ok := tree.GetDynamic(1)
-	if !ok {
-		t.Fatal("missing dynamic 1 (.Type)")
-	}
-	if d1 != "button" {
-		t.Errorf("dynamic 1 (.Type) = %v, want button", d1)
+	if got, want := lvtRender(t, tmplStr, data, nil), `<div class="primary">button</div>`; got != want {
+		t.Errorf("rendered %q, want %q", got, want)
 	}
 }
 
@@ -408,22 +309,7 @@ func TestVarEval_HandleAction_MixedVarAndDot(t *testing.T) {
 		"Item":  map[string]interface{}{"Type": "button"},
 	}
 
-	tmpl, err := Parse(tmplStr, nil)
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
-	}
-
-	ctx := build.NewContext()
-	tree, err := BuildTree(tmpl, data, ctx)
-	if err != nil {
-		t.Fatalf("BuildTree failed: %v", err)
-	}
-
-	d0, ok := tree.GetDynamic(0)
-	if !ok {
-		t.Fatal("missing dynamic 0")
-	}
-	if d0 != "primary button" {
-		t.Errorf("dynamic 0 = %v, want 'primary button'", d0)
+	if got, want := lvtRender(t, tmplStr, data, nil), "primary button"; got != want {
+		t.Errorf("rendered %q, want %q", got, want)
 	}
 }
