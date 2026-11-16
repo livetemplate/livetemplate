@@ -864,3 +864,40 @@ func TestStdlibParity_BareMethodArgs(t *testing.T) {
 		}
 	})
 }
+
+// TestStdlibParity_RangeItemsMixWith: range items share one statics array (the
+// client rebuilds every item from it), so each item must have the same slot shape
+// whatever its {{with}} evaluates to. A {{with}} that returned its body unwrapped when
+// set, and no slot at all when empty, gave items different shapes: rebuilt from the
+// first item's statics, a later item's values shifted one slot right and the with's
+// own markup vanished (prereview's Checks page: a judge's description rendered in
+// its summary cell). {{if}} always yields one wrapped slot; {{with}} must too.
+func TestStdlibParity_RangeItemsMixWith(t *testing.T) {
+	type Item struct{ D, S string }
+	tests := []struct {
+		name string
+		tmpl string
+	}{
+		{"with, no else", `{{range .Items}}<li>{{with .D}}<i>{{.}}</i>{{end}}<b>{{.S}}</b></li>{{end}}`},
+		{"with + else", `{{range .Items}}<li>{{with .D}}<i>{{.}}</i>{{else}}<u>none</u>{{end}}<b>{{.S}}</b></li>{{end}}`},
+		{"if then with", `{{range .Items}}<li>{{if .S}}<em>{{.S}}</em>{{end}}{{with .D}}<i>{{.}}</i>{{end}}<b>{{.S}}</b></li>{{end}}`},
+	}
+	// Empty first, then set: the first item fixes the shared statics.
+	data := map[string]interface{}{"Items": []Item{{S: "a"}, {D: "x", S: "b"}, {S: "c"}}}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			want := stdlibRender(t, tt.tmpl, data, nil)
+			tmpl, err := Parse(tt.tmpl, nil)
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			tree, err := BuildTree(tmpl, data, &Context{IncludeStatics: true})
+			if err != nil {
+				t.Fatalf("BuildTree: %v", err)
+			}
+			if got := renderRangeTreeToHTML(t, tree); got != want {
+				t.Errorf("range items rebuilt from shared statics differ from a full render:\n  stdlib: %q\n  lvt:    %q", want, got)
+			}
+		})
+	}
+}
