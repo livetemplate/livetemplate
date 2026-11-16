@@ -1,6 +1,6 @@
 # Custom attributes
 
-When the built-in `lvt-*` attributes don't cover what a page needs, write your own: a plain object in a `<script>` tag, using the interface the built-ins use. The server renders the attribute as ordinary HTML, and the client calls your handler for each element that carries it. The [custom attributes recipe](https://livetemplate.fly.dev/recipes/custom-attributes) runs every example on this page, with a browser test behind each. It needs livetemplate v0.25.5 or later: v0.25.4 brings client 0.25.6 and `ctx.signal`, and v0.25.5 keeps a handler script in `<body>` inside the app.
+When the built-in `lvt-*` attributes don't cover what a page needs, write your own: a plain object in a `<script>` tag, using the interface the built-ins use. The server renders the attribute as ordinary HTML, and the client calls your handler for each element that carries it. The [custom attributes recipe](https://livetemplate.fly.dev/recipes/custom-attributes) runs every example on this page, with a browser test behind each. It needs livetemplate v0.25.5 or later. v0.25.4 shipped client 0.25.6 with `ctx.signal`; v0.25.5 keeps a handler script in `<body>` inside the app.
 
 ## A first handler
 
@@ -62,7 +62,7 @@ func (c *Controller) SetRating(s State, ctx *livetemplate.Context) (State, error
 }
 ```
 
-The server receives the same message a `<button name="setRating">` sends, so authorize it the way you authorize any action.
+The server receives the same message a `<button name="SetRating">` sends, so authorize it the way you authorize any action.
 
 ## The low-level form
 
@@ -83,7 +83,7 @@ Keyboard shortcuts use one `keydown` listener for every element:
     if (e.target.closest?.("input, textarea, select, [contenteditable]")) return;
     for (const keys of keysByRoot.values()) {
       const el = keys.get(e.key);
-      if (el) return el.click(); // first client with the key wins; click instead of send, so no connection to hold
+      if (el) return el.click(); // first client with the key wins; click, don't send
     }
   };
   (window.lvtAttributes ||= []).push({
