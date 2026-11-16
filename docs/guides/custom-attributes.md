@@ -1,6 +1,6 @@
 # Custom attributes
 
-When the built-in `lvt-*` attributes don't cover what a page needs, write your own: a plain object in a `<script>` tag, using the interface the built-ins use. The server renders the attribute as ordinary HTML, and the client calls your handler for each element that carries it. The [custom attributes recipe](https://livetemplate.fly.dev/recipes/custom-attributes) runs every example on this page, with a browser test behind each. It needs livetemplate v0.25.5 or later, which serves client 0.25.6; on an older client `ctx.signal` is undefined and listeners are never removed.
+When the built-in `lvt-*` attributes don't cover what a page needs, write your own: a plain object in a `<script>` tag, using the interface the built-ins use. The server renders the attribute as ordinary HTML, and the client calls your handler for each element that carries it. The [custom attributes recipe](https://livetemplate.fly.dev/recipes/custom-attributes) runs every example on this page, with a browser test behind each. It needs livetemplate v0.25.5 or later: v0.25.4 brings client 0.25.6 and `ctx.signal`, and v0.25.5 keeps a handler script in `<body>` inside the app.
 
 ## A first handler
 
@@ -132,6 +132,7 @@ Push onto the queue and never bundle `@livetemplate/client`: a bundled copy has 
 ## Testing a handler
 
 ```ts
+import type { ElementContext } from "@livetemplate/client";
 // el: the rating <div> from your fixture; handler: the object you pushed.
 const sent: unknown[] = [];
 const controller = new AbortController();
