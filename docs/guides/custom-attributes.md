@@ -1,6 +1,6 @@
 # Custom attributes
 
-When the built-in `lvt-*` attributes don't cover what a page needs, write your own: a plain object in a `<script>` tag, using the interface the built-ins use. The server renders the attribute as ordinary HTML, and the client calls your handler for each element that carries it. The [custom attributes recipe](https://livetemplate.fly.dev/recipes/custom-attributes) runs every example on this page, with a browser test behind each.
+When the built-in `lvt-*` attributes don't cover what a page needs, write your own: a plain object in a `<script>` tag, using the interface the built-ins use. The server renders the attribute as ordinary HTML, and the client calls your handler for each element that carries it. The [custom attributes recipe](https://livetemplate.fly.dev/recipes/custom-attributes) runs every example on this page, with a browser test behind each. It needs livetemplate v0.25.5 or later, which serves client 0.25.6; on an older client `ctx.signal` is undefined and listeners are never removed.
 
 ## A first handler
 
@@ -83,7 +83,7 @@ Keyboard shortcuts use one `keydown` listener for every element:
     if (e.target.closest?.("input, textarea, select, [contenteditable]")) return;
     for (const keys of keysByRoot.values()) {
       const el = keys.get(e.key);
-      if (el) return el.click(); // click instead of send: no connection to hold
+      if (el) return el.click(); // first client with the key wins; click instead of send, so no connection to hold
     }
   };
   (window.lvtAttributes ||= []).push({
@@ -132,6 +132,7 @@ Push onto the queue and never bundle `@livetemplate/client`: a bundled copy has 
 ## Testing a handler
 
 ```ts
+// el: the rating <div> from your fixture; handler: the object you pushed.
 const sent: unknown[] = [];
 const controller = new AbortController();
 // Partial + cast: the client may add context members in any release.
