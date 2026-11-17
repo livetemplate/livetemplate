@@ -611,6 +611,8 @@ When disabled, POST requests from non-JS browsers return JSON instead of HTML. O
 
 Use `lvt-*` attributes only when standard HTML cannot express the behavior. For the complete attribute reference, see the [Client Attributes Reference](../references/client-attributes.md).
 
+When no built-in attribute fits, write your own: see [Custom attributes](custom-attributes.md).
+
 ### 13.1 Event Bindings Outside Forms
 
 For interactions outside the form submit lifecycle — hover effects, focus/blur tracking:

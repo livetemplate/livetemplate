@@ -4,6 +4,8 @@ Complete reference for LiveTemplate form handling and `lvt-*` HTML attributes.
 
 **For server-side Go API:** See [pkg.go.dev/github.com/livetemplate/livetemplate](https://pkg.go.dev/github.com/livetemplate/livetemplate)
 
+**To add an attribute of your own:** see [Custom attributes](../guides/custom-attributes.md).
+
 ## Table of Contents
 
 - [Standard HTML Form Routing](#standard-html-form-routing)
