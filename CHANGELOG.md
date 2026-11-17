@@ -5,6 +5,22 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **HTTP action requests get the same origin check as the WebSocket
+  handshake.** This covers any request that can dispatch an action, which is
+  every method but GET and HEAD. It gets a 403 when its `Origin` isn't the
+  page's own or on `WithAllowedOrigins`. A request with no `Origin` header
+  still passes, as on the WebSocket.
+- **One origin policy per template, resolved in `New`.** The WebSocket and
+  HTTP actions share it. Two combinations behave differently as a result:
+  `WithDevMode` now allows any origin even when `WithAllowedOrigins` is set,
+  and `WithPermissiveOriginCheck` now wins over a list instead of being
+  replaced by it. A check installed with `WithGorillaCheckOrigin` or
+  `SetCheckOrigin` is still used as is.
+
 ## [v0.25.7] - 2026-11-17
 
 ### Fixed

@@ -144,9 +144,11 @@ type treeNode = build.TreeNode
 type Config struct {
 	Upgrader               WSUpgrader
 	SessionStore           SessionStore
-	Authenticator          Authenticator      // User authentication and session grouping
-	PubSubBroadcaster      pubsub.Broadcaster // Optional: for distributed broadcasting across instances
-	AllowedOrigins         []string           // Allowed WebSocket origins (empty = allow all in dev, restrict in prod)
+	Authenticator          Authenticator            // User authentication and session grouping
+	PubSubBroadcaster      pubsub.Broadcaster       // Optional: for distributed broadcasting across instances
+	AllowedOrigins         []string                 // Allowed WebSocket origins (empty = allow all in dev, restrict in prod)
+	PermissiveOriginCheck  bool                     // WithPermissiveOriginCheck: any origin may connect or send actions
+	originCheck            func(*http.Request) bool // the resolved origin policy (New); the WebSocket and HTTP actions share it
 	WebSocketDisabled      bool
 	LoadingDisabled        bool                                // Disables automatic loading indicator on page load
 	TemplateFiles          []string                            // If set, overrides auto-discovery
@@ -413,8 +415,8 @@ func WithLoadingDisabled() Option {
 
 // WithDevMode enables development mode for local iteration.
 //
-// SECURITY: WithDevMode(true) allows WebSocket upgrade requests from ALL
-// origins, disabling the same-origin / allowlist CSRF check. Never enable it in
+// SECURITY: WithDevMode(true) allows WebSocket upgrades and HTTP actions from
+// ALL origins, disabling the same-origin / allowlist CSRF check. Never enable it in
 // production — use WithAllowedOrigins to specify trusted origins in production.
 // Because dev mode already relaxes the origin check, WithPermissiveOriginCheck is
 // redundant alongside it; you do not need both for local development.
@@ -514,7 +516,8 @@ func WithTrustForwardedHeaders(trust bool) Option {
 	}
 }
 
-// WithPermissiveOriginCheck disables origin checking for WebSocket connections.
+// WithPermissiveOriginCheck disables origin checking for WebSocket connections
+// and HTTP actions.
 //
 // WARNING: This allows connections from any origin and should ONLY be used in:
 //   - Local development environments
@@ -530,13 +533,7 @@ func WithTrustForwardedHeaders(trust bool) Option {
 // a public endpoint whose CSRF protection is handled externally.
 func WithPermissiveOriginCheck() Option {
 	return func(c *Config) {
-		if gu, ok := c.Upgrader.(*GorillaUpgrader); ok {
-			gu.SetCheckOrigin(func(r *http.Request) bool {
-				return true
-			})
-		} else {
-			slog.Warn("WithPermissiveOriginCheck has no effect on non-Gorilla WSUpgrader implementations")
-		}
+		c.PermissiveOriginCheck = true
 	}
 }
 
@@ -912,6 +909,22 @@ func Must(t *Template, err error) *Template {
 	return t
 }
 
+// resolveOriginCheck is a template's one origin policy, applied to the
+// WebSocket handshake and to HTTP actions alike: a check the app installed on
+// its Gorilla upgrader; any origin under WithPermissiveOriginCheck; else
+// createSecureOriginChecker (which also honors DevMode and AllowedOrigins).
+func resolveOriginCheck(config Config) func(*http.Request) bool {
+	if gu, ok := config.Upgrader.(*GorillaUpgrader); ok {
+		if fn := gu.appCheckOrigin(); fn != nil {
+			return fn
+		}
+	}
+	if config.PermissiveOriginCheck {
+		return func(*http.Request) bool { return true }
+	}
+	return createSecureOriginChecker(config.AllowedOrigins, config.DevMode, config.TrustForwardedHeaders)
+}
+
 // createSecureOriginChecker creates a CheckOrigin function that enforces origin restrictions.
 //
 // Security behavior:
@@ -1049,11 +1062,11 @@ func New(name string, opts ...Option) (*Template, error) {
 		return nil, fmt.Errorf("livetemplate: WithTopicACL and WithOpenTopics are mutually exclusive (set exactly one, or neither for deny-all)")
 	}
 
-	// Set secure CheckOrigin on the default gorilla upgrader (after options are applied)
-	if gu, ok := config.Upgrader.(*GorillaUpgrader); ok {
-		if gu.inner.CheckOrigin == nil {
-			gu.SetCheckOrigin(createSecureOriginChecker(config.AllowedOrigins, config.DevMode, config.TrustForwardedHeaders))
-		}
+	// Resolve the origin policy once, after options are applied. Handle installs
+	// it on its own copy of the upgrader and on the HTTP action path.
+	config.originCheck = resolveOriginCheck(config)
+	if gu, ok := config.Upgrader.(*GorillaUpgrader); ok && gu.appCheckOrigin() == nil {
+		gu.setManagedCheckOrigin(config.originCheck)
 	}
 
 	// Log DevMode configuration for debugging
@@ -1790,28 +1803,13 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 		opt(&config)
 	}
 
-	// Apply origin validation to a copy of the upgrader (avoid mutating shared state)
+	// Each handler gets its own copy of the upgrader carrying this template's
+	// origin policy, so templates sharing one upgrader don't share a policy.
 	upgrader := t.config.Upgrader
-	if len(t.config.AllowedOrigins) > 0 {
-		if gu, ok := upgrader.(*GorillaUpgrader); ok {
-			upgCopy := gu.Copy()
-			allowedOrigins := t.config.AllowedOrigins
-			upgCopy.SetCheckOrigin(func(r *http.Request) bool {
-				origin := r.Header.Get("Origin")
-				if origin == "" {
-					return true
-				}
-				for _, allowed := range allowedOrigins {
-					if origin == allowed {
-						return true
-					}
-				}
-				slog.Warn("WebSocket origin rejected",
-					slog.String("origin", origin))
-				return false
-			})
-			upgrader = upgCopy
-		}
+	if gu, ok := upgrader.(*GorillaUpgrader); ok {
+		upgCopy := gu.Copy()
+		upgCopy.setManagedCheckOrigin(t.config.originCheck)
+		upgrader = upgCopy
 	}
 
 	// Determine session store - use the template's configured store (WithSessionStore), else default
@@ -1828,7 +1826,7 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 		SessionStore:           sessionStore,
 		Authenticator:          t.config.Authenticator,
 		PubSubBroadcaster:      t.config.PubSubBroadcaster,
-		AllowedOrigins:         t.config.AllowedOrigins,
+		OriginCheck:            t.config.originCheck,
 		WebSocketDisabled:      t.config.WebSocketDisabled,
 		MaxConnections:         t.config.MaxConnections,
 		MaxConnectionsPerGroup: t.config.MaxConnectionsPerGroup,

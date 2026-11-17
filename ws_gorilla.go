@@ -11,6 +11,9 @@ import (
 // GorillaUpgrader wraps gorilla/websocket.Upgrader as a WSUpgrader.
 type GorillaUpgrader struct {
 	inner *websocket.Upgrader
+	// managed: inner.CheckOrigin is livetemplate's resolved origin policy, not one
+	// the app installed (WithGorillaCheckOrigin / SetCheckOrigin).
+	managed bool
 }
 
 // GorillaOption configures the gorilla WebSocket upgrader.
@@ -66,7 +69,7 @@ func WithGorillaCompression() GorillaOption {
 // SetCheckOrigin mutate copies, never the buffer size).
 func (g *GorillaUpgrader) Copy() *GorillaUpgrader {
 	innerCopy := *g.inner
-	return &GorillaUpgrader{inner: &innerCopy}
+	return &GorillaUpgrader{inner: &innerCopy, managed: g.managed}
 }
 
 // SetCompression enables or disables permessage-deflate compression.
@@ -83,9 +86,24 @@ func (g *GorillaUpgrader) Upgrade(w http.ResponseWriter, r *http.Request, respon
 	return &gorillaConn{conn: conn}, nil
 }
 
-// SetCheckOrigin sets the origin check function on the underlying gorilla upgrader.
+// SetCheckOrigin sets the origin check function on the underlying gorilla
+// upgrader. livetemplate then applies it to HTTP actions as well.
 func (g *GorillaUpgrader) SetCheckOrigin(fn func(*http.Request) bool) {
-	g.inner.CheckOrigin = fn
+	g.inner.CheckOrigin, g.managed = fn, false
+}
+
+// appCheckOrigin is the origin check the app installed on this upgrader, or nil
+// when it has none (or only livetemplate's own).
+func (g *GorillaUpgrader) appCheckOrigin() func(*http.Request) bool {
+	if g.managed {
+		return nil
+	}
+	return g.inner.CheckOrigin
+}
+
+// setManagedCheckOrigin installs livetemplate's resolved origin policy.
+func (g *GorillaUpgrader) setManagedCheckOrigin(fn func(*http.Request) bool) {
+	g.inner.CheckOrigin, g.managed = fn, true
 }
 
 // gorillaConn wraps gorilla's *websocket.Conn to implement WSConn.
