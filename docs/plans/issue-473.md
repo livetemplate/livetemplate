@@ -806,7 +806,7 @@ Done: Phase 1 (client #159, lvt #344, merged 2026-08-31); Phase 2's livetemplate
 |---|-------|-----------|---------------|--------|
 | 1 | Registry + core handler migration | M1 | client | ☑ done — client #159, lvt #344 |
 | 2 | Attribute census + diagnostics | M1 | livetemplate, client | ◐ **server half done** — client half moved into Phase 3 |
-| 3 | Public API surface + authoring docs | M1 | client, docs, tinkerdown | ☑ done — client #163/#166, lvt #345/#346/#350, livetemplate #540/#541, docs #151/#153/#155, tinkerdown #315 |
+| 3 | Public API surface + authoring docs | M1 | client, docs, tinkerdown | ☑ done — client #163/#166, lvt #345/#346/#350, livetemplate #540/#541, docs #151/#153/#154/#155, tinkerdown #315 |
 | 4 | Extraction — relocate prereview's handlers | M2 | client, prereview | ☐ not started |
 | 5 | Downstream lockstep release | M2 | livetemplate, prereview, tinkerdown | ☐ not started |
 | 6 | Per-element hooks | M3 | client, livetemplate | ☐ deferred — outline only |
