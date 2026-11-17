@@ -5,6 +5,17 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`ClientScriptURL` and `ClientStyleURL` now serve `@livetemplate/client`
+  0.25.8, up from 0.25.7.** Custom attribute handlers now arm on the
+  server-rendered markup before the WebSocket handshake. A click in that window
+  is queued and sent once the client has chosen WebSocket or HTTP. Before, the
+  page was clickable before any handler listened, so on a slow remote site an
+  early click did nothing.
+
 ## [v0.25.6] - 2026-11-16
 
 ### Fixed
