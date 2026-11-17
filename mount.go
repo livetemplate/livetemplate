@@ -178,7 +178,6 @@ type mountConfig struct {
 	SessionStore           SessionStore
 	Authenticator          Authenticator
 	PubSubBroadcaster      pubsub.Broadcaster // Optional: for distributed broadcasting across instances
-	AllowedOrigins         []string
 	WebSocketDisabled      bool
 	MaxConnections         int64                               // Maximum total connections (0 = unlimited)
 	MaxConnectionsPerGroup int64                               // Maximum connections per group (0 = unlimited)
@@ -190,6 +189,9 @@ type mountConfig struct {
 	Attributes             []string                            // lvt-* attribute names found in the template, for the client's unhandled-attribute warning (attribute_census.go)
 	TopicACL               TopicACLFunc                        // Topic-subscription ACL hook (nil unless WithTopicACL); deny-all default when nil and !OpenTopics
 	OpenTopics             bool                                // WithOpenTopics(): permit every topic Subscribe (mutually exclusive with TopicACL)
+	// OriginCheck is the same origin check the WebSocket handshake applies, run on
+	// every HTTP request that can dispatch an action (any method but GET/HEAD).
+	OriginCheck func(*http.Request) bool
 }
 
 // liveHandler handles both WebSocket and HTTP requests
@@ -1143,6 +1145,18 @@ func setCookieIfNew(w http.ResponseWriter, r *http.Request, groupID string, cook
 func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// Handle HEAD request for capability check
 	if r.Method == http.MethodHead {
+		return
+	}
+
+	// A state-changing request must pass the WebSocket's origin check, before
+	// any session or Mount work: otherwise a page on another origin could
+	// dispatch actions over plain HTTP that it can't over the socket.
+	if r.Method != http.MethodGet && h.config.OriginCheck != nil && !h.config.OriginCheck(r) {
+		slog.Warn("HTTP action origin rejected",
+			slog.String("component", "live_handler"),
+			slog.String("origin", r.Header.Get("Origin")),
+			slog.String("method", r.Method))
+		http.Error(w, "Forbidden: request origin not allowed", http.StatusForbidden)
 		return
 	}
 
