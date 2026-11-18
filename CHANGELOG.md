@@ -5,6 +5,17 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **An `lvt-on:*` click before the WebSocket opens is no longer lost.** The
+  embedded client is now 0.25.9 (client #169), which sets up the `lvt-on:*`
+  and `lvt-on:window:*` delegators before the handshake and queues what they
+  send until a transport is chosen. Until then a form submit is left to the
+  browser, so with the loading indicator off it still reaches the server as a
+  native POST.
+
 ## [v0.25.8] - 2026-11-17
 
 ### Security
