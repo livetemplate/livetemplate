@@ -1,6 +1,7 @@
 package parse
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/livetemplate/livetemplate/internal/keys"
@@ -13,65 +14,84 @@ type rangeItemWithStatics struct {
 
 // hasExplicitKeyAttribute checks if any key attribute is present in the statics.
 func hasExplicitKeyAttribute(statics []string) bool {
-	if len(statics) == 0 {
-		return false
-	}
-	keyAttrs := []string{
-		"id=\"",
-		"data-key=\"",
-		"key=\"",
-		"data-lvt-key=\"",
-		"lvt-key=\"",
-		"data-id=\"",
-		"x-key=\"",
-		"v-key=\"",
-	}
-	for _, static := range statics {
-		for _, attr := range keyAttrs {
-			if strings.Contains(static, attr) {
-				return true
-			}
-		}
-	}
-	return false
+	_, _, ok := findKeyAttr(statics)
+	return ok
 }
 
 // detectIDKey detects which dynamic position contains the item ID
 // by scanning statics for key attribute patterns.
 // Returns the integer index of the dynamic position containing the key.
 func detectIDKey(statics []string) int {
-	if len(statics) == 0 {
-		return 0
-	}
-	keyAttrs := []string{
-		"id=\"",
-		"data-key=\"",
-		"key=\"",
-		"data-lvt-key=\"",
-		"lvt-key=\"",
-		"data-id=\"",
-		"x-key=\"",
-		"v-key=\"",
-	}
+	i, _, _ := findKeyAttr(statics)
+	return i
+}
+
+// findKeyAttr returns the first static holding a key attribute and the text
+// after that attribute's opening quote. Within a static the earliest attribute
+// wins, so data-key=" beats the key=" inside it.
+func findKeyAttr(statics []string) (i int, rest string, ok bool) {
 	for i, static := range statics {
-		minPos := -1
-		matchedIdx := -1
-		for attrIdx, attr := range keyAttrs {
-			if pos := strings.Index(static, attr); pos != -1 {
-				if minPos == -1 || pos < minPos {
-					minPos = pos
-					matchedIdx = attrIdx
-					if attrIdx == 0 {
-						break
-					}
-				}
+		pos, n := -1, 0
+		for _, attr := range keys.DefaultKeyAttributes {
+			if p := strings.Index(static, attr); p != -1 && (pos == -1 || p < pos) {
+				pos, n = p, len(attr)
 			}
 		}
-		if matchedIdx != -1 {
-			return i
+		if pos != -1 {
+			return i, static[pos+n:], true
 		}
 	}
-	return 0
+	return 0, "", false
+}
+
+// compositeKey returns the whole key-attribute value when it is more than one
+// lone string dynamic: a static prefix or suffix, several dynamics, or a nested
+// {{if}}. Items whose first part repeats then keep distinct keys (#547).
+// Otherwise ("", false), and callers keep the position key.
+func compositeKey(node *TreeNode) (string, bool) {
+	i, rest, ok := findKeyAttr(node.Statics)
+	if !ok || strings.Contains(rest, `"`) || i >= len(node.Dynamics) || i+1 >= len(node.Statics) {
+		return "", false
+	}
+	if _, isString := node.Dynamics[i].(string); isString && rest == "" && strings.HasPrefix(node.Statics[i+1], `"`) {
+		return "", false
+	}
+	var b strings.Builder
+	b.WriteString(rest)
+	for j := i; j < len(node.Dynamics) && j+1 < len(node.Statics); j++ {
+		if !writeKeyPart(&b, node.Dynamics[j]) {
+			return "", false
+		}
+		next := node.Statics[j+1]
+		if q := strings.IndexByte(next, '"'); q >= 0 {
+			b.WriteString(next[:q])
+			return b.String(), true
+		}
+		b.WriteString(next)
+	}
+	return "", false
+}
+
+// writeKeyPart appends a dynamic's text to a key; false for a nested range.
+func writeKeyPart(b *strings.Builder, v interface{}) bool {
+	switch d := v.(type) {
+	case nil:
+	case string:
+		b.WriteString(d)
+	case *TreeNode:
+		if d.HasRange() {
+			return false
+		}
+		for k, s := range d.Statics {
+			b.WriteString(s)
+			if k < len(d.Dynamics) && !writeKeyPart(b, d.Dynamics[k]) {
+				return false
+			}
+		}
+	default:
+		fmt.Fprint(b, d)
+	}
+	return true
 }
 
 // generateItemHash creates a stable hash for a range item based on its content.
@@ -129,8 +149,11 @@ func wrappedItemKey(item *TreeNode) (string, bool) {
 		if child == nil {
 			return "", false
 		}
-		if hasExplicitKeyAttribute(child.Statics) {
-			if v, ok := child.GetDynamic(detectIDKey(child.Statics)); ok {
+		if i, _, ok := findKeyAttr(child.Statics); ok {
+			if k, ok := compositeKey(child); ok {
+				return k, true
+			}
+			if v, ok := child.GetDynamic(i); ok {
 				if s, ok := v.(string); ok && s != "" {
 					return s, true
 				}
@@ -143,7 +166,7 @@ func wrappedItemKey(item *TreeNode) (string, bool) {
 }
 
 // maxWrapperDescent bounds the search above. Every level costs a lookup per item
-// per render, and allWrappedItemKeys is all-or-nothing, so an item that never
+// per render, and allItemKeys is all-or-nothing, so an item that never
 // yields a key makes the whole range pay the full descent each time. Four is
 // well past what real templates stack — {{if}}{{if}} is already unusual — while
 // keeping the miss cost flat.
@@ -168,24 +191,22 @@ func soleNestedChild(node *TreeNode) *TreeNode {
 	return child
 }
 
-// allWrappedItemKeys returns the through-wrapper data-key of every item, or
-// (nil, false) if any item does not expose one. It is all-or-nothing so a range
-// never mixes stable data-keys with content hashes.
-func allWrappedItemKeys(items []rangeItemWithStatics) ([]string, bool) {
+// allItemKeys returns keyOf for every item, or (nil, false) if any item has
+// none. It is all-or-nothing so a range never mixes key kinds. It probes the
+// first item before allocating: most ranges fail there, so they don't pay for an
+// N-length slice thrown away on every render.
+func allItemKeys(items []rangeItemWithStatics, keyOf func(*TreeNode) (string, bool)) ([]string, bool) {
 	if len(items) == 0 {
 		return nil, false
 	}
-	// Probe the first item before allocating: an ordinary (non-recursive)
-	// auto-keyed range fails here, so it avoids an N-length slice thrown away on
-	// every render — only a genuine recursive-invocation range gets past item 0.
-	first, ok := wrappedItemKey(items[0].tree)
+	first, ok := keyOf(items[0].tree)
 	if !ok {
 		return nil, false
 	}
 	out := make([]string, len(items))
 	out[0] = first
 	for i := 1; i < len(items); i++ {
-		key, ok := wrappedItemKey(items[i].tree)
+		key, ok := keyOf(items[i].tree)
 		if !ok {
 			return nil, false
 		}
