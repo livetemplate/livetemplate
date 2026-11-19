@@ -5,6 +5,22 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A range item's key is the whole `data-key` value, not just its first part
+  (#547).** A key with a prefix or several parts used to be cut down to its
+  first dynamic: `data-key="row-{{.Old}}-{{.New}}"` became `{{.Old}}`. Items
+  whose first part matched then shared a key. A live update to
+  one of them was applied to another: in prereview, a comment draft typed on
+  one diff line appeared inside another line. The key now includes every
+  static and dynamic part, with a nested `{{if}}` written out as text. A key
+  that is one plain value, such as `data-key="{{.ID}}"`, is sent as before.
+- **Keys that still repeat resend the whole range.** When two items share a
+  key, an update now replaces the range instead of patching the first item
+  that holds the key.
+
 ## [v0.25.9] - 2026-11-18
 
 ### Fixed
