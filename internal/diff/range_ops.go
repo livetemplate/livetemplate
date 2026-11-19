@@ -95,6 +95,13 @@ func newStreamRangeContext(oldKeys []string, newItems []interface{}, statics int
 	return ctx
 }
 
+// hasRepeatedKeys reports a key held by more than one item. Such a key can't
+// address one item (the client applies ["u", key, …] to the first holding it),
+// so callers fall back to a full replace (#547).
+func (ctx *rangeContext) hasRepeatedKeys() bool {
+	return len(ctx.oldKeySet) != len(ctx.oldKeys) || len(ctx.newByKey) != len(ctx.newKeys)
+}
+
 func (ctx *rangeContext) getItemKey(item interface{}) (string, bool) {
 	return getItemKeyWithPos(item, ctx.keyPos)
 }
@@ -118,6 +125,10 @@ func GenerateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 	// than *TreeNode), the diff engine cannot produce ops — signal fallback.
 	if (len(oldItems) > 0 && len(ctx.oldKeys) == 0) ||
 		(len(newItems) > 0 && len(ctx.newKeys) == 0) {
+		return nil
+	}
+
+	if ctx.hasRepeatedKeys() {
 		return nil
 	}
 
@@ -212,6 +223,9 @@ func GenerateRangeStreamOperations(
 	}
 
 	ctx := newStreamRangeContext(streamState.Keys, newItems, statics, metadata)
+	if ctx.hasRepeatedKeys() {
+		return nil
+	}
 
 	oldHashByKey := make(map[string]uint64, len(streamState.Keys))
 	for i, k := range streamState.Keys {

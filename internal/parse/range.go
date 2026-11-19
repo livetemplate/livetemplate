@@ -201,14 +201,23 @@ func buildRangeTreeWithStatics(items []rangeItemWithStatics, ctx *Context) (*Tre
 
 	idKey := build.PositionKey(detectIDKey(firstStatics))
 
-	if !hasExplicitKeyAttribute(firstStatics) {
+	if hasExplicitKeyAttribute(firstStatics) {
+		// A composite value (data-key="row-{{.A}}-{{.B}}") is not one dynamic the
+		// client can read by position, so key each item by the whole value (#547).
+		if keys, ok := allItemKeys(items, compositeKey); ok {
+			for i, item := range items {
+				item.tree.AutoKey = keys[i]
+			}
+			idKey = "_k"
+		}
+	} else {
 		// When every item is an invocation wrapper hiding a real <li data-key>
 		// (the recursive {{template}} range shape), key by that data-key seen
 		// through the wrapper. Stable per-item identity lets the diff engine
 		// scope a deep edit to a nested ["u", key, …] instead of re-sending the
 		// whole enclosing branch. Require ALL items to expose a key — mixing
 		// stable keys with content hashes in one range breaks identity.
-		if wrapperKeys, ok := allWrappedItemKeys(items); ok {
+		if wrapperKeys, ok := allItemKeys(items, wrappedItemKey); ok {
 			for i, item := range items {
 				item.tree.AutoKey = wrapperKeys[i]
 			}

@@ -195,7 +195,7 @@ func TestWrappedItemKey_DescendsNestedWrappers(t *testing.T) {
 		{"three wrappers", keyed(3), "/a.go"},
 		{"at the descent limit", keyed(maxWrapperDescent), "/a.go"},
 		{
-			// Bounded deliberately: allWrappedItemKeys is all-or-nothing, so an
+			// Bounded deliberately: allItemKeys is all-or-nothing, so an
 			// item that never yields a key makes the whole range pay the full
 			// descent on every render. Falling back here is correct, not a gap.
 			name: "beyond the descent limit falls back", src: keyed(maxWrapperDescent + 1), wantKey: "",

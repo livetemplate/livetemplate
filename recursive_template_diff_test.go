@@ -13,7 +13,7 @@ import (
 // {{template …}} invocation, so its top-level tree is the invocation wrapper (empty
 // statics) that hides the item's real <li data-key="…"> one level down.
 // buildRangeTreeWithStatics reads that data-key *through* the wrapper
-// (allWrappedItemKeys) and uses it as the item's stable key, so an item keeps its
+// (allItemKeys with wrappedItemKey) and uses it as the item's stable key, so an item keeps its
 // identity across deep edits instead of keying on a content hash of its subtree.
 //
 // Consequence, pinned by _DescendantScopesToLeaf: because the key is stable, a deep
@@ -201,7 +201,7 @@ func itemKeys(t *testing.T, tmpl *Template, data fileNode) []string {
 // through the {{template}} invocation wrapper down to the item's identity —
 // appending always lands at the tail (the ["a"] fast path) and never resolves an
 // after-id, so it proves nothing about mid-list keying. (The key is the item's raw
-// data-key value — its path — read through the wrapper by allWrappedItemKeys, not a
+// data-key value — its path — read through the wrapper by wrappedItemKey, not a
 // content hash of the subtree; see the file-level note.)
 func TestRecursiveTemplate_MinimalUpdate_InsertMiddle(t *testing.T) {
 	tmpl, err := Must(New("test")).Parse(recursiveTreeSrc)
