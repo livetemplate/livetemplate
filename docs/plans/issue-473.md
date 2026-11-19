@@ -41,6 +41,8 @@ Today the client hardcodes ~20 `handleXDirectives()` calls, so nobody can add an
 | L9 | Relocation gate: must cut **≥ 25 KB minified** from the core bundle, or don't do it | Phase 4 |
 | L10 | Tier-2 community bundles documented with SRI pinning + an explicit trust note | § Server-side 3 (req. 6) |
 | L11 | `ElementContext.value` / `.send` are **live accessors, not fields** — capturing `ctx` in a listener stays correct across a re-render and a reconnect | § Design 2 |
+| L12 | prereview's handlers ship as a **second bundle** that imports `@livetemplate/client` for types only (`import type`, built with `--external:@livetemplate/client`) and registers through the `LiveTemplateClient` global. Rejected: one prereview bundle that includes the client, as tinkerdown does. That would rule out a duplicate registry, but it skips the second-script path external authors use, which is what the Phase 4 API verdict needs to test, and it stops prereview serving the published client | Phase 4 |
+| L13 | prereview's `clientguard_test.go` is **deleted, not repointed**. Once the handlers are prereview's own source, a re-vendor can no longer drop them; the new risk is a committed handler bundle that is stale against its source. A CI job (`npm ci && make build-handlers && git diff --exit-code`) catches that, and the existing browser-e2e CI job checks behaviour | Phase 4 |
 
 ### What changes for users
 
@@ -126,12 +128,23 @@ Applying it — census of attribute references across the workspace's checkouts 
 | `lvt-fx:viewport-report` | `handleViewportReportDirectives` | prereview=28 | extras |
 | `lvt-fx:proxy-bridge` | `handleProxyBridgeDirectives` | prereview=4 | extras |
 | `lvt-fx:preview-bridge` | `handlePreviewBridgeDirectives` | prereview=5 | extras |
-| `lvt-url-hash` | `handleURLHashDirective` | prereview=28 | extras |
+| `lvt-fx:url-hash` | `handleURLHashDirective` | prereview=28 | extras |
 | `lvt-fx:resize` | `handleResizeDirectives` | prereview=27 | extras |
 | `lvt-spy` | `setupSpy` | prereview=10 | extras |
 | `lvt-fx:auto-click` | `handleAutoClickDirectives` | prereview=3 | extras |
 | `lvt-fx:iframe-autoheight` | `handleIframeAutoHeightDirectives` | **none** | audit → delete |
 | `<template shadowrootmode>` | `handleShadowRootHydration` | prereview=2 | see note |
+
+**Re-census, 2026-11-19 (client v0.25.9, Phase 4 audit):** same rule, run with `bash` over every checkout under `~/code/livetemplate` and `~/code/adnaan`. It counts `*.go`/`*.tmpl`/`*.html` occurrences, excluding `dist/`, `node_modules/`, `vendor/` and `.worktrees/`. A second sweep added `*.ts`/`*.js`/`*.md`/`*.yaml` and found no consumer outside client and prereview, only changelogs, plans, a code comment (`attribute_census.go`) and tinkerdown's allowlist. **All ten extras are still prereview-only**, so the destination column stands. The counts are now:
+- `area-select` 7, `region-select` 7, `text-select` 15, `viewport-report` 20, `proxy-bridge` 2, `preview-bridge` 4;
+- `lvt-fx:url-hash` 18 (plus 21 `data-lvt-url-hash`), `resize` 20;
+- `lvt-spy` 11 (plus 10 `lvt-spy-link`), `auto-click` 1.
+
+The 2026-07-25 row spelled url-hash as `lvt-url-hash`, which only matched the `data-lvt-url-hash` mirror. Two counts changed:
+- `iframe-autoheight` is still at zero.
+- `shadowrootmode` dropped to zero: prereview's HTML preview moved to an iframe, so it no longer emits Declarative Shadow DOM. Shadow-root hydration stays in core anyway. Correction 3 below rests on its being a platform bridge, not on who emits DSD today.
+
+tinkerdown's hits (`lvt-spy`, `data-lvt-url-hash`) are allowlist entries in `vocabulary.go`, not uses.
 
 **Three corrections this census forces on the earlier draft of this plan:**
 
@@ -798,7 +811,7 @@ The cost of (b) is real and unchanged (prereview has no JS toolchain). What chan
 
 ### State
 
-Done: Phase 1 (client #159, lvt #344, merged 2026-08-31); Phase 2's livetemplate half (#532, v0.25.0); Phase 3 client + lvt e2e (client #163, lvt #345 + #346, merged 2026-11-14), released as client v0.25.3 + livetemplate v0.25.1, then client v0.25.4 + livetemplate v0.25.2 (a #164 tree fix); docs site on livetemplate v0.25.2 (docs #148, released as docs v0.6.0, 2026-11-15). lvt v0.3.0 and livetemplate v0.25.3 (client 0.25.5) released 2026-11-15. `ctx.signal` (client #166) released as client v0.25.6 + livetemplate v0.25.4; the wrapper fix (#540) as livetemplate v0.25.5, 2026-11-16. Tinkerdown #315 released as tinkerdown v0.4.1 (Homebrew tap updated); authoring guide #541, docs example docs #153 and the guide sync docs #151 merged 2026-11-17, with nav fix docs #155. Root fixes for the two #154/#155 workarounds released 2026-11-17: client #168 (v0.25.8, livetemplate v0.25.7) and tinkerdown #318/#319 (v0.4.2), with docs #157 and lvt #351 as their guards. Phase 3 is done. Next: Phase 4.
+Done: Phase 1 (client #159, lvt #344, merged 2026-08-31); Phase 2's livetemplate half (#532, v0.25.0); Phase 3 client + lvt e2e (client #163, lvt #345 + #346, merged 2026-11-14), released as client v0.25.3 + livetemplate v0.25.1, then client v0.25.4 + livetemplate v0.25.2 (a #164 tree fix); docs site on livetemplate v0.25.2 (docs #148, released as docs v0.6.0, 2026-11-15). lvt v0.3.0 and livetemplate v0.25.3 (client 0.25.5) released 2026-11-15. `ctx.signal` (client #166) released as client v0.25.6 + livetemplate v0.25.4; the wrapper fix (#540) as livetemplate v0.25.5, 2026-11-16. Tinkerdown #315 released as tinkerdown v0.4.1 (Homebrew tap updated); authoring guide #541, docs example docs #153 and the guide sync docs #151 merged 2026-11-17, with nav fix docs #155. Root fixes for the two #154/#155 workarounds released 2026-11-17: client #168 (v0.25.8, livetemplate v0.25.7) and tinkerdown #318/#319 (v0.4.2), with docs #157 and lvt #351 as their guards. Phase 3 is done; Phase 4 audit done 2026-11-19 (all ten still prereview-only, option C, ~30 KB estimated saving). Next: Phase 4 implementation (bundle shape settled as L12, guard as L13).
 
 ### Progress tracker
 
@@ -998,17 +1011,36 @@ Applies to every phase; defined once here rather than repeated per block. Precon
 **Design refs:** § Core vs extras (census + criterion), § Migration table (extras rows — `extras` means *leaves this repo*), § Server-side changes 3 (why tier 1 is withdrawn), § Writing your own attribute (prereview is now an instance of this).
 
 **Audit** *(do first)*
-- [ ] **Re-run the usage census** — it was taken 2026-07-25 against one workspace's checkouts and is the whole basis for what moves. Anything that gained a consumer since then stays in core.
-- [ ] **Confirm `handleIframeAutoHeightDirectives` is dead** and delete rather than relocate. If it has acquired a consumer, it moves with the others.
-- [ ] Map the shared helpers in `dom/directives.ts` (geometry, hit-testing, `regionRectFromBox`, `lineRangeFrom*`). Anything used by *both* a core and a relocating handler is the real decision in this phase: duplicate it into prereview, or keep a copy in core as a genuinely general primitive. Do not export it from core purely so prereview can import it — that recreates the coupling this phase exists to remove.
-- [ ] **Cost check on prereview's toolchain.** It has no `package.json`, `tsconfig.json`, or any `.ts`/`.js` source today — only a vendored bundle synced by `make sync-client`. Scope the setup before moving code. **If it materially exceeds a day, stop and take option (B)** (second entry point in the client repo, no server promotion) rather than half-relocating.
+- [x] **Re-run the usage census** — it was taken 2026-07-25 against one workspace's checkouts and is the whole basis for what moves. Anything that gained a consumer since then stays in core.
+      **2026-11-19:** nothing gained a consumer; see the re-census under § Core vs extras.
+- [x] **Confirm `handleIframeAutoHeightDirectives` is dead** and delete rather than relocate. If it has acquired a consumer, it moves with the others.
+      **2026-11-19:** dead. It has zero references in any checkout. Its only callers are its registry entry in `dom/builtin-handlers.ts` and tests in `tests/directives.test.ts` and `tests/builtin-handlers.test.ts`. Other handlers mention it only in comments (preview-bridge's JSDoc and the Map-vs-WeakMap notes), and those need rewording when it goes.
+- [x] Map the shared helpers in `dom/directives.ts` (geometry, hit-testing, `regionRectFromBox`, `lineRangeFrom*`). Anything used by *both* a core and a relocating handler is the real decision in this phase: duplicate it into prereview, or keep a copy in core as a genuinely general primitive. Do not export it from core purely so prereview can import it — that recreates the coupling this phase exists to remove.
+      **2026-11-19:** no helper is shared. A symbol-level cross-reference of `dom/directives.ts` found that the geometry and hit-testing helpers are used only by relocating handlers:
+      - `regionRectFromBox`, `lineRangeFromBox`, `lineRangeFromBlocks`, `readHTMLRange`, `readCodeRange`, `textOffsetsFromSelection`, `attachBoxDragSelect`, `resolveRegion` and `PreviewBlock`.
+
+      Outside `directives.ts`, only `tests/region-blocks.test.ts` imports them. The `reactive-attributes` imports at the top of the file are used only by core. So the helpers move as a block, and the duplicate-or-keep decision doesn't arise. `dom/resize.ts` and `dom/spy.ts` import nothing and are imported only by `builtin-handlers.ts`.
+
+      One real coupling: `autoClickTimers` is declared in the core part of the file, near the top. `__resetAnimatedElementsForTesting` clears it, so that reset has to be split when auto-click moves.
+- [x] **Cost check on prereview's toolchain.** It has no `package.json`, `tsconfig.json`, or any `.ts`/`.js` source today — only a vendored bundle synced by `make sync-client`. Scope the setup before moving code. **If it materially exceeds a day, stop and take option (B)** (second entry point in the client repo, no server promotion) rather than half-relocating.
+      **2026-11-19: under a day, so option (C) stands.** `tinkerdown/client/` is a working template: `package.json` with esbuild, jest and ts-jest, a `tsconfig.json`, and a Makefile `build-client` target that copies the output into `internal/assets/client/`. prereview's CI and `release.yml` are Go-only (`setup-go`, no Node), and its Homebrew formula installs release binaries. The built handler bundle is therefore committed, as tinkerdown's is, and CI never runs npm.
+
+      The public surface covers all 10 entries:
+      - the published `dist/attribute-registry.d.ts` has `needsServerChannel`, `runOnConnect`, `send` and `scanRoot`;
+      - the IIFE global exposes `LiveTemplateClient.registerAttribute`, which the docs custom-attributes recipe already calls from a separate script.
+
+      Two things carry into Implementation.
+      - **Decided (L12), 2026-11-19:** a runtime import of `@livetemplate/client` in a second bundle would copy in its own registry, and the handlers would register into a registry the page never runs. So the handler bundle imports types only, builds with `--external:@livetemplate/client`, and registers through the `LiveTemplateClient` global.
+      - **Size estimate (not the Implementation measurement):** a scratch build with the 11 registry entries removed (10 relocating plus iframe-autoheight) shrank the core bundle from 153,176 to 122,053 bytes. That is about 30.4 KB minified and about 9.7 KB gzipped, which clears the 25 KB gate. The baseline has grown from 141 KB to 153 KB since this plan was written, so the saving is about 20% of the current bundle.
 
 **Implementation**
 - [ ] Delete `handleIframeAutoHeightDirectives` + its teardown + tests
 - [ ] prereview: `package.json` + `tsconfig.json` + esbuild + jest; `make build-handlers` producing its own bundle; invert `sync-client` so prereview builds rather than only copies
 - [ ] Move the 10 handlers **and their tests** into prereview, rewritten as `AttributeHandler` objects registering through the public API — no internal imports from `@livetemplate/client`
 - [ ] prereview: `go:embed` the handler bundle beside the client bundle; add its `<script>` tag to `page.tmpl` after the existing `/livetemplate-client.js` tag
-- [ ] Delete the relocated handlers from the client repo
+- [ ] Delete the relocated handlers from the client repo, including `autoClickTimers`'s line in `__resetAnimatedElementsForTesting`, the extras rows in `tests/attribute-census.test.ts`, and the url-hash mention in `livetemplate-client.ts`'s `runOnConnect` comment
+- [ ] prereview: build the handler bundle with `import type` and `--external:@livetemplate/client` (L12); add a Go test that the bundle contains no client code, and one that the `@livetemplate/client` devDependency matches the vendored client's version
+- [ ] prereview: delete `internal/assets/clientguard_test.go` (L13). Add a CI job: `npm ci && make build-handlers && git diff --exit-code`. prereview's CI already runs the browser e2e on every PR, in 4 shards, so it covers behaviour
 - [ ] **Measure** core bundle before vs after; record the number in this plan
 - [ ] **Gate:** if the saving doesn't justify the disruption, stop and keep the handlers in core — that outcome is a success for the phase, not a failure.
       **Threshold, set now rather than at the moment of maximum sunk cost:** relocation has to remove **≥ 25 KB minified** (~18% of the 141 KB baseline) from the core bundle. ~2,400 of 3,429 lines in `dom/directives.ts` should clear this comfortably; if it doesn't, that itself is the surprising finding and belongs in Learn.
