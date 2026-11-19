@@ -95,9 +95,8 @@ func newStreamRangeContext(oldKeys []string, newItems []interface{}, statics int
 	return ctx
 }
 
-// hasRepeatedKeys reports a key held by more than one item. Such a key can't
-// address one item (the client applies ["u", key, …] to the first holding it),
-// so callers fall back to a full replace (#547).
+// hasRepeatedKeys reports a key held by more than one item, which a ["u"] op
+// can't address (#547).
 func (ctx *rangeContext) hasRepeatedKeys() bool {
 	return len(ctx.oldKeySet) != len(ctx.oldKeys) || len(ctx.newByKey) != len(ctx.newKeys)
 }

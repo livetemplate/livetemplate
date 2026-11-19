@@ -72,9 +72,7 @@ func compositeKey(node *TreeNode) (string, bool) {
 	return "", false
 }
 
-// writeKeyPart appends a dynamic's text to a key: a string as is, a nested
-// node (a conditional inside the value) as its statics and dynamics
-// interleaved. A nested range can't be part of a key.
+// writeKeyPart appends a dynamic's text to a key; false for a nested range.
 func writeKeyPart(b *strings.Builder, v interface{}) bool {
 	switch d := v.(type) {
 	case nil:

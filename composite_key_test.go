@@ -224,3 +224,17 @@ func TestCompositeKey_ConditionalOnlyKey(t *testing.T) {
 		t.Fatalf("keys = %v, want %v", got, want)
 	}
 }
+
+// TestCompositeKey_MixedBranches: in an {{if}}-wrapped range, a branch with a
+// simple key and a branch with a composite one both key through _k, so one
+// range never mixes key kinds.
+func TestCompositeKey_MixedBranches(t *testing.T) {
+	tmpl, err := Must(New("test")).Parse(`<ul>{{range .Items}}{{if .K}}<li data-key="{{.V}}">a</li>{{else}}<li data-key="n-{{.X}}-{{.Y}}">b</li>{{end}}{{end}}</ul>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, m := ckTree(t, tmpl, map[string]any{"Items": []ckItem{{K: "y", V: "plain"}, {X: 0, Y: 1}, {X: 0, Y: 2}}})
+	if got, want := ckKeys(t, m), []string{"plain", "n-0-1", "n-0-2"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("keys = %v, want %v", got, want)
+	}
+}
