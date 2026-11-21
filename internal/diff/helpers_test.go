@@ -1233,3 +1233,22 @@ func TestFindKeyPositionFromStatics_ReturnsNegativeOne(t *testing.T) {
 		})
 	}
 }
+
+// The browser decodes a data-key attribute when it parses the row, so a key
+// sent in a range op must be the decoded value too. html/template renders
+// TestParseValue/"hello" as TestParseValue/&#34;hello&#34;, and an op carrying
+// that escaped text never matched the row in the DOM.
+func TestGetItemKey_DecodesHTMLEscapedKey(t *testing.T) {
+	statics := []string{`<li data-key="`, `">`, `</li>`}
+	for rendered, want := range map[string]string{
+		`TestParseValue/&#34;hello&#34;`: `TestParseValue/"hello"`,
+		`TestParseValue/&#39;world&#39;`: `TestParseValue/'world'`,
+		`a&amp;b&lt;c&gt;`:               `a&b<c>`,
+		`plain-key-1`:                    `plain-key-1`,
+	} {
+		item := &TreeNode{Dynamics: []interface{}{rendered, "label"}}
+		if got, ok := GetItemKey(item, statics); !ok || got != want {
+			t.Errorf("GetItemKey(%q) = %q, %v; want %q", rendered, got, ok, want)
+		}
+	}
+}

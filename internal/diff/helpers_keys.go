@@ -1,6 +1,7 @@
 package diff
 
 import (
+	"html"
 	"regexp"
 	"strings"
 
@@ -66,7 +67,11 @@ func getItemKeyWithPos(item interface{}, keyPos int) (string, bool) {
 	if keyPos >= 0 {
 		if key, exists := itemNode.GetDynamic(keyPos); exists {
 			if keyStr, ok := key.(string); ok {
-				return keyStr, true
+				// The dynamic is html/template output, so a key like
+				// a"b arrives as a&#34;b. The browser decodes the data-key
+				// attribute when it parses the row, so the key in a range op
+				// must be decoded too, or the client never finds the row.
+				return html.UnescapeString(keyStr), true
 			}
 		}
 	}
