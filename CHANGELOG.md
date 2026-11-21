@@ -5,6 +5,22 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A range item whose key holds a quote, `&` or `<` now updates in place.**
+  Item keys come from the rendered template, where html/template had already
+  escaped them, so `data-key="a\"b"` reached the client's range ops as
+  `a&#34;b` and matched no item. An update or removal for such an item then
+  left a stale row behind. Keys in range ops are now decoded first (#550).
+- **The embedded client is now 0.25.10.** Because the focus manager built its
+  `#id`, `[name="..."]` and `[data-key="..."]` selectors from raw values, an
+  id, field name or key holding a quote, colon or bracket broke focus restore;
+  every selector the client builds is now escaped (client #170). A checkbox or
+  radio wired with `lvt-on:change` now also shows a change the server makes by
+  itself (client #171).
+
 ## [v0.25.10] - 2026-11-19
 
 ### Fixed
