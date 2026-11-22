@@ -268,6 +268,8 @@ func ClientNeedsStatics(oldTree, newTree *TreeNode) bool {
 }
 ```
 
+For a nested node in a dynamic slot, the server compares only the node's own statics and filled slots (`ownStructureChanged`), so a change further down is sent in its own slot instead of resending every ancestor. A node that holds a range keeps the fingerprint check.
+
 When structure is unchanged, client receives only changed dynamics:
 ```json
 {

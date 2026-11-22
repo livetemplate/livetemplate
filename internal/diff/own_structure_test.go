@@ -25,6 +25,7 @@ func TestOwnStructureChanged(t *testing.T) {
 		{"identical", node(ab, "x"), node(ab, "y"), false},
 		{"a child's own statics changed", node(ab, child("<p>", "</p>")), node(ab, child("<em>", "</em>")), false},
 		{"a child slot went from text to a node", node(ab, ""), node(ab, child("<p>", "</p>")), false},
+		{"a child slot went from a node to text", node(ab, child("<p>", "</p>")), node(ab, ""), false},
 		{"different statics", node(ab, "x"), node([]string{"<b>", "</b>"}, "x"), true},
 		{"different slot count", node(ab, "x"), node(abc, "x", "y"), true},
 		{"a slot became nil", node(abc, "x", "y"), node(abc, "x", nil), true},

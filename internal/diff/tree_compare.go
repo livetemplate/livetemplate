@@ -436,7 +436,9 @@ func handleStaticOnlyChanges(k int, oldTreeNodePtr, newTreeNodePtr *TreeNode, ch
 	newIsEmpty := IsEmpty(newStripped)
 
 	// If both strip to empty (both static-only) but structures differ,
-	// the statics changed - use fingerprint comparison for efficient detection
+	// the statics changed - use fingerprint comparison for efficient detection.
+	// The recursive check is right here: a static-only subtree has no slots for
+	// the recursion to diff, so any change below means re-render the field.
 	if oldIsEmpty && newIsEmpty && ClientNeedsStatics(oldTreeNodePtr, newTreeNodePtr) {
 		// Structure fingerprints differ, so statics changed - send empty string
 		// to indicate the field should be re-rendered with new statics

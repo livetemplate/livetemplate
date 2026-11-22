@@ -183,10 +183,13 @@ func ClientNeedsStatics(oldTree, newTree *TreeNode) bool {
 
 The lazy-cached fingerprint enables O(1) structure comparison, avoiding re-computation on subsequent comparisons.
 
+**Nested nodes use their own shape, not the fingerprint.** The fingerprint covers everything below a node. So for a nested node in a dynamic slot, `handleNestedTreeNodes` asks `ownStructureChanged` instead: the node's own statics and which of its slots are filled. A change further down is diffed in its own slot, so an `{{if}}` flipping deep inside doesn't resend every ancestor. A node that holds a range keeps the recursive check.
+
 **Key functions**:
 - `CalculateStructureFingerprint(tree)` — Computes FNV-1a 128-bit truncated to 64 bits (16 hex chars) of static structure (`internal/build/fingerprint.go`)
 - `TreeNode.GetStructureFingerprint()` — Lazy-computes and caches fingerprint on first access (`internal/build/types.go`)
 - `ClientNeedsStatics(oldTree, newTree)` — Returns true if fingerprints differ (`internal/diff/tree_compare.go`)
+- `ownStructureChanged(oldTree, newTree)` — The nested-node check: own statics and filled slots; range-holding nodes fall back to `ClientNeedsStatics` (`internal/diff/tree_compare.go`)
 - `PrepareTreeForClient(tree, clientHasStatics)` — Strips statics from wire format when cached (`internal/diff/prepare.go`)
 
 ### Wrapper ID Injection
