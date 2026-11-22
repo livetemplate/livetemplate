@@ -495,10 +495,11 @@ func ClientNeedsStatics(oldTree, newTree *TreeNode) bool {
 // ClientNeedsStatics would compare the recursive fingerprint and resend every
 // ancestor of the change.
 //
-// A node that holds a range keeps the recursive check: an unmatched range sends
-// nothing when recursed into (its items live in Range.Items, not Dynamics), so it
-// must go whole (#489). A slot that becomes nil also counts as changed, because
-// compareDynamicSegments skips nil values and the client would keep the old one.
+// A node that holds a range keeps the recursive check, as before this change: its
+// content lives in Range.Items, not Dynamics, so it stays on the path #489
+// hardened instead of relying on the recursion. A slot that becomes nil also
+// counts as changed, because compareDynamicSegments skips nil values and the
+// client would keep the old one.
 func ownStructureChanged(oldTree, newTree *TreeNode) bool {
 	if oldTree.Range != nil || newTree.Range != nil {
 		return ClientNeedsStatics(oldTree, newTree)

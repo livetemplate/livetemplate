@@ -44,9 +44,11 @@ func flipApply(t *testing.T, src string, client, update map[string]any, data any
 	if err != nil {
 		t.Fatalf("oracle: %v", err)
 	}
-	if m, ok := resp.Tree.(map[string]any); ok {
-		client = m
+	m, ok := resp.Tree.(map[string]any)
+	if !ok {
+		t.Fatalf("oracle returned a %T tree, want an object", resp.Tree)
 	}
+	client = m
 	_, fresh := flipRender(t, flipTemplate(t, src), data)
 	want, err := oracle.ApplyDiffRaw(fresh, map[string]any{})
 	if err != nil {
@@ -130,5 +132,27 @@ func TestNestedFlipWithRangeChange(t *testing.T) {
 			t.Errorf("step %d sent %d bytes, want the range diffed (no item markup resent): %s", i, len(wire), wire)
 		}
 		client, _ = flipApply(t, src, client, update, st, wire)
+	}
+}
+
+// TestNestedRangeItemShapeChange: #489 one level down. The page from
+// TestRangeItemStaticsChange_UpdateIsNotDropped, wrapped in an {{if}}: an item's
+// note template renders nothing, then something, so the item's slot shape changes
+// under an ancestor whose own structure doesn't. The change must still reach the
+// page; the outer node not going whole must not drop it.
+func TestNestedRangeItemShapeChange(t *testing.T) {
+	src := `{{if not .Ext}}<ul>{{range .Tags}}<li class="tag">{{.}}</li>{{end}}</ul>` +
+		`<ul>{{range .Items}}<li data-key="{{.ID}}"><span>{{.Body}}</span>{{template "note" .Note}}</li>{{end}}</ul>{{end}}` +
+		`{{define "note"}}{{if .}}<em class="note">{{.}}</em>{{end}}{{end}}`
+	type item struct{ ID, Body, Note string }
+	state := func(note string) map[string]any {
+		return map[string]any{"Ext": false, "Tags": []string{"go"}, "Items": []item{{ID: "a", Body: "hello", Note: note}}}
+	}
+	tmpl := flipTemplate(t, src)
+	_, client := flipRender(t, tmpl, state(""))
+	wire, update := flipRender(t, tmpl, state("now it has a note"))
+	_, html := flipApply(t, src, client, update, state("now it has a note"), wire)
+	if !strings.Contains(html, "now it has a note") {
+		t.Errorf("the note never reaches the page: %s\nupdate: %s", normalizeHTMLForTest(html), wire)
 	}
 }
