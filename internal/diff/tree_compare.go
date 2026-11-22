@@ -1,6 +1,8 @@
 package diff
 
 import (
+	"slices"
+
 	"github.com/livetemplate/livetemplate/internal/build"
 )
 
@@ -389,8 +391,8 @@ func handleNestedTreeNodes(
 	// complex structure checks with O(1) fingerprint comparison.
 	_, isRangeMatch := rangeMatches[fieldPath]
 
-	// Use fingerprint-based structure comparison for non-range matches
-	structureChanged := !isRangeMatch && ClientNeedsStatics(oldTreeNodePtr, newTreeNodePtr)
+	// Compare this node's OWN structure, not its descendants' (see ownStructureChanged).
+	structureChanged := !isRangeMatch && ownStructureChanged(oldTreeNodePtr, newTreeNodePtr)
 
 	// structureChanged means the statics differ, so the client cannot render this
 	// subtree from what it has cached — it needs the full tree, statics included.
@@ -485,6 +487,33 @@ func ClientNeedsStatics(oldTree, newTree *TreeNode) bool {
 
 	// If fingerprints match, client already has the static structure
 	return oldFingerprint != newFingerprint
+}
+
+// ownStructureChanged reports whether a nested node's own static shape changed:
+// its statics, or which of its slots are filled. A change further down — an
+// {{if}} flipping inside it — doesn't count, because the recursion in
+// handleNestedTreeNodes diffs that child in its own slot. ClientNeedsStatics
+// compares the recursive fingerprint, so a flip anywhere below made every
+// ancestor look changed and resent the whole subtree from the top (prereview#273:
+// a toast appearing resent the page).
+//
+// A node that holds a range keeps the recursive check: an unmatched range sends
+// nothing when recursed into (its items live in Range.Items, not Dynamics), so it
+// must go whole (#489). A slot that becomes nil also counts as changed, because
+// compareDynamicSegments skips nil values and the client would keep the old one.
+func ownStructureChanged(oldTree, newTree *TreeNode) bool {
+	if oldTree.Range != nil || newTree.Range != nil {
+		return ClientNeedsStatics(oldTree, newTree)
+	}
+	if !slices.Equal(oldTree.Statics, newTree.Statics) || len(oldTree.Dynamics) != len(newTree.Dynamics) {
+		return true
+	}
+	for i, v := range oldTree.Dynamics {
+		if (v == nil) != (newTree.Dynamics[i] == nil) {
+			return true
+		}
+	}
+	return false
 }
 
 // clientNeedsStaticsForValue determines if client needs statics for a dynamic value.
