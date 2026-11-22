@@ -193,8 +193,9 @@ func iterateMap(node *parse.RangeNode, collection reflect.Value, eval *evaluator
 // sortMapKeys sorts map keys the way text/template's range does for the key
 // kinds a template can use: numbers by value, strings and bools by their
 // natural order. Keys of different kinds (in a map[interface{}]T) sort by
-// kind first, and keys of any other kind by their printed form, so the order
-// is the same on every render.
+// reflect.Kind first, which text/template's own ordering doesn't promise to
+// match, and keys of any other kind by their printed form. Either way the
+// order is the same on every render.
 func sortMapKeys(keys []reflect.Value) {
 	sort.Slice(keys, func(i, j int) bool {
 		a, b := keys[i], keys[j]

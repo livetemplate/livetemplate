@@ -47,6 +47,8 @@ func TestAndOrShortCircuit(t *testing.T) {
 			`<p>{{if and .Missing (slice .S 0 7)}}y{{else}}n{{end}}</p>`,
 			map[string]interface{}{"Missing": nil, "S": "ab"}, `{"s":["n"]}`},
 		{"a pipe argument comes last", `<p>{{"x" | and 1}}</p>`, nil, `"0":"x"`},
+		{"or with a pipe argument stops before it", `<p>{{"x" | or 1}}</p>`, nil, `"0":"1"`},
+		{"and with only a pipe argument", `<p>{{"x" | and}}</p>`, nil, `"0":"x"`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -119,5 +121,16 @@ func TestRangeMapKeysSorted(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A range inside a tag already has its own slot, so the body-only fix leaves
+// its tree byte-for-byte as it was. The expected JSON was captured from main
+// before #554.
+func TestRangeInsideATagUnchanged(t *testing.T) {
+	const want = `{"0":{"d":[{"0":{"d":[{"0":"x","_k":"b5018057e8ee"},{"0":"y","_k":"b4fdd657e8eb"}],"m":{"idKey":"_k"},"s":["\u003cb\u003e","\u003c/b\u003e"]},"_k":"95db2c1eb343"},{"0":{"d":[{"0":"z","_k":"b4fa7057e8e8"}],"m":{"idKey":"_k"},"s":["\u003cb\u003e","\u003c/b\u003e"]},"_k":"3c6b2834e5cb"}],"m":{"idKey":"_k"},"s":["\u003cli\u003e","\u003c/li\u003e"]},"s":["\u003cul\u003e","\u003c/ul\u003e"]}`
+	data := map[string]interface{}{"A": []map[string]interface{}{{"B": []string{"x", "y"}}, {"B": []string{"z"}}}}
+	if got := buildJSON(t, `<ul>{{range .A}}<li>{{range .B}}<b>{{.}}</b>{{end}}</li>{{end}}</ul>`, nil, data); got != want {
+		t.Fatalf("tree changed:\n got %s\nwant %s", got, want)
 	}
 }
