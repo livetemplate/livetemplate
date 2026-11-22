@@ -192,8 +192,9 @@ func iterateMap(node *parse.RangeNode, collection reflect.Value, eval *evaluator
 
 // sortMapKeys sorts map keys the way text/template's range does for the key
 // kinds a template can use: numbers by value, strings and bools by their
-// natural order. Keys of any other kind sort by their printed form, so the
-// order is at least the same on every render.
+// natural order. Keys of different kinds (in a map[interface{}]T) sort by
+// kind first, and keys of any other kind by their printed form, so the order
+// is the same on every render.
 func sortMapKeys(keys []reflect.Value) {
 	sort.Slice(keys, func(i, j int) bool {
 		a, b := keys[i], keys[j]
@@ -203,19 +204,20 @@ func sortMapKeys(keys []reflect.Value) {
 		if b.Kind() == reflect.Interface {
 			b = b.Elem()
 		}
-		if a.Kind() == b.Kind() {
-			switch a.Kind() {
-			case reflect.String:
-				return a.String() < b.String()
-			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-				return a.Int() < b.Int()
-			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-				return a.Uint() < b.Uint()
-			case reflect.Float32, reflect.Float64:
-				return a.Float() < b.Float()
-			case reflect.Bool:
-				return !a.Bool() && b.Bool()
-			}
+		if a.Kind() != b.Kind() {
+			return a.Kind() < b.Kind()
+		}
+		switch a.Kind() {
+		case reflect.String:
+			return a.String() < b.String()
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			return a.Int() < b.Int()
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+			return a.Uint() < b.Uint()
+		case reflect.Float32, reflect.Float64:
+			return a.Float() < b.Float()
+		case reflect.Bool:
+			return !a.Bool() && b.Bool()
 		}
 		return fmt.Sprint(a.Interface()) < fmt.Sprint(b.Interface())
 	})

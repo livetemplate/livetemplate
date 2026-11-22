@@ -2,8 +2,8 @@ package parse
 
 import (
 	"encoding/json"
+	"fmt"
 	"html/template"
-	"regexp"
 	"strings"
 	"testing"
 )
@@ -73,13 +73,18 @@ func TestAndOrPageFunctionGetsEveryArgument(t *testing.T) {
 	}
 }
 
-var itemValueRE = regexp.MustCompile(`"0":"([^"]*)","_k"`)
-
-// itemValues lists a range's item values from its tree JSON, in order.
-func itemValues(tree string) string {
-	var vals []string
-	for _, m := range itemValueRE.FindAllStringSubmatch(tree, -1) {
-		vals = append(vals, m[1])
+// itemValues lists the first dynamic of each item in the tree's first range.
+func itemValues(t *testing.T, tree string) string {
+	t.Helper()
+	var root map[string]any
+	if err := json.Unmarshal([]byte(tree), &root); err != nil {
+		t.Fatal(err)
+	}
+	rng, _ := root["0"].(map[string]any)
+	items, _ := rng["d"].([]any)
+	vals := make([]string, 0, len(items))
+	for _, it := range items {
+		vals = append(vals, fmt.Sprint(it.(map[string]any)["0"]))
 	}
 	return strings.Join(vals, " ")
 }
@@ -99,6 +104,7 @@ func TestRangeMapKeysSorted(t *testing.T) {
 		{"strings", map[string]int{"m": 1, "b": 2, "z": 3, "a": 4, "q": 5, "c": 6, "k": 7, "e": 8}, "a b c e k m q z"},
 		{"ints by value", map[int]bool{10: true, 2: true, 33: true, -1: true, 7: true, 100: true, 0: true}, "-1 0 2 7 10 33 100"},
 		{"floats by value", map[float64]int{1.5: 1, -2: 2, 10: 3, 0.25: 4, 3: 5}, "-2 0.25 1.5 3 10"},
+		{"mixed kinds by kind, then value", map[interface{}]int{"9": 1, 10: 2, "a": 3, 2: 4, true: 5}, "true 2 10 9 a"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -108,7 +114,7 @@ func TestRangeMapKeysSorted(t *testing.T) {
 					t.Fatal(err)
 				}
 				b, _ := json.Marshal(tree.ToMap())
-				if got := itemValues(string(b)); got != tt.want {
+				if got := itemValues(t, string(b)); got != tt.want {
 					t.Fatalf("render %d: keys %q, want %q", i, got, tt.want)
 				}
 			}
