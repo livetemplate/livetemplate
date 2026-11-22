@@ -70,7 +70,7 @@ BenchmarkTemplateExecuteUpdates/large-update-8                  	   45696	     2
 BenchmarkTemplateComplexity/simple-fields-8                     	   57028	     21686 ns/op	    4825 B/op	     118 allocs/op
 BenchmarkTemplateComplexity/with-conditionals-8                 	   71946	     16212 ns/op	    4137 B/op	      90 allocs/op
 BenchmarkTemplateComplexity/with-ranges-8                       	   31113	     36917 ns/op	    9227 B/op	     206 allocs/op
-BenchmarkTemplateComplexity/deeply-nested-8                     	   34184	     36262 ns/op	    9307 B/op	     196 allocs/op
+BenchmarkTemplateComplexity/deeply-nested-8                     	   17877	     68562 ns/op	    18577 B/op	     321 allocs/op
 BenchmarkTemplateConcurrent/goroutines-1-8                      	  104593	     12061 ns/op	    3177 B/op	      64 allocs/op
 BenchmarkTemplateConcurrent/goroutines-10-8                     	  108040	     10637 ns/op	    3177 B/op	      64 allocs/op
 BenchmarkTemplateConcurrent/goroutines-100-8                    	  107968	     11660 ns/op	    3181 B/op	      64 allocs/op

@@ -212,6 +212,12 @@ func (e *evaluator) evalFunctionCall(name string, args []parse.Node, dot interfa
 		return nil, &ParseError{Phase: "eval", NodeType: "function", Expr: name, Msg: fmt.Sprintf("function %q not defined", name)}
 	}
 
+	if name == "and" || name == "or" {
+		if stopOn, ok := shortCircuitStop(fn); ok && len(args) > 0 {
+			return e.evalShortCircuit(args, dot, varCtx, pipeArg, stopOn)
+		}
+	}
+
 	// Evaluate arguments
 	evalArgs, err := e.evalArgs(args, dot, varCtx)
 	if err != nil {
@@ -224,6 +230,47 @@ func (e *evaluator) evalFunctionCall(name string, args []parse.Node, dot interfa
 	}
 
 	return callFunc(fn, evalArgs)
+}
+
+var (
+	builtinAndPtr = reflect.ValueOf(builtinAnd).Pointer()
+	builtinOrPtr  = reflect.ValueOf(builtinOr).Pointer()
+)
+
+// shortCircuitStop reports whether fn is the builtin and or or, and the truth
+// value that decides it: and stops at its first false argument, or at its
+// first true one. A page's own function registered under either name is
+// called normally, with every argument.
+func shortCircuitStop(fn reflect.Value) (stopOn, ok bool) {
+	switch fn.Pointer() {
+	case builtinAndPtr:
+		return false, true
+	case builtinOrPtr:
+		return true, true
+	}
+	return false, false
+}
+
+// evalShortCircuit evaluates and/or arguments one at a time, as text/template
+// does since Go 1.18, so a later argument isn't evaluated once an earlier one
+// decides the result. It returns the deciding argument, or else the last one.
+// A pipe argument comes last and is already evaluated.
+func (e *evaluator) evalShortCircuit(args []parse.Node, dot interface{}, varCtx *varContext, pipeArg interface{}, stopOn bool) (interface{}, error) {
+	var last interface{}
+	for _, arg := range args {
+		val, err := e.evalArg(arg, dot, varCtx)
+		if err != nil {
+			return nil, err
+		}
+		if isTrue(val) == stopOn {
+			return val, nil
+		}
+		last = val
+	}
+	if pipeArg != sentinel {
+		return pipeArg, nil
+	}
+	return last, nil
 }
 
 // evalArgs evaluates a slice of AST nodes into values.
