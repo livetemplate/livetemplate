@@ -5,6 +5,29 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A range item whose whole body is another range now renders** (#554).
+  Each outer item lost its content, as in
+  `{{range $w := …}}{{range $p := …}}…{{end}}{{end}}`. Every item then got
+  the same key, and the page showed nothing.
+  The inner range is now kept, as it already was when a tag wrapped it.
+- **Repeated plain values in a range get their own keys (#554).** Items are
+  keyed by a hash of their content. A word that appears twice gave two items
+  one key, so every update resent the whole range. The second and
+  later copies now get `-2`, `-3` and so on, and every other key is unchanged.
+- **A range over a map visits its keys in sorted order**, as Go's
+  `text/template` does. The order was Go's random map order, so it could
+  differ between the first page and live updates, and every update sent a
+  reorder.
+- **`and` and `or` stop at the argument that decides them (#554)**, as Go's
+  `text/template` does. A later argument is no longer evaluated, so
+  `{{if and (ge (len .S) 7) (eq (slice .S 0 7) "http://")}}` no longer
+  panics on a short `.S`. A page's own function named `and` or `or` is still
+  called with every argument.
+
 ## [v0.25.12] - 2026-11-22
 
 ### Removed

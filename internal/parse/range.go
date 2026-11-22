@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"reflect"
 	"runtime"
+	"sort"
+	"strconv"
 	"sync"
 	"text/template/parse"
 
@@ -166,9 +168,11 @@ func iterateSliceParallel(node *parse.RangeNode, collection reflect.Value, eval 
 	return buildRangeTreeWithStatics(items, ctx)
 }
 
-// iterateMap handles map range iteration.
+// iterateMap handles map range iteration, in sorted key order as
+// text/template does.
 func iterateMap(node *parse.RangeNode, collection reflect.Value, eval *evaluator, data interface{}, parentVarCtx *varContext, hasVarDecls bool, ctx *Context) (*TreeNode, error) {
 	keys := collection.MapKeys()
+	sortMapKeys(keys)
 	itemsWithStatics := make([]rangeItemWithStatics, 0, len(keys))
 	itemCtx := contextWithStatics(ctx)
 
@@ -186,6 +190,37 @@ func iterateMap(node *parse.RangeNode, collection reflect.Value, eval *evaluator
 	return buildRangeTreeWithStatics(itemsWithStatics, ctx)
 }
 
+// sortMapKeys sorts map keys the way text/template's range does for the key
+// kinds a template can use: numbers by value, strings and bools by their
+// natural order. Keys of any other kind sort by their printed form, so the
+// order is at least the same on every render.
+func sortMapKeys(keys []reflect.Value) {
+	sort.Slice(keys, func(i, j int) bool {
+		a, b := keys[i], keys[j]
+		if a.Kind() == reflect.Interface {
+			a = a.Elem()
+		}
+		if b.Kind() == reflect.Interface {
+			b = b.Elem()
+		}
+		if a.Kind() == b.Kind() {
+			switch a.Kind() {
+			case reflect.String:
+				return a.String() < b.String()
+			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+				return a.Int() < b.Int()
+			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+				return a.Uint() < b.Uint()
+			case reflect.Float32, reflect.Float64:
+				return a.Float() < b.Float()
+			case reflect.Bool:
+				return !a.Bool() && b.Bool()
+			}
+		}
+		return fmt.Sprint(a.Interface()) < fmt.Sprint(b.Interface())
+	})
+}
+
 // buildRangeTreeWithStatics constructs the final range tree.
 func buildRangeTreeWithStatics(items []rangeItemWithStatics, ctx *Context) (*TreeNode, error) {
 	if len(items) == 0 {
@@ -195,6 +230,17 @@ func buildRangeTreeWithStatics(items []rangeItemWithStatics, ctx *Context) (*Tre
 		}
 		rangeTree.Range = NewRangeData([]interface{}{}, nil)
 		return rangeTree, nil
+	}
+
+	// walkList hands back a lone range child as the list itself, so an item
+	// whose whole body is one range ({{range}}{{range}}…{{end}}{{end}}) is a
+	// range tree with no dynamics, and extractItemDynamics would drop it (#554).
+	// Give it a slot of its own, as a tag around the inner range would.
+	itemCtx := contextWithStatics(ctx)
+	for i := range items {
+		if items[i].tree.HasRange() {
+			items[i].tree = createWrapper(items[i].tree, itemCtx, WrapperNone)
+		}
 	}
 
 	firstStatics := items[0].tree.Statics
@@ -222,8 +268,19 @@ func buildRangeTreeWithStatics(items []rangeItemWithStatics, ctx *Context) (*Tre
 				item.tree.AutoKey = wrapperKeys[i]
 			}
 		} else {
+			// Equal items hash the same, and repeated keys make every update
+			// resend the whole range. The second and later copies get "-2",
+			// "-3"…, which no 12-hex-digit hash contains; the first keeps its
+			// hash, so every key that didn't repeat is unchanged (#554).
+			seen := make(map[string]int, len(items))
 			for _, item := range items {
-				item.tree.AutoKey = generateItemHash(item.tree)
+				key := generateItemHash(item.tree)
+				n := seen[key] + 1
+				seen[key] = n
+				if n > 1 {
+					key += "-" + strconv.Itoa(n)
+				}
+				item.tree.AutoKey = key
 			}
 		}
 		idKey = "_k"
