@@ -862,7 +862,10 @@ func TestGenerateRangeDifferentialOperations_PureStructural_StillEmitsOps(t *tes
 // (e.g. {{if .Done}}<s>{{end}}) with no Dynamics change. The hash check alone
 // would miss this (empty Dynamics → identical hash) — the statics fingerprint
 // comparison catches it and forces full-tree fallback.
-func TestGenerateRangeDifferentialOperations_StaticsOnlyChange_FallsBack(t *testing.T) {
+// A kept item whose nested node changed shape (here its statics) while the item's
+// own template is unchanged sends a ["u"] carrying that node's new statics, not a
+// full-range replace. Only an item whose OWN statics changed still falls back.
+func TestGenerateRangeDifferentialOperations_StaticsOnlyChange(t *testing.T) {
 	itemStatics := []string{`<li data-key="`, `">`, "</li>"}
 	rangeStatics := []string{"<ul>", "</ul>"}
 	oldValue := &TreeNode{
@@ -886,8 +889,30 @@ func TestGenerateRangeDifferentialOperations_StaticsOnlyChange_FallsBack(t *test
 		},
 	}
 
-	if ops := GenerateRangeDifferentialOperations(oldValue, newValue, false); ops != nil {
-		t.Errorf("Expected nil-return for statics-only kept-item change, got: %v", ops)
+	ops := GenerateRangeDifferentialOperations(oldValue, newValue, false)
+	if len(ops) != 1 {
+		t.Fatalf("want one [\"u\"] op, got: %v", ops)
+	}
+	op := ops[0].([]interface{})
+	payload, _ := op[2].(map[string]interface{})
+	slot, _ := payload["1"].(map[string]interface{})
+	if op[0] != "u" || op[1] != "task-1" || payload["s"] != nil || slot == nil || slot["s"] == nil {
+		t.Errorf("want [\"u\", \"task-1\", {\"1\": {\"s\": …}}] with no item-level statics, got: %v", ops)
+	}
+
+	// The item's own template changing is not a nested flip: it still falls back.
+	ownChanged := &TreeNode{
+		Statics: rangeStatics,
+		Range: &RangeData{
+			Statics: itemStatics,
+			Items: []interface{}{&TreeNode{
+				Statics:  []string{`<li class="x" data-key="`, `">`, "</li>"},
+				Dynamics: []interface{}{"task-1", &TreeNode{Statics: []string{"<s>", "</s>"}}},
+			}},
+		},
+	}
+	if ops := GenerateRangeDifferentialOperations(oldValue, ownChanged, false); ops != nil {
+		t.Errorf("an item whose own statics changed must fall back (nil), got: %v", ops)
 	}
 }
 

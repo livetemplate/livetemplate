@@ -74,6 +74,7 @@ func transitionRangeIfHomogeneous(rd *build.RangeData) {
 		Keys:        keysList,
 		Hashes:      hashes,
 		Fingerprint: ref,
+		Exemplar:    firstItem,
 	}
 	rd.Items = nil
 }

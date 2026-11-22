@@ -332,11 +332,14 @@ func hasUnexpectedStatics(tree *build.TreeNode) bool {
 			for _, op := range ops {
 				if opArray, ok := op.([]any); ok && len(opArray) >= 2 {
 					opType, _ := opArray[0].(string)
-					// Insert, Append, Prepend MAY have statics (for new items)
-					// Update should NOT have statics
+					// Insert, Append, Prepend MAY have statics (for new items).
+					// An update MAY carry statics inside a nested node whose shape
+					// is new (an {{if}} in the item became true), as an ordinary
+					// diff may; never at the item's own level, whose template is
+					// the range's.
 					if opType == "u" && len(opArray) >= 3 {
 						if changes, ok := opArray[2].(map[string]any); ok {
-							if hasStaticsInMap(changes) {
+							if _, has := changes["s"]; has {
 								return true
 							}
 						}
@@ -346,35 +349,6 @@ func hasUnexpectedStatics(tree *build.TreeNode) bool {
 		}
 	}
 
-	return false
-}
-
-func hasStaticsInMap(m map[string]any) bool {
-	if _, has := m["s"]; has {
-		return true
-	}
-	for _, v := range m {
-		if staticsInValue(v) {
-			return true
-		}
-	}
-	return false
-}
-
-// staticsInValue recurses into nested maps AND slices — a ["u"] payload can carry
-// statics inside a nested range-op array (e.g. {"2": [["u", k, {"s": …}]]}), not
-// only inside nested maps, so the array case must be walked too.
-func staticsInValue(v any) bool {
-	switch val := v.(type) {
-	case map[string]any:
-		return hasStaticsInMap(val)
-	case []any:
-		for _, e := range val {
-			if staticsInValue(e) {
-				return true
-			}
-		}
-	}
 	return false
 }
 

@@ -173,6 +173,12 @@ type RangeStreamState struct {
 
 	// Fingerprint is the homogeneity-check snapshot; mismatch on a later render triggers het-range fallback.
 	Fingerprint string
+
+	// Exemplar is one item from when the range went to stream mode. Every item had
+	// its shape then, so a later item whose nested shape differs (an {{if}} inside
+	// flipped) is diffed against it to send statics only for the slots that changed.
+	// Only its structure is read, never its values.
+	Exemplar *TreeNode
 }
 
 // TreeMetadata contains metadata about the tree node.
@@ -778,6 +784,7 @@ func (tn *TreeNode) Clone() *TreeNode {
 		if tn.Range.StreamState != nil {
 			clone.Range.StreamState = &RangeStreamState{
 				Fingerprint: tn.Range.StreamState.Fingerprint,
+				Exemplar:    tn.Range.StreamState.Exemplar, // read-only shape reference
 			}
 			// Use != nil (not len > 0) for consistency with Items above —
 			// preserves empty-but-non-nil slices through clone.
