@@ -490,12 +490,10 @@ func ClientNeedsStatics(oldTree, newTree *TreeNode) bool {
 }
 
 // ownStructureChanged reports whether a nested node's own static shape changed:
-// its statics, or which of its slots are filled. A change further down — an
-// {{if}} flipping inside it — doesn't count, because the recursion in
-// handleNestedTreeNodes diffs that child in its own slot. ClientNeedsStatics
-// compares the recursive fingerprint, so a flip anywhere below made every
-// ancestor look changed and resent the whole subtree from the top (prereview#273:
-// a toast appearing resent the page).
+// its statics, or which of its slots are filled. A change further down, such as
+// an {{if}} flipping inside it, is diffed by the recursion in its own slot.
+// ClientNeedsStatics would compare the recursive fingerprint and resend every
+// ancestor of the change.
 //
 // A node that holds a range keeps the recursive check: an unmatched range sends
 // nothing when recursed into (its items live in Range.Items, not Dynamics), so it
