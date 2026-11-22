@@ -5,6 +5,31 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **The embedded client is now 0.25.12, which no longer ships prereview's
+  attribute handlers.** `lvt-fx:area-select`, `lvt-fx:region-select`,
+  `lvt-fx:text-select`, `lvt-fx:viewport-report`, `lvt-fx:proxy-bridge`,
+  `lvt-fx:preview-bridge`, `lvt-fx:url-hash`, `lvt-fx:resize`,
+  `lvt-fx:auto-click` and `lvt-spy` now live in prereview's own bundle, which
+  registers them through `window.lvtAttributes` (#473 Phase 4, client #172).
+  `lvt-fx:iframe-autoheight` is gone; nothing used it. The minified bundle is
+  31 KB smaller. A page that still uses one of these without a bundle that
+  registers it gets the "no attribute handler claims it" warning after `load`.
+- **A low-level handler that omits `claims` now claims its own `name`**, as the
+  built-ins already did (client #172). Before, such a handler claimed nothing
+  and the census warned about its attribute. `claims: []` still claims
+  nothing.
+
+### Fixed
+
+- **`lvt-fx:scroll="bottom-sticky"` keeps following when one render adds many
+  rows** (client 0.25.11, client #173). It used to decide from the position
+  after the render, so a list that went from empty to 200 rows stopped
+  following. The reader's own scrolling now decides.
+
 ## [v0.25.11] - 2026-11-21
 
 ### Fixed

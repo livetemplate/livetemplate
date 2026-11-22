@@ -112,7 +112,9 @@ A low-level handler that sends reads `send` from each `setup()` call; the one fr
 
 Use `lvt-x:` or a prefix of your own, such as `lvt-acme:`. `lvt-fx:`, `lvt-el:` and `lvt-form:` belong to the framework and will grow.
 
-After the page's `load` event, the client warns once for each `lvt-*` name in the template that no handler claims. That usually means a typo or a script that failed to load:
+After the page's `load` event, the client warns once for each `lvt-*` name in the template that no handler claims. A handler that omits `claims` claims its own `name`, and `claims: []` claims nothing.
+
+A warning usually means a typo or a script that failed to load:
 
 ```
 lvt-x:hotky is used by this page's template, but no attribute handler claims it, …
