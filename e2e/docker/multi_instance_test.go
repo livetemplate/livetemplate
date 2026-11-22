@@ -16,8 +16,8 @@ import (
 
 const (
 	// Chrome navigates to servers via Docker network service names (container-to-container).
-	serverAURL  = "http://server-a:8080"
-	serverBURL  = "http://server-b:8080"
+	serverAURL = "http://server-a:8080"
+	serverBURL = "http://server-b:8080"
 	// Test runner connects to Chrome via exposed host port.
 	chromeWSURL = "ws://localhost:19222"
 )
@@ -37,7 +37,7 @@ func TestMain(m *testing.M) {
 		dockerComposeDown()
 		log.Fatalf("server-b not healthy: %v", err)
 	}
-	if err := waitForChrome(30*time.Second); err != nil {
+	if err := waitForChrome(30 * time.Second); err != nil {
 		dockerComposeDown()
 		log.Fatalf("chrome not ready: %v", err)
 	}
