@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
+### Removed
 
 - **The embedded client is now 0.25.12, which no longer ships prereview's
   attribute handlers.** `lvt-fx:area-select`, `lvt-fx:region-select`,
@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `lvt-fx:iframe-autoheight` is gone; nothing used it. The minified bundle is
   31 KB smaller. A page that still uses one of these without a bundle that
   registers it gets the "no attribute handler claims it" warning after `load`.
+
+### Changed
+
 - **A low-level handler that omits `claims` now claims its own `name`**, as the
   built-ins already did (client #172). Before, such a handler claimed nothing
   and the census warned about its attribute. `claims: []` still claims
