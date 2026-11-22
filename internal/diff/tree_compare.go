@@ -1,6 +1,8 @@
 package diff
 
 import (
+	"slices"
+
 	"github.com/livetemplate/livetemplate/internal/build"
 )
 
@@ -389,8 +391,8 @@ func handleNestedTreeNodes(
 	// complex structure checks with O(1) fingerprint comparison.
 	_, isRangeMatch := rangeMatches[fieldPath]
 
-	// Use fingerprint-based structure comparison for non-range matches
-	structureChanged := !isRangeMatch && ClientNeedsStatics(oldTreeNodePtr, newTreeNodePtr)
+	// Compare this node's OWN structure, not its descendants' (see ownStructureChanged).
+	structureChanged := !isRangeMatch && ownStructureChanged(oldTreeNodePtr, newTreeNodePtr)
 
 	// structureChanged means the statics differ, so the client cannot render this
 	// subtree from what it has cached — it needs the full tree, statics included.
@@ -434,7 +436,9 @@ func handleStaticOnlyChanges(k int, oldTreeNodePtr, newTreeNodePtr *TreeNode, ch
 	newIsEmpty := IsEmpty(newStripped)
 
 	// If both strip to empty (both static-only) but structures differ,
-	// the statics changed - use fingerprint comparison for efficient detection
+	// the statics changed - use fingerprint comparison for efficient detection.
+	// The recursive check is right here: a static-only subtree has no slots for
+	// the recursion to diff, so any change below means re-render the field.
 	if oldIsEmpty && newIsEmpty && ClientNeedsStatics(oldTreeNodePtr, newTreeNodePtr) {
 		// Structure fingerprints differ, so statics changed - send empty string
 		// to indicate the field should be re-rendered with new statics
@@ -485,6 +489,32 @@ func ClientNeedsStatics(oldTree, newTree *TreeNode) bool {
 
 	// If fingerprints match, client already has the static structure
 	return oldFingerprint != newFingerprint
+}
+
+// ownStructureChanged reports whether a nested node's own static shape changed:
+// its statics, or which of its slots are filled. A change further down, such as
+// an {{if}} flipping inside it, is diffed by the recursion in its own slot.
+// ClientNeedsStatics would compare the recursive fingerprint and resend every
+// ancestor of the change.
+//
+// A node that holds a range keeps the recursive check, as before this change: its
+// content lives in Range.Items, not Dynamics, so it stays on the path #489
+// hardened instead of relying on the recursion. A slot that becomes nil also
+// counts as changed, because compareDynamicSegments skips nil values and the
+// client would keep the old one.
+func ownStructureChanged(oldTree, newTree *TreeNode) bool {
+	if oldTree.Range != nil || newTree.Range != nil {
+		return ClientNeedsStatics(oldTree, newTree)
+	}
+	if !slices.Equal(oldTree.Statics, newTree.Statics) || len(oldTree.Dynamics) != len(newTree.Dynamics) {
+		return true
+	}
+	for i, v := range oldTree.Dynamics {
+		if (v == nil) != (newTree.Dynamics[i] == nil) {
+			return true
+		}
+	}
+	return false
 }
 
 // clientNeedsStaticsForValue determines if client needs statics for a dynamic value.

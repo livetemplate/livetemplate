@@ -5,6 +5,20 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **An `{{if}}` that flips inside another conditional sends only itself.** Each
+  nested node was compared by a fingerprint of everything below it. So one change
+  deep down made all its ancestors look new, and every enclosing branch went out
+  again with all its markup, on every flip. A page whose body sits in one
+  `{{if}}`/`{{else}}` resent the whole page each time a toast or panel appeared.
+  In prereview that was about 40 KB per flip on a small review and 420 KB on a
+  large one (prereview#273). A nested node is now compared by its own markup and
+  filled slots, and a change below it is diffed in its own slot. A node holding a
+  range still goes whole when its structure changes (#489).
+
 ## [v0.25.13] - 2026-11-22
 
 ### Fixed
