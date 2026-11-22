@@ -811,7 +811,7 @@ The cost of (b) is real and unchanged (prereview has no JS toolchain). What chan
 
 ### State
 
-Done: Phase 1 (client #159, lvt #344, merged 2026-08-31); Phase 2's livetemplate half (#532, v0.25.0); Phase 3 client + lvt e2e (client #163, lvt #345 + #346, merged 2026-11-14), released as client v0.25.3 + livetemplate v0.25.1, then client v0.25.4 + livetemplate v0.25.2 (a #164 tree fix); docs site on livetemplate v0.25.2 (docs #148, released as docs v0.6.0, 2026-11-15). lvt v0.3.0 and livetemplate v0.25.3 (client 0.25.5) released 2026-11-15. `ctx.signal` (client #166) released as client v0.25.6 + livetemplate v0.25.4; the wrapper fix (#540) as livetemplate v0.25.5, 2026-11-16. Tinkerdown #315 released as tinkerdown v0.4.1 (Homebrew tap updated); authoring guide #541, docs example docs #153 and the guide sync docs #151 merged 2026-11-17, with nav fix docs #155. Root fixes for the two #154/#155 workarounds released 2026-11-17: client #168 (v0.25.8, livetemplate v0.25.7) and tinkerdown #318/#319 (v0.4.2), with docs #157 and lvt #351 as their guards. Phase 3 is done; Phase 4 audit done 2026-11-19 (all ten still prereview-only, option C, ~30 KB estimated saving). Next: Phase 4 implementation (bundle shape settled as L12, guard as L13).
+Done: Phase 1 (client #159, lvt #344, merged 2026-08-31); Phase 2's livetemplate half (#532, v0.25.0); Phase 3 client + lvt e2e (client #163, lvt #345 + #346, merged 2026-11-14), released as client v0.25.3 + livetemplate v0.25.1, then client v0.25.4 + livetemplate v0.25.2 (a #164 tree fix); docs site on livetemplate v0.25.2 (docs #148, released as docs v0.6.0, 2026-11-15). lvt v0.3.0 and livetemplate v0.25.3 (client 0.25.5) released 2026-11-15. `ctx.signal` (client #166) released as client v0.25.6 + livetemplate v0.25.4; the wrapper fix (#540) as livetemplate v0.25.5, 2026-11-16. Tinkerdown #315 released as tinkerdown v0.4.1 (Homebrew tap updated); authoring guide #541, docs example docs #153 and the guide sync docs #151 merged 2026-11-17, with nav fix docs #155. Root fixes for the two #154/#155 workarounds released 2026-11-17: client #168 (v0.25.8, livetemplate v0.25.7) and tinkerdown #318/#319 (v0.4.2), with docs #157 and lvt #351 as their guards. Phase 3 is done; Phase 4 audit done 2026-11-19 (all ten still prereview-only, option C, ~30 KB estimated saving). Phase 4 implementation: client #172 and prereview #272 (gate passed, −31 KB). Client #172 merged and released as v0.25.12 on 2026-11-22. prereview #272 merged on that pin, and core #553 adopted it, released as livetemplate v0.25.12 (2026-11-22). Phase 4 is done. Next: Phase 5.
 
 ### Progress tracker
 
@@ -1034,16 +1034,20 @@ Applies to every phase; defined once here rather than repeated per block. Precon
       - **Size estimate (not the Implementation measurement):** a scratch build with the 11 registry entries removed (10 relocating plus iframe-autoheight) shrank the core bundle from 153,176 to 122,053 bytes. That is about 30.4 KB minified and about 9.7 KB gzipped, which clears the 25 KB gate. The baseline has grown from 141 KB to 153 KB since this plan was written, so the saving is about 20% of the current bundle.
 
 **Implementation**
-- [ ] Delete `handleIframeAutoHeightDirectives` + its teardown + tests
-- [ ] prereview: `package.json` + `tsconfig.json` + esbuild + jest; `make build-handlers` producing its own bundle; invert `sync-client` so prereview builds rather than only copies
-- [ ] Move the 10 handlers **and their tests** into prereview, rewritten as `AttributeHandler` objects registering through the public API — no internal imports from `@livetemplate/client`
-- [ ] prereview: `go:embed` the handler bundle beside the client bundle; add its `<script>` tag to `page.tmpl` after the existing `/livetemplate-client.js` tag
-- [ ] Delete the relocated handlers from the client repo, including `autoClickTimers`'s line in `__resetAnimatedElementsForTesting`, the extras rows in `tests/attribute-census.test.ts`, and the url-hash mention in `livetemplate-client.ts`'s `runOnConnect` comment
-- [ ] prereview: build the handler bundle with `import type` and `--external:@livetemplate/client` (L12); add a Go test that the bundle contains no client code, and one that the `@livetemplate/client` devDependency matches the vendored client's version
-- [ ] prereview: delete `internal/assets/clientguard_test.go` (L13). Add a CI job: `npm ci && make build-handlers && git diff --exit-code`. prereview's CI already runs the browser e2e on every PR, in 4 shards, so it covers behaviour
-- [ ] **Measure** core bundle before vs after; record the number in this plan
-- [ ] **Gate:** if the saving doesn't justify the disruption, stop and keep the handlers in core — that outcome is a success for the phase, not a failure.
+- [x] Delete `handleIframeAutoHeightDirectives` + its teardown + tests (client #172)
+- [x] prereview: `package.json` + `tsconfig.json` + esbuild + jest; `make build-handlers` producing its own bundle; invert `sync-client` so prereview builds rather than only copies (prereview #272, `handlers/`)
+- [x] Move the 10 handlers **and their tests** into prereview, rewritten as `AttributeHandler` objects registering through the public API — no internal imports from `@livetemplate/client` (prereview #272: bodies and tests unchanged apart from import paths; `src/index.ts` registers through `window.lvtAttributes`)
+- [x] prereview: `go:embed` the handler bundle beside the client bundle; add its `<script>` tag to `page.tmpl` after the existing `/livetemplate-client.js` tag
+- [x] Delete the relocated handlers from the client repo (client #172), including `autoClickTimers`'s line in `__resetAnimatedElementsForTesting`, the extras rows in `tests/attribute-census.test.ts`, and the url-hash mention in `livetemplate-client.ts`'s `runOnConnect` comment
+- [x] prereview: build the handler bundle with `import type` and `--external:@livetemplate/client` (L12); add a Go test that the bundle contains no client code (`TestHandlerBundleExcludesTheClient`). **Drift:** the version-match test was dropped. The vendored bundle carries no version string to compare, so `make sync-client` now copies the client from the npm package pinned in `handlers/package.json`, one pin for types and runtime, and the L13 job's `git diff` checks it
+- [x] prereview: delete `internal/assets/clientguard_test.go` (L13). Add a CI job: `npm ci && make build-handlers && git diff --exit-code` (the `handlers` job also runs `make sync-client`, so it checks the vendored client too). prereview's CI already runs the browser e2e on every PR, in 4 shards, so it covers behaviour
+- [x] **Measure** core bundle before vs after; record the number in this plan: **153,375 → 122,218 bytes minified (−31,157, 20.3%)**, 45,900 → 35,926 gzipped, both built from client `main` at v0.25.10. prereview's handler bundle is 30,098 bytes
+- [x] **Gate:** passed (31.2 KB ≥ 25 KB). If the saving doesn't justify the disruption, stop and keep the handlers in core — that outcome is a success for the phase, not a failure.
       **Threshold, set now rather than at the moment of maximum sunk cost:** relocation has to remove **≥ 25 KB minified** (~18% of the 141 KB baseline) from the core bundle. ~2,400 of 3,429 lines in `dom/directives.ts` should clear this comfortably; if it doesn't, that itself is the surprising finding and belongs in Learn.
+- [x] Release the client with `release.sh`: **v0.25.12** (#172 merged as 5a2f9fb). **Drift:** planned as 0.26.0, but `release.sh` requires the client's major.minor to match core's latest release, and core can't pin a client that isn't published yet, so a minor bump has to start in core. Released as a patch, since prereview was the only user
+- [x] prereview #272: pin `@livetemplate/client` 0.25.12, `make sync-client`, mark ready (d571a70, 2026-11-22)
+- [x] Merge prereview #272 with signoff (fdf649a, 2026-11-22)
+- [x] Core: `ClientVersion = "0.25.12"` plus a core release (#553, released as v0.25.12 on 2026-11-22). In the same PR, note in `docs/guides/custom-attributes.md` that `claims` defaults to `[name]`
 
 **Acceptance criteria**
 - **Simplify:** `/simplify` over the diff.
@@ -1052,6 +1056,18 @@ Applies to every phase; defined once here rather than repeated per block. Precon
 - **E2E:** prereview's chromedp suite — area-select, text-select, region-select, viewport-report all still work through the public registration path. Plus: a build with prereview's handler bundle omitted produces the Phase 2 warning and no crash.
 
 **Learn** — as above, **plus the API verdict**: list every place prereview needed something the public interface didn't offer. Each entry is a Phase 3 defect to fix before external users hit it. An empty list is the strongest possible evidence the registry is done.
+
+*2026-11-21, from client #172 and prereview #272:*
+- **API verdict: one gap, fixed in #172.** A low-level handler that omitted `claims` claimed nothing, but the built-ins got `[name]` through a mapping in `registerBuiltinHandlers`. That was the privileged path `builtin-handlers.ts`'s own header rules out. `registeredClaims` now defaults to `[name]` for everyone. Everything else prereview needed was already public:
+  - the low-level `setup`/`teardown`/`dispose` handler shape;
+  - `needsServerChannel` and `runOnConnect`;
+  - the `window.lvtAttributes` queue, which made the `LiveTemplateClient` global unnecessary.
+- **`needsServerChannel` has no core user now.** All six handlers that set it were prereview's. Unit tests in the client and `TestE2E_HandlerBundleDeepLinkOnLoad` in prereview keep it exercised.
+- **Order:** prereview's handlers now run after every core handler instead of mid-list. prereview's full e2e (243 tests) shows no difference, so no ordering primitive is needed.
+- **The `window.lvtAttributes` queue beats the global for a second bundle.** With it, registration works whichever script runs first, so L12's "register through the `LiveTemplateClient` global" became the queue.
+- **Re-audit before implementing (2026-11-21):** the census, the shared-helper map and the handler files had not changed since 11-19, though client 0.25.10, prereview v0.34.1 and tinkerdown v0.6.0 shipped in between. prereview's `assets.go` claimed the vendored client was gitignored; it is committed.
+- **The jest "worker failed to exit gracefully" warning** prints with and without this change, in both repos, and no single test file reproduces it. It is a teardown warning, not a failure, and not chased here.
+
 
 ---
 
