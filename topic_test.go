@@ -541,6 +541,35 @@ func TestTopic_V19_SymmetryCollisionWarning(t *testing.T) {
 	}
 }
 
+// A custom attribute declared with WithActionAttributes joins the wired set, so
+// publishing its action warns; without the declaration it doesn't.
+func TestTopic_SymmetryCollisionWarning_ActionAttributes(t *testing.T) {
+	const tmpl = `<div lvt-x:rating="Delete">x</div>`
+	for _, tc := range []struct {
+		name string
+		opts []Option
+		warn bool
+	}{
+		{"declared", []Option{WithActionAttributes("lvt-x:rating")}, true},
+		{"undeclared", nil, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sb := captureSlog(t)
+			opts := append([]Option{WithAuthenticator(&fixedGroupAuth{groupID: "g"})}, tc.opts...)
+			server, wsURL := setupTopicServer(t, &symmetryController{}, AsState(&probeState{}), tmpl, opts...)
+			defer server.Close()
+			ws := connectWS(t, wsURL)
+			defer func() { _ = ws.Close() }()
+
+			sendWSAction(t, ws, "pub_delete", nil)
+			_ = readWSUpdate(t, ws, 3*time.Second)
+			if got := strings.Contains(sb.String(), "Publish action name collides with a client-wired action"); got != tc.warn {
+				t.Errorf("collision warning = %v, want %v, in:\n%s", got, tc.warn, sb.String())
+			}
+		})
+	}
+}
+
 // ============================================================================
 // V12 — Subscribe on a plain HTTP GET: no error, normal render, ACL still ran.
 // ============================================================================

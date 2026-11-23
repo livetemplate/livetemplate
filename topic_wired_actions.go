@@ -1,6 +1,7 @@
 package livetemplate
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -15,8 +16,10 @@ import (
 // parallel to ExtractFormSchema (same input, same {{…}}-strip discipline). The
 // V19-pinned set is exactly: a name= on a submit-capable <button> or
 // <input type=submit|image>, and the action token of an lvt-on:<event>="X"
-// attribute. Widening this set is a deliberate, reviewable change to this one
-// function (and its test), not a moving target.
+// attribute, plus the value of any attribute the app declares with
+// WithActionAttributes (a custom handler that sends its value as an action).
+// Widening this set is a deliberate, reviewable change to this one function
+// (and its test), not a moving target.
 //
 // Normalization (Phase 2 — closes the Phase 1 round-4 limitation): the
 // dispatcher resolves a client name to a method via methodNameToActions
@@ -38,7 +41,31 @@ var (
 	lvtOnAttrRegex = regexp.MustCompile(`(?is)\blvt-on:[a-zA-Z][\w-]*\s*=\s*"([^"]*)"`)
 	// Leading method identifier of an lvt-on value ("Toggle('x')" → "Toggle").
 	actionIdentRegex = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*`)
+	// An attribute name WithActionAttributes accepts, after lowercasing.
+	actionAttrNameRegex = regexp.MustCompile(`^[a-z][a-z0-9_.:-]*$`)
 )
+
+// compileActionAttributes compiles one regex capturing the double-quoted values
+// of the WithActionAttributes names, matched case-insensitively. A name must
+// follow whitespace and precede "=", so data-lvt-x:rating and
+// lvt-x:rating-extra don't match lvt-x:rating. Returns nil for no names.
+func compileActionAttributes(names []string) (*regexp.Regexp, error) {
+	if len(names) == 0 {
+		return nil, nil
+	}
+	quoted := make([]string, len(names))
+	for i, name := range names {
+		name = strings.ToLower(name)
+		if !actionAttrNameRegex.MatchString(name) {
+			return nil, fmt.Errorf("livetemplate: WithActionAttributes: %q is not an attribute name", name)
+		}
+		if strings.HasPrefix(name, "lvt-on:") {
+			return nil, fmt.Errorf("livetemplate: WithActionAttributes: %q is an lvt-on: attribute, whose action is already extracted", name)
+		}
+		quoted[i] = regexp.QuoteMeta(name)
+	}
+	return regexp.MustCompile(`(?is)(?:^|\s)(?:` + strings.Join(quoted, "|") + `)\s*=\s*"([^"]*)"`), nil
+}
 
 // canonicalActionKey reduces an action/wired name to the snake_case form the
 // dispatcher's methodNameToActions collapses every style to, so two names that
@@ -53,7 +80,7 @@ func canonicalActionKey(name string) string { return toSnakeCase(name) }
 // first (mirrors extractFormSchemaFromTemplateStr) so a dynamic name="{{.X}}" /
 // lvt-on value collapses to empty and is skipped rather than recorded.
 // Returns nil when nothing is wired (the accessor treats nil as "no match").
-func extractWiredActionNames(templateStr string) map[string]struct{} {
+func extractWiredActionNames(templateStr string, actionAttrs *regexp.Regexp) map[string]struct{} {
 	stripped := templateDirectiveRegex.ReplaceAllString(templateStr, "")
 	set := make(map[string]struct{})
 	add := func(name string) {
@@ -82,11 +109,15 @@ func extractWiredActionNames(templateStr string) map[string]struct{} {
 		}
 	}
 
-	// lvt-on:<event>="Action" on any element.
-	for _, m := range lvtOnAttrRegex.FindAllStringSubmatch(stripped, -1) {
-		if ident := actionIdentRegex.FindString(strings.TrimSpace(m[1])); ident != "" {
-			add(ident)
+	// lvt-on:<event>="Action" on any element, and the declared attributes.
+	addValues := func(re *regexp.Regexp) {
+		for _, m := range re.FindAllStringSubmatch(stripped, -1) {
+			add(actionIdentRegex.FindString(strings.TrimSpace(m[1])))
 		}
+	}
+	addValues(lvtOnAttrRegex)
+	if actionAttrs != nil {
+		addValues(actionAttrs)
 	}
 
 	if len(set) == 0 {
