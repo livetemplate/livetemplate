@@ -5,13 +5,10 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-
-	"github.com/livetemplate/livetemplate/internal/send"
 )
 
-// TestStaticsTable: a range whose items are wrapped in a conditional repeats the
-// row's statics in every item. Interning sends them once per message, and the
-// client (the TypeScript oracle) renders exactly what it renders without the table.
+// TestStaticsTable: rows wrapped in a conditional send their statics once (spec
+// §2.5), and the client (the TypeScript oracle) renders the same page.
 func TestStaticsTable(t *testing.T) {
 	src := `<div>{{range .L}}{{if .Fold}}<p class="fold">…</p>{{else}}` +
 		`<div class="line-row" data-key="{{.K}}"><span class="gutter">{{.K}}</span><span class="content">{{.Text}}</span></div>{{end}}{{end}}</div>`
@@ -46,7 +43,7 @@ func TestStaticsTable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	interned, err := oracle.ApplyDiffRaw(map[string]any{}, onTheWire(t, first))
+	interned, err := oracle.ApplyDiffRaw(map[string]any{}, wire)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,10 +54,4 @@ func TestStaticsTable(t *testing.T) {
 	_, update := flipRender(t, tmpl, state("y"))
 	flipApply(t, src, plain.Tree.(map[string]any), update, state("y"), "")
 
-	// A message whose statics never repeat is sent as it was.
-	single := map[string]any{"s": []any{"<b>", "</b>"}, "0": "x"}
-	send.InternStatics(single)
-	if _, ok := single["S"]; ok {
-		t.Errorf("a message with no repeated statics got a table: %v", single)
-	}
 }

@@ -2,6 +2,7 @@ package send
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -56,28 +57,25 @@ func TestInternStatics(t *testing.T) {
 	}
 }
 
-// Indexes follow a fixed walk, so the same tree always encodes the same way.
+// Indexes follow content order, so the same tree always encodes the same way.
 func TestInternStaticsDeterministic(t *testing.T) {
 	in := `{"2":{"s":["x"]},"1":{"s":["y"]},"0":{"s":["x"]},"3":{"s":["y"]}}`
-	first := encode(t, func() map[string]interface{} { m := decode(t, in); InternStatics(m); return m }())
-	for range 20 {
+	var first string
+	for i := range 20 {
 		m := decode(t, in)
 		InternStatics(m)
-		if got := encode(t, m); got != first {
+		got := encode(t, m)
+		if i == 0 {
+			first = got
+		} else if got != first {
 			t.Fatalf("not deterministic: %s vs %s", got, first)
 		}
 	}
 }
 
 func BenchmarkInternStatics(b *testing.B) {
-	row := `{"0":{"0":"L%03d","1":"some text here","s":["<div class=\"line-row\"><span class=\"gutter\">","</span><span class=\"content\">","</span></div>"]}}`
-	items := ""
-	for i := range 400 {
-		if i > 0 {
-			items += ","
-		}
-		items += row
-	}
+	row := `{"0":{"0":"L1","1":"some text here","s":["<div class=\"line-row\"><span class=\"gutter\">","</span><span class=\"content\">","</span></div>"]}}`
+	items := strings.TrimSuffix(strings.Repeat(row+",", 400), ",")
 	src := `{"0":{"d":[` + items + `],"s":["",""]},"s":["<main>","</main>"]}`
 	b.ReportAllocs()
 	trees := make([]map[string]interface{}, b.N)
