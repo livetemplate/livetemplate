@@ -13,10 +13,12 @@ import "html/template"
 // change to browsers that are still talking to an older server. There is no
 // runtime version handshake between server and client, so an unpinned client is
 // unsafe: see the @livetemplate/client CHANGELOG (e.g. the __navigate__ action,
-// which is a no-op on older servers).
+// which is a no-op on older servers). A self-hosted client must match too: the
+// statics table (tree-update spec §2.5) needs client v0.26.0 or later, and an
+// older client renders a broken page.
 //
 // Maintainers: bump this in the same release that adopts a new client version.
-const ClientVersion = "0.25.12"
+const ClientVersion = "0.26.0"
 
 // clientCDNBase is the jsdelivr base URL for the pinned client bundle. jsdelivr
 // serves the published npm package @livetemplate/client.

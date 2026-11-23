@@ -5,6 +5,25 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Breaking: repeated statics are sent once per message.** The live handler
+  now puts each statics array that occurs at least twice in a message into a
+  top-level `"S"` table. Each repeat becomes `"s": <index>` (spec §2.5).
+  A range whose rows are wrapped in a conditional repeated the row's markup in
+  every item; in prereview that halves the update data for a file switch. The
+  table lasts for one message, so the client keeps no cache. With WebSocket
+  compression on, the network saving is smaller (about a quarter).
+
+  **Upgrade the client with the module.** Only `@livetemplate/client` v0.26.0
+  or later reads the table; an older one renders a broken page. Apps that load
+  the bundled client (`ClientScriptURL`) get the right one. An app that
+  self-hosts the client must update it in the same deploy, and tabs left open
+  across the deploy need a reload. `Template.ExecuteUpdates` still returns the
+  tree without the table; only what the live handler sends changes.
+
 ## [v0.26.1] - 2026-11-23
 
 ### Fixed

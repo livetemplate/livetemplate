@@ -37,8 +37,9 @@ type TreeMetadata struct {
 **TypeScript Representation (Client-side):**
 ```typescript
 interface TreeNode {
-  // Static content array (template structure)
-  "s"?: string[];
+  // Static content array (template structure), or an index into the
+  // message's statics table (§2.5)
+  "s"?: string[] | number;
 
   // Dynamic content slots (indexed by numeric strings)
   [key: `${number}`]: any;
@@ -69,7 +70,7 @@ interface TreeNode {
 The TreeNode serializes to a flat JSON object. Custom JSON marshaling ensures that `Dynamics` entries merge into the top-level object alongside reserved keys (`"s"`, `"d"`, `"f"`, `"m"`).
 
 #### Rules:
-1. The `"s"` key MUST contain an array of strings representing static HTML/text segments
+1. The `"s"` key MUST contain an array of strings representing static HTML/text segments, or, on the wire, an integer index into the message's statics table (§2.5)
 2. Numeric string keys (`"0"`, `"1"`, etc.) MUST be used for dynamic content slots
 3. The `"d"` key MUST be used exclusively for range construct data
 4. The `"f"` key contains the structure fingerprint (16 hex characters, MD5-based)
@@ -148,6 +149,26 @@ The `PrepareTreeForClient(node, clientHasStatics)` function implements wire form
 - Updates (`clientHasStatics=true`): strip statics and fingerprints to reduce payload
 
 Result: updates are typically ~10% the size of full renders since statics are the largest part.
+
+### 2.5 Statics Table
+
+A message sends each statics array that occurs **at least twice** in it once, in a top-level `"S"` array, and replaces every occurrence's `"s"` with that array's integer index. A range whose items are wrapped in a conditional repeats the same row statics in every item; the table sends them once.
+
+```json
+{
+  "S": [["<div class=\"row\">", "</div>"]],
+  "s": ["<main>", "</main>"],
+  "0": { "d": [{ "0": { "0": "a", "s": 0 } }, { "0": { "0": "b", "s": 0 } }], "s": ["", ""] }
+}
+```
+
+Rules:
+1. The table belongs to one message. A receiver MUST NOT keep it across messages, and an index refers only to the `"S"` of the message it arrives in.
+2. A receiver MUST resolve every index (at any depth, including inside range items and op payloads) before merging the message into its state, so its state only ever holds arrays.
+3. A message with no repeated statics has no `"S"`; one with `"S"` and an index outside it is malformed.
+4. Only `"s"` keys are interned. The positional statics of a `["i"]`/`["a"]`/`["p"]` op stay arrays.
+5. The server interns when sending, after the diff, so §2.3's rules about when statics are sent are unchanged. `Template.ExecuteUpdates` returns the tree without the table; the live handler adds it.
+6. A receiver that doesn't implement the table renders a broken page, so a server that sends `"S"` requires a client that reads it (`@livetemplate/client` v0.26.0 or later).
 
 ## 3. Template Construct Specifications
 
@@ -634,8 +655,15 @@ Range operations are set directly at the dynamic position (not wrapped in a `{"d
   "type": "object",
   "properties": {
     "s": {
+      "oneOf": [
+        { "type": "array", "items": { "type": "string" } },
+        { "type": "integer", "minimum": 0, "description": "Index into the message's statics table (top level only: \"S\")" }
+      ]
+    },
+    "S": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": { "type": "array", "items": { "type": "string" } },
+      "description": "Statics table, top-level node only (§2.5)"
     },
     "d": {
       "type": "array"

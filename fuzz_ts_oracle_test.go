@@ -15,6 +15,7 @@ import (
 	"github.com/livetemplate/livetemplate/internal/fuzz/invariants"
 	"github.com/livetemplate/livetemplate/internal/fuzz/mutations"
 	"github.com/livetemplate/livetemplate/internal/render"
+	"github.com/livetemplate/livetemplate/internal/send"
 	"pgregory.net/rapid"
 )
 
@@ -112,7 +113,7 @@ func runAsyncFuzzSessionWithTSOracle(t *testing.T, rng *rand.Rand, seed int64, n
 		if os.Getenv("DIFF_DEBUG") != "" {
 			debugInspectDiffTree("diffBuildTree", diffBuildTree)
 		}
-		diffMap := invariants.TreeToMap(diffBuildTree)
+		diffMap := onTheWire(t, invariants.TreeToMap(diffBuildTree))
 		if os.Getenv("DIFF_DEBUG") != "" {
 			diffJSON, _ := json.MarshalIndent(diffMap, "", "  ")
 			fmt.Printf("[TEST_DEBUG] diffMap after TreeToMap:\n%s\n", string(diffJSON))
@@ -215,7 +216,7 @@ func runModalFuzzSessionWithTSOracle(t *testing.T, rng *rand.Rand, seed int64, n
 		newBuildTree := convertToBuildTree(newTree)
 		diffBuildTree := convertToBuildTree(diffTree)
 
-		diffMap := invariants.TreeToMap(diffBuildTree)
+		diffMap := onTheWire(t, invariants.TreeToMap(diffBuildTree))
 		response, err := oracle.ApplyDiffRaw(oracleTreeMap, diffMap)
 		if err != nil {
 			t.Errorf("TypeScript oracle error at cycle %d (seed=%d, mutation=%s): %v", cycle, seed, mutation.Type, err)
@@ -345,7 +346,7 @@ func runNestedRangeOracleTemplate(t *testing.T, rng *rand.Rand, seed int64, numM
 		newBuildTree := convertToBuildTree(newTree)
 		diffBuildTree := convertToBuildTree(diffTree)
 
-		diffMap := invariants.TreeToMap(diffBuildTree)
+		diffMap := onTheWire(t, invariants.TreeToMap(diffBuildTree))
 		response, err := oracle.ApplyDiffRaw(oracleTreeMap, diffMap)
 		if err != nil {
 			t.Errorf("TypeScript oracle error at cycle %d (seed=%d, mutation=%s): %v", cycle, seed, mutation.String(), err)
@@ -600,7 +601,7 @@ func TestCloseAllModalBug_TSOracle(t *testing.T) {
 	newBuildTree := convertToBuildTree(newTree)
 	diffBuildTree := convertToBuildTree(diffTree)
 
-	diffMap := invariants.TreeToMap(diffBuildTree)
+	diffMap := onTheWire(t, invariants.TreeToMap(diffBuildTree))
 	response, err := oracle.ApplyDiffRaw(oracleTreeMap, diffMap)
 	if err != nil {
 		t.Errorf("TypeScript oracle error: %v", err)
@@ -690,4 +691,21 @@ func debugInspectValue(key string, value interface{}, depth int) {
 	default:
 		fmt.Printf("[TEST_DEBUG] %skey=%s: type=%T value=%v\n", indent, key, val, val)
 	}
+}
+
+// onTheWire returns a diff as a client receives it: JSON, with repeated
+// statics interned into the message's "S" table the way the live handler
+// sends it, so the oracle exercises the client's expand step on every diff.
+func onTheWire(t testing.TB, diff map[string]interface{}) map[string]interface{} {
+	t.Helper()
+	b, err := json.Marshal(diff)
+	if err != nil {
+		t.Fatalf("marshal diff: %v", err)
+	}
+	var wire map[string]interface{}
+	if err := json.Unmarshal(b, &wire); err != nil {
+		t.Fatalf("unmarshal diff: %v", err)
+	}
+	send.InternStatics(wire)
+	return wire
 }

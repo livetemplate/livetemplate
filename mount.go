@@ -786,17 +786,9 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Send initial tree
 	var buf bytes.Buffer
-	err = connTmpl.ExecuteUpdates(&buf, connSt.state, connSt.getMessages())
+	tree, err := renderUpdateTree(&buf, connTmpl, connSt.state, connSt.getMessages())
 	if err != nil {
 		slog.Error("Failed to generate initial tree",
-			slog.String("component", "live_handler"),
-			slog.Any("error", err))
-		return
-	}
-
-	var tree map[string]interface{}
-	if err := jsonutil.API.Unmarshal(buf.Bytes(), &tree); err != nil {
-		slog.Error("Failed to parse initial tree",
 			slog.String("component", "live_handler"),
 			slog.Any("error", err))
 		return
@@ -1009,17 +1001,9 @@ eventLoop:
 			connTmpl.pending = len(actionCtx.pendingAsync) > 0
 
 			// Generate tree update
-			buf.Reset()
-			if err = connTmpl.ExecuteUpdates(&buf, connSt.state, connSt.getMessages()); err != nil {
+			tree, err := renderUpdateTree(&buf, connTmpl, connSt.state, connSt.getMessages())
+			if err != nil {
 				slog.Error("Template update execution failed",
-					slog.String("component", "live_handler"),
-					slog.Any("error", err))
-				continue
-			}
-
-			var tree map[string]interface{}
-			if err := jsonutil.API.Unmarshal(buf.Bytes(), &tree); err != nil {
-				slog.Error("Failed to parse tree",
 					slog.String("component", "live_handler"),
 					slog.Any("error", err))
 				continue
@@ -1339,13 +1323,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 
 			var buf bytes.Buffer
-			if err := httpTmpl.ExecuteUpdates(&buf, connSt.state, connSt.getMessages()); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-
-			var tree map[string]any
-			if err := jsonutil.API.Unmarshal(buf.Bytes(), &tree); err != nil {
+			tree, err := renderUpdateTree(&buf, httpTmpl, connSt.state, connSt.getMessages())
+			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
@@ -1776,13 +1755,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// JS client: return JSON tree update (existing behavior)
 	var buf bytes.Buffer
-	if err = httpTmpl.ExecuteUpdates(&buf, connSt.state, connSt.getMessages()); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	var tree map[string]interface{}
-	if err := jsonutil.API.Unmarshal(buf.Bytes(), &tree); err != nil {
+	tree, err := renderUpdateTree(&buf, httpTmpl, connSt.state, connSt.getMessages())
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -2214,13 +2188,31 @@ func (h *liveHandler) sweepStaleHTTPTemplates() {
 	}
 }
 
+// renderUpdateTree renders tmpl's next update into buf and returns it as the
+// live handler sends it: decoded, with repeated statics interned (spec §2.5).
+func renderUpdateTree(buf *bytes.Buffer, tmpl *Template, data interface{}, messages map[string]string) (map[string]interface{}, error) {
+	buf.Reset()
+	if err := tmpl.ExecuteUpdates(buf, data, messages); err != nil {
+		return nil, fmt.Errorf("template update failed: %w", err)
+	}
+	var tree map[string]interface{}
+	if err := jsonutil.API.Unmarshal(buf.Bytes(), &tree); err != nil {
+		return nil, fmt.Errorf("failed to parse tree: %w", err)
+	}
+	send.InternStatics(tree)
+	return tree, nil
+}
+
 // hasStaticsInTree recursively checks if a tree contains any statics.
 // Used to determine if this is a full tree send or dynamics-only update.
 func hasStaticsInTree(tree map[string]interface{}) bool {
 	if tree == nil {
 		return false
 	}
-	// Check for statics at current level
+	// Check for statics at current level, or a statics table (spec §2.5)
+	if _, ok := tree["S"]; ok {
+		return true
+	}
 	if s, ok := tree["s"]; ok {
 		if arr, ok := s.([]interface{}); ok && len(arr) > 0 {
 			return true
@@ -2261,19 +2253,11 @@ func (h *liveHandler) sendUpdate(conn *session.Connection, data interface{}, mes
 		return fmt.Errorf("invalid template type in connection")
 	}
 
-	// Generate update using the connection's template
-	err := tmpl.ExecuteUpdates(&buf, data, messages)
+	tree, err := renderUpdateTree(&buf, tmpl, data, messages)
 	if err != nil {
-		return fmt.Errorf("template update failed: %w", err)
+		return err
 	}
 
-	// Parse tree from buffer
-	var tree map[string]interface{}
-	if err := jsonutil.API.Unmarshal(buf.Bytes(), &tree); err != nil {
-		return fmt.Errorf("failed to parse tree: %w", err)
-	}
-
-	// Wrap with metadata
 	response := UpdateResponse{
 		Tree: tree,
 		Meta: &ResponseMetadata{
