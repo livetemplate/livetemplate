@@ -802,6 +802,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	send.InternStatics(tree)
 	response := UpdateResponse{
 		Tree: tree,
 		Meta: &ResponseMetadata{
@@ -1025,6 +1026,7 @@ eventLoop:
 				continue
 			}
 
+			send.InternStatics(tree)
 			response := UpdateResponse{
 				Tree: tree,
 				Meta: &ResponseMetadata{
@@ -1350,6 +1352,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
+			send.InternStatics(tree)
 			response := UpdateResponse{
 				Tree: tree,
 				Meta: &ResponseMetadata{
@@ -1787,6 +1790,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	send.InternStatics(tree)
 	response := UpdateResponse{
 		Tree: tree,
 		Meta: &ResponseMetadata{
@@ -2274,6 +2278,7 @@ func (h *liveHandler) sendUpdate(conn *session.Connection, data interface{}, mes
 	}
 
 	// Wrap with metadata
+	send.InternStatics(tree)
 	response := UpdateResponse{
 		Tree: tree,
 		Meta: &ResponseMetadata{

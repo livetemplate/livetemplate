@@ -40,7 +40,7 @@ func flipRender(t *testing.T, tmpl *Template, data any) (string, map[string]any)
 func flipApply(t *testing.T, src string, client, update map[string]any, data any, wire string) (map[string]any, string) {
 	t.Helper()
 	oracle := getTSOracle(t)
-	resp, err := oracle.ApplyDiffRaw(client, update)
+	resp, err := oracle.ApplyDiffRaw(client, onTheWire(t, update))
 	if err != nil {
 		t.Fatalf("oracle: %v", err)
 	}
