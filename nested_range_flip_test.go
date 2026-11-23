@@ -91,6 +91,46 @@ func TestNestedRangeItemGainsThread(t *testing.T) {
 	}
 }
 
+// TestNestedRangeThreeLevels: a flip in a range three levels down (line > card >
+// reply) is a ["u"] chain down to the reply, not a resend of any outer range.
+func TestNestedRangeThreeLevels(t *testing.T) {
+	src := `<div>{{range .L}}<p data-key="{{.K}}">{{.K}}{{range .Cards}}<i data-key="{{.ID}}">{{.ID}}` +
+		`{{range .Replies}}<s data-key="{{.ID}}">{{.ID}}{{if .Liked}}<b>liked</b>{{end}}</s>{{end}}</i>{{end}}</p>{{end}}</div>`
+	type reply struct {
+		ID    string
+		Liked bool
+	}
+	type card struct {
+		ID      string
+		Replies []reply
+	}
+	type line struct {
+		K     string
+		Cards []card
+	}
+	state := func(liked bool) map[string]any {
+		lines := make([]line, 30)
+		for i := range lines {
+			lines[i] = line{K: fmt.Sprintf("L%02d", i)}
+		}
+		lines[5].Cards = []card{{ID: "c1", Replies: []reply{{ID: "r1", Liked: liked}, {ID: "r2"}}}}
+		return map[string]any{"L": lines}
+	}
+	tmpl := flipTemplate(t, src)
+	_, client := flipRender(t, tmpl, state(false))
+	for _, liked := range []bool{true, false} {
+		wire, update := flipRender(t, tmpl, state(liked))
+		if strings.Contains(wire, `"L00"`) || strings.Contains(wire, `"r2"`) || len(wire) > 250 {
+			t.Errorf("liked=%v: sent %d bytes, want a [\"u\"] chain down to reply r1: %s", liked, len(wire), wire)
+		}
+		var html string
+		client, html = flipApply(t, src, client, update, state(liked), wire)
+		if strings.Contains(html, "<b>liked</b>") != liked {
+			t.Errorf("liked=%v: the page is wrong: %s", liked, normalizeHTMLForTest(html))
+		}
+	}
+}
+
 // TestContiguousInsert: a run of new items inserted at one place is one insertion,
 // whatever its length. A run of four or more used to count as four insertion
 // points, over the cap of three, and resent the whole range (115 KB on prereview's
@@ -118,6 +158,43 @@ func TestContiguousInsert(t *testing.T) {
 			wire, update := flipRender(t, tmpl, next)
 			if strings.Contains(wire, `"r00"`) || !strings.Contains(wire, `"i"`) {
 				t.Errorf("want [\"i\"] ops for the run only, got %d bytes: %s", len(wire), wire)
+			}
+			flipApply(t, src, client, update, next, wire)
+		})
+	}
+	// Runs placed by index into base: each run is one insertion point, so up to
+	// three runs stay incremental and four fall back.
+	runsAt := func(at ...int) []string {
+		var out []string
+		for i := 0; i <= len(base); i++ {
+			for _, a := range at {
+				if a == i {
+					out = append(out, fmt.Sprintf("n%da", i), fmt.Sprintf("n%db", i), fmt.Sprintf("n%dc", i), fmt.Sprintf("n%dd", i))
+				}
+			}
+			if i < len(base) {
+				out = append(out, base[i])
+			}
+		}
+		return out
+	}
+	for _, tc := range []struct {
+		name     string
+		at       []int
+		fallback bool
+	}{
+		{"run at the start", []int{0}, false},
+		{"run at the end", []int{30}, false},
+		{"two runs", []int{5, 20}, false},
+		{"four runs", []int{3, 10, 17, 24}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpl := flipTemplate(t, src)
+			_, client := flipRender(t, tmpl, map[string]any{"L": base})
+			next := map[string]any{"L": runsAt(tc.at...)}
+			wire, update := flipRender(t, tmpl, next)
+			if got := strings.Contains(wire, `"r00"`); got != tc.fallback {
+				t.Errorf("resent the range = %v, want %v: %s", got, tc.fallback, wire)
 			}
 			flipApply(t, src, client, update, next, wire)
 		})

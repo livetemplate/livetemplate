@@ -396,9 +396,9 @@ func nestedUpdateHasUnexplainedStatics(payload map[string]interface{}) bool {
 				}
 			}
 		case []interface{}:
-			// Range ops nested deeper follow the same rules; a new range's item
-			// list (part of a node whose shape is new) carries statics the client
-			// has never had.
+			// Range ops nested deeper follow the same rules. Any other list is
+			// a new range's item list, part of a node whose shape is new, so its
+			// statics are ones the client has never had: it is skipped on purpose.
 			if isRangeOps(val) {
 				return containsUnexplainedStatics(val)
 			}
@@ -414,7 +414,7 @@ func nestedUpdateHasUnexplainedStatics(payload map[string]interface{}) bool {
 }
 
 // isRangeOps reports whether v is a list of range ops (["u", …], ["i", …], …)
-// rather than a range's item list.
+// rather than a range's item list: its first entry is a list led by an op code.
 func isRangeOps(v []interface{}) bool {
 	if len(v) == 0 {
 		return false
@@ -423,9 +423,12 @@ func isRangeOps(v []interface{}) bool {
 	if !ok || len(op) == 0 {
 		return false
 	}
-	_, ok = op[0].(string)
-	return ok
+	code, _ := op[0].(string)
+	return rangeOpCodes[code]
 }
+
+// rangeOpCodes are the range diff ops of the tree-update specification.
+var rangeOpCodes = map[string]bool{"r": true, "u": true, "i": true, "a": true, "p": true, "o": true}
 
 // itemUpdatePayload converts an item's recursive-diff changes tree into the wire
 // payload map the client deep-merges into the retained item (nested range diffs
