@@ -5,6 +5,18 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A page that uses a recursive template keeps its trailing scripts outside
+  the live wrapper.** The `{{define}}` blocks for recursive templates were
+  appended after `</html>`, in the same text the wrapper was injected into, and
+  their tags reset the scan for trailing `<script>` tags. So the `data-lvt-id`
+  wrapper closed after the scripts, and they became part of the region the
+  client morphs. The blocks now stay out of the page's text: only the template
+  parses get them.
+
 ## [v0.27.0] - 2026-11-23
 
 ### Changed

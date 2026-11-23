@@ -361,61 +361,49 @@ func TestNormalizeTemplateSpacing(t *testing.T) {
 	}
 }
 
-// TestExtractTemplateBodyContent_WithAttributes tests body tags with attributes.
-// TestExtractTemplateBodyContentSliced pins the pure-slicer contract and the
-// sliced flag. Extraction no longer knows anything about recursion {{define}}
-// blocks — it reports whether a <body> region was cut out, and the caller uses
-// that to decide whether the tail it owns needs re-attaching (issue #496).
-// The re-attachment itself is pinned a layer up by
+// TestExtractTemplateBodyContentSlice pins the pure-slicer contract: the body
+// region between the tags, or the input from the body open onward when there
+// is no usable close. It knows nothing about recursion {{define}} blocks; the
+// caller appends those (issue #496), pinned a layer up by
 // TestRecursiveTemplate_BodyContentCarriesDefines.
-func TestExtractTemplateBodyContentSliced(t *testing.T) {
+func TestExtractTemplateBodyContentSlice(t *testing.T) {
 	tests := []struct {
-		name       string
-		input      string
-		expected   string
-		wantSliced bool
+		name     string
+		input    string
+		expected string
 	}{
 		{
-			"full doc slices the body and reports it",
+			"full doc slices the body",
 			`<html><body><ul><li>x</li></ul></body></html>`,
 			`<ul><li>x</li></ul>`,
-			true,
 		},
 		{
-			"content after </html> is dropped, not rescued",
+			"content after </html> is dropped",
 			`<html><body><ul>{{template "n" .}}</ul></body></html>{{define "n"}}<li>{{.}}</li>{{end}}`,
 			`<ul>{{template "n" .}}</ul>`,
-			true,
 		},
 		{
-			"fragment (no body) returned as-is, defines and all",
+			"fragment (no body) returned as-is",
 			`{{define "n"}}<li>{{.}}</li>{{end}}<ul>{{template "n" .}}</ul>`,
 			`{{define "n"}}<li>{{.}}</li>{{end}}<ul>{{template "n" .}}</ul>`,
-			false,
 		},
 		{
-			// Nothing was cut, so the caller must not append a tail the result
-			// already contains.
 			"no </body> keeps everything from the body open onward",
 			`<html><body>X{{define "a"}}A{{end}}`,
 			`X{{define "a"}}A{{end}}`,
-			false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, sliced := ExtractTemplateBodyContentSliced(tt.input)
-			if result != tt.expected {
-				t.Errorf("body: expected %q, got %q", tt.expected, result)
-			}
-			if sliced != tt.wantSliced {
-				t.Errorf("sliced: expected %v, got %v", tt.wantSliced, sliced)
+			if got := ExtractTemplateBodyContent(tt.input); got != tt.expected {
+				t.Errorf("expected %q, got %q", tt.expected, got)
 			}
 		})
 	}
 }
 
+// TestExtractTemplateBodyContent_WithAttributes tests body tags with attributes.
 func TestExtractTemplateBodyContent_WithAttributes(t *testing.T) {
 	tests := []struct {
 		name     string

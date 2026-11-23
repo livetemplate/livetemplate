@@ -241,44 +241,22 @@ func injectWrapperDivStringBased(htmlDoc string, wrapperID string, loadingDisabl
 //
 // This is purely a slice between the body tags and knows nothing about what
 // produced the template. Recursive {{template}} support needs FlattenTemplate's
-// {{define}} blocks, which sit after </html> and so fall outside this slice —
-// the caller appends them, having received them from FlattenTemplate directly.
-// This function used to rescan for them, which quietly made an HTML slicer
-// depend on FlattenTemplate's output layout (issue #496).
+// {{define}} blocks; they are kept out of the document, and the caller appends
+// them, having received them from FlattenTemplate directly (issue #496).
 func ExtractTemplateBodyContent(templateStr string) string {
-	body, _ := ExtractTemplateBodyContentSliced(templateStr)
-	return body
-}
-
-// ExtractTemplateBodyContentSliced is ExtractTemplateBodyContent plus whether a
-// <body>…</body> region was actually sliced out — meaning anything after the
-// body close was dropped from the result.
-//
-// Callers holding template source that belongs after the document need this to
-// know whether to re-attach it. FlattenTemplate's recursion {{define}} blocks
-// are the case in point: they sit past </html>, so a real slice drops them and
-// they must be appended back, while the paths that return the input unchanged
-// still contain them and must not have them appended twice.
-//
-// Reporting the fact is the point — a caller inferring it by comparing strings
-// or rescanning for "{{define" is how this function ended up encoding
-// FlattenTemplate's output layout in the first place (issue #496).
-func ExtractTemplateBodyContentSliced(templateStr string) (body string, sliced bool) {
 	bodyOpenStart, bodyOpenEnd, bodyCloseStart, _ := locateBodyAndTrailingScripts(templateStr)
 	if bodyOpenStart < 0 {
-		return templateStr, false
+		return templateStr
 	}
 	// bodyCloseStart < 0 covers "no </body> at all".
 	// bodyOpenEnd > bodyCloseStart covers pathological input like
 	// "</body><body>x" where the only </body> precedes the body open
 	// tag — slicing [open:close] would panic. Treat both as "no usable
-	// close" and fall through to TrimSpace from body open onward. That keeps
-	// everything from the body open to the end, tail included, so nothing was
-	// dropped and sliced stays false.
+	// close" and fall through to TrimSpace from body open onward.
 	if bodyCloseStart < 0 || bodyOpenEnd > bodyCloseStart {
-		return strings.TrimSpace(templateStr[bodyOpenEnd:]), false
+		return strings.TrimSpace(templateStr[bodyOpenEnd:])
 	}
-	return strings.TrimSpace(templateStr[bodyOpenEnd:bodyCloseStart]), true
+	return strings.TrimSpace(templateStr[bodyOpenEnd:bodyCloseStart])
 }
 
 // ExtractTemplateContent extracts template content using wrapper ID with proper HTML parsing.
