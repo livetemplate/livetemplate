@@ -64,3 +64,38 @@ func TestItemUsesRangeTemplate(t *testing.T) {
 		}
 	}
 }
+
+// A stream state with no exemplar can't scope a reshaped item's statics, so the
+// range falls back to a full replace rather than sending a stripped ["u"].
+func TestStreamOps_ReshapedWithoutExemplar_FallsBack(t *testing.T) {
+	item := func(nested *TreeNode) *TreeNode {
+		return &TreeNode{Dynamics: []interface{}{"k1", nested}}
+	}
+	statics := []string{`<li data-key="`, `">`, `</li>`}
+	old := item(&TreeNode{Statics: []string{""}})
+	state := &build.RangeStreamState{
+		Keys:        []string{"k1"},
+		Hashes:      []uint64{1},
+		Fingerprint: build.CalculateStaticsFingerprint(old),
+	}
+	reshaped := item(&TreeNode{Statics: []string{"<b>", "</b>"}, Dynamics: []interface{}{"x"}})
+	if ops := GenerateRangeStreamOperations(state, []interface{}{reshaped}, statics, nil, true); ops != nil {
+		t.Errorf("want nil (full replace) without an exemplar, got %v", ops)
+	}
+	state.Exemplar = exemplarShape(old)
+	if ops := GenerateRangeStreamOperations(state, []interface{}{reshaped}, statics, nil, true); len(ops) != 1 {
+		t.Errorf("with an exemplar, want one [\"u\"], got %v", ops)
+	}
+}
+
+// exemplarShape keeps structure and drops values.
+func TestExemplarShape(t *testing.T) {
+	in := &TreeNode{Statics: []string{"<p>", "|", "</p>"}, Dynamics: []interface{}{
+		"secret value", &TreeNode{Statics: []string{"<b>", "</b>"}, Dynamics: []interface{}{"inner value"}}, nil,
+	}}
+	out := exemplarShape(in)
+	inner, ok := out.Dynamics[1].(*TreeNode)
+	if out.Dynamics[0] != "" || !ok || inner.Dynamics[0] != "" || out.Dynamics[2] != nil || len(inner.Statics) != 2 {
+		t.Errorf("want statics and slot kinds kept, values dropped: %#v", out)
+	}
+}

@@ -174,7 +174,8 @@ type RangeStreamState struct {
 	// Fingerprint is the homogeneity-check snapshot; mismatch on a later render triggers het-range fallback.
 	Fingerprint string
 
-	// Exemplar is one item from when the range went to stream mode. Every item had
+	// Exemplar is the shape of one item (statics and nested structure, no values)
+	// from when the range went to stream mode. Every item had
 	// its shape then, so a later item whose nested shape differs (an {{if}} inside
 	// flipped) is diffed against it to send statics only for the slots that changed.
 	// Only its structure is read, never its values, and nothing mutates it, so a

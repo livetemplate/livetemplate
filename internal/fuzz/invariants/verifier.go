@@ -338,10 +338,8 @@ func hasUnexpectedStatics(tree *build.TreeNode) bool {
 					// diff may; never at the item's own level, whose template is
 					// the range's.
 					if opType == "u" && len(opArray) >= 3 {
-						if changes, ok := opArray[2].(map[string]any); ok {
-							if _, has := changes["s"]; has {
-								return true
-							}
+						if changes, ok := opArray[2].(map[string]any); ok && updateHasItemStatics(changes) {
+							return true
 						}
 					}
 				}
@@ -349,6 +347,45 @@ func hasUnexpectedStatics(tree *build.TreeNode) bool {
 		}
 	}
 
+	return false
+}
+
+// updateHasItemStatics reports item-level statics in a ["u"] payload: at its own
+// level, or in a ["u"] of a nested range op array anywhere inside it (nested range
+// ops follow the same rules as top-level ones; inserts may carry statics).
+func updateHasItemStatics(changes map[string]any) bool {
+	if _, has := changes["s"]; has {
+		return true
+	}
+	var walk func(v any) bool
+	walk = func(v any) bool {
+		switch val := v.(type) {
+		case map[string]any:
+			for _, c := range val {
+				if walk(c) {
+					return true
+				}
+			}
+		case []any:
+			for _, e := range val {
+				op, ok := e.([]any)
+				if !ok || len(op) < 3 {
+					continue
+				}
+				if t, _ := op[0].(string); t == "u" {
+					if inner, ok := op[2].(map[string]any); ok && updateHasItemStatics(inner) {
+						return true
+					}
+				}
+			}
+		}
+		return false
+	}
+	for _, v := range changes {
+		if walk(v) {
+			return true
+		}
+	}
 	return false
 }
 

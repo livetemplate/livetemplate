@@ -232,6 +232,11 @@ func GenerateRangeStreamOperations(
 		newHashes = append(newHashes, keys.ItemHashUint64(itemNode.Dynamics))
 	}
 
+	// Without an exemplar a reshaped item's statics can't be scoped; replace the range.
+	if len(reshaped) > 0 && streamState.Exemplar == nil {
+		return nil
+	}
+
 	ctx := newStreamRangeContext(streamState.Keys, newItems, statics, metadata)
 	if ctx.hasRepeatedKeys() {
 		return nil
@@ -310,9 +315,9 @@ func generateKeptItemUpdateOps(ctx *rangeContext, operations []interface{}) ([]i
 		rangeMatches := FindRangeConstructMatches(oldNode, newNode)
 		itemChanges := CompareTreesAndGetChangesWithPath(oldNode, newNode, false, "", rangeMatches)
 		payload := itemUpdatePayload(itemChanges, ctx.keyPos)
-		// Statics are expected after a nested flip. Without one, statics in the
-		// payload come from a NESTED range inserting a sub-item, which keeps the
-		// full-range replace.
+		// Statics are expected after a nested flip, and a nested range's insert may
+		// ride along in the same ["u"]. Without a flip, statics in the payload come
+		// from a NESTED range inserting a sub-item, which keeps the full-range replace.
 		if len(payload) == 0 || (!structureChanged && containsStatics(payload)) {
 			return nil, false
 		}

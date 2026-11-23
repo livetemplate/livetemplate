@@ -861,9 +861,10 @@ func TestGenerateRangeDifferentialOperations_PureStructural_StillEmitsOps(t *tes
 // conditional-branch flip pattern: a kept item's nested TreeNode flips Statics
 // (e.g. {{if .Done}}<s>{{end}}) with no Dynamics change. The hash check alone
 // would miss this (empty Dynamics → identical hash); the statics fingerprint
-// comparison catches it. A kept item whose nested node changed shape (here its statics) while the item's
-// own template is unchanged sends a ["u"] carrying that node's new statics, not a
-// full-range replace. Only an item whose OWN statics changed still falls back.
+// comparison catches it. A kept item whose nested node changed shape (here its
+// statics) while the item's own template is unchanged sends a ["u"] carrying that
+// node's new statics, not a full-range replace. Only an item whose OWN statics
+// changed still falls back.
 func TestGenerateRangeDifferentialOperations_StaticsOnlyChange(t *testing.T) {
 	itemStatics := []string{`<li data-key="`, `">`, "</li>"}
 	rangeStatics := []string{"<ul>", "</ul>"}
