@@ -5,6 +5,24 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **An `{{if}}` that flips inside an item of a nested range updates that item
+  only.** The whole outer range used to go out again. A nested range's `["u"]`
+  carries the flipped slot's statics, and the outer item's diff rejected any
+  statics it couldn't explain. In prereview each comment card sits in a code
+  line, so editing, closing a box, or an agent's reply resent every line (about
+  105 KB of uncompressed update data each on a 420-line diff). Now the outer
+  `["u"]` carries the inner one. Statics inside a new node, including a new
+  range that appears with it, ride along too.
+- **A run of four or more items inserted in one place is one insert.** It used to
+  resend the range. Each new item counted its predecessor as an insertion point,
+  even a new one, so a contiguous run of four went over the three-point cap. Now
+  a run counts once. Scattered inserts at four or more places still resend the
+  range.
+
 ## [v0.26.0] - 2026-11-23
 
 ### Added
@@ -26,7 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   flip failed both range paths: stream mode's same-shape check, then the
   per-item check. Every item then went out again with its markup. In prereview
   each code line is a range item with a cursor conditional, so one ArrowDown
-  resent the file: about 490 KB per keystroke on 300 lines, now about 300 bytes.
+  resent the file: about 490 KB of uncompressed update data per keystroke on 300
+  lines, now about 300 bytes.
   The changed item now gets a `["u"]` that carries the flipped slot's new
   statics. A new item of another shape gets an `["a"]` or `["i"]`. An item whose
   own template changes still resends the range.
@@ -47,10 +66,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   deep down made all its ancestors look new, and every enclosing branch went out
   again with all its markup, on every flip. A page whose body sits in one
   `{{if}}`/`{{else}}` resent the whole page each time a toast or panel appeared.
-  In prereview that was about 40 KB per flip on a small review and 420 KB on a
-  large one (prereview#273). A nested node is now compared by its own markup and
-  filled slots, and a change below it is diffed in its own slot. A node holding a
-  range still goes whole when its structure changes (#489).
+  In prereview that was about 40 KB of uncompressed update data per flip on a
+  small review and 420 KB on a large one (prereview#273). A nested node is now
+  compared by its own markup and filled slots, and a change below it is diffed
+  in its own slot. A node holding a range still goes whole when its structure
+  changes (#489).
 
 ## [v0.25.13] - 2026-11-22
 
