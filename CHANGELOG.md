@@ -22,6 +22,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a run counts once. Scattered inserts at four or more places still resend the
   range.
 
+## [v0.26.0] - 2026-11-23
+
+### Added
+
+- **`WithActionAttributes` declares custom attributes whose value is an action
+  name**, such as `lvt-x:rating="SetRating"` whose handler sends its value.
+  Their values join the wired-action set, so `ctx.Publish` warns when it
+  publishes one of those names, as it already does for `<button name>` and
+  `lvt-on:`. Names match case-insensitively, only double-quoted values are
+  read, and `New` returns an error for a malformed name or one starting with
+  `lvt-on:` (#473 Phase 5).
+
 ## [v0.25.15] - 2026-11-23
 
 ### Fixed
