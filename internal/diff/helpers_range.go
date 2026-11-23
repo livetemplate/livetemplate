@@ -232,21 +232,33 @@ func isComplexInsertionPatternCtx(ctx *rangeContext) bool {
 		return false
 	}
 
+	// A run of contiguous new items is one insertion point, anchored on the item
+	// before the run: the cap is about scattered inserts, and a block inserted in
+	// one place is one insert whatever its length.
 	insertionPoints := make(map[string]bool, len(ctx.addedKeys))
+	inRun := false
 	for i, item := range ctx.newItems {
-		if keyStr, ok := ctx.getItemKey(item); ok {
-			if _, inOld := ctx.oldKeySet[keyStr]; !inOld {
-				var insertionPoint string
-				if i > 0 {
-					if prevKeyStr, ok := ctx.getItemKey(ctx.newItems[i-1]); ok {
-						insertionPoint = prevKeyStr + ":after"
-					}
-				} else {
-					insertionPoint = "start"
-				}
-				insertionPoints[insertionPoint] = true
-			}
+		keyStr, ok := ctx.getItemKey(item)
+		if !ok {
+			inRun = false
+			continue
 		}
+		if _, inOld := ctx.oldKeySet[keyStr]; inOld {
+			inRun = false
+			continue
+		}
+		if !inRun {
+			var insertionPoint string
+			if i > 0 {
+				if prevKeyStr, ok := ctx.getItemKey(ctx.newItems[i-1]); ok {
+					insertionPoint = prevKeyStr + ":after"
+				}
+			} else {
+				insertionPoint = "start"
+			}
+			insertionPoints[insertionPoint] = true
+		}
+		inRun = true
 	}
 
 	return len(insertionPoints) > maxInsertionPoints
