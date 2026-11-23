@@ -235,7 +235,7 @@ type TemplateSet struct {
 // for generating tree-based updates that can be efficiently transmitted to clients.
 type Template struct {
 	name                   string
-	templateStr            string
+	templateStr            string // The flattened page alone, without recursionDefines: re-parsing a recursive template needs templateStr + recursionDefines
 	tmpl                   *template.Template
 	wrapperID              string
 	funcs                  template.FuncMap

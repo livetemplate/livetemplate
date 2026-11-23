@@ -240,9 +240,9 @@ func injectWrapperDivStringBased(htmlDoc string, wrapperID string, loadingDisabl
 // to avoid being fooled by '<body' substrings in head content.
 //
 // This is purely a slice between the body tags and knows nothing about what
-// produced the template. Recursive {{template}} support needs FlattenTemplate's
-// {{define}} blocks; they are kept out of the document, and the caller appends
-// them, having received them from FlattenTemplate directly (issue #496).
+// produced the template. Its input is the page alone: FlattenTemplate's
+// recursion {{define}} blocks are not part of it, and a caller that needs them
+// appends them to the result (issue #496).
 func ExtractTemplateBodyContent(templateStr string) string {
 	bodyOpenStart, bodyOpenEnd, bodyCloseStart, _ := locateBodyAndTrailingScripts(templateStr)
 	if bodyOpenStart < 0 {
