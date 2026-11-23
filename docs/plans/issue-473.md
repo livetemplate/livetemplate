@@ -1094,10 +1094,10 @@ Applies to every phase; defined once here rather than repeated per block. Precon
   because: the wired set is built at parse, before any client connects, and the census only flows server to client
 - A value is read the way `lvt-on:` values are: `{{…}}` stripped, double-quoted, leading identifier (`Rate('x')` → `Rate`), stored under `canonicalActionKey`. Attribute names match case-insensitively, because HTML lowercases them.
   alternative: none considered
-- `New` returns an error for an empty name, a name that isn't attribute-shaped, or one starting with `lvt-on:` (already extracted).
+- `New` lowercases each name and drops duplicates without an error. It returns an error for a name that doesn't match `^[a-z][a-z0-9_.:-]*$` after lowercasing (so an empty name fails), and for a name starting with `lvt-on:`, which is already extracted.
   alternative: accept and ignore
   because: `New` already returns errors for bad option values, and a silently ignored typo would make the warning look covered when it isn't
-- The docs example opts in for `lvt-x:rating`, and the custom-attributes guide documents the option under "Sharing a handler".
+- The docs example opts in for `lvt-x:rating`, and the custom-attributes guide documents the option under "Sharing a handler", marked "from v0.26.0". The guide section lands in the core PR.
   alternative: guide only
   because: feature work ships with a runnable example. The example change is release-gated on the core version
 
@@ -1109,14 +1109,14 @@ Applies to every phase; defined once here rather than repeated per block. Precon
 **Files**
 - `template.go`: the `Config` field, the option, `New` validation, and the `extractWiredActionNames` call in `Parse`
 - `topic_wired_actions.go`: the extraction, and its header's list of what the wired set holds
-- `topic_wired_actions_test.go`, `topic_context_test.go` (new? if the Publish warning test has no home)
+- `topic_wired_actions_test.go` (extraction and `New` validation), `topic_test.go` (the `ctx.Publish` warning, beside `TestTopic_V19_SymmetryCollisionWarning`)
 - `docs/guides/custom-attributes.md`, `CHANGELOG.md`
 - docs repo: `examples/custom-attributes/handler.go`, `go.mod`
 
 **Assumptions to verify before building**
 - [x] `New` applies every option before it parses (`WithParseFS`, `WithParseFiles` or discovery), so option order doesn't matter
 - [x] `Clone()` shares `wiredActions`, so per-session clones see declared attributes without re-parsing
-- [ ] A template parsed by `Parse` on a `Template` built without `New` has an empty `Config`, so it declares nothing. Confirm no path parses before `t.config` is set
+- [x] No path parses before `t.config` is set: a `Template` is only built in `New` and `Clone()` (both in `template.go`), and both set `config` first
 
 **Acceptance criteria**
 - **Simplify:** `/simplify` over the diff.
