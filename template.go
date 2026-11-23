@@ -96,6 +96,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -169,6 +170,8 @@ type Config struct {
 	ProgressiveEnhancement bool                                // Enable non-JS form submission support with PRG pattern (default: true)
 	TrustForwardedHeaders  bool                                // Trust forwarded scheme headers (X-Forwarded-Proto, RFC 7239 Forwarded) for scheme detection (default: true)
 	DispatchBufferSize     int                                 // Broadcast dispatch channel buffer per connection (default: 16)
+	ActionAttributes       []string                            // WithActionAttributes: custom attributes whose value is an action name
+	actionAttrRegex        *regexp.Regexp                      // compiled from ActionAttributes by New; nil when none are declared
 
 	// TopicACL gates every developer (non-lvt:) topic Subscribe. nil unless
 	// WithTopicACL is set. Mutually exclusive with OpenTopics (enforced at New()).
@@ -546,6 +549,16 @@ func WithPermissiveOriginCheck() Option {
 func WithIgnoreTemplateDirs(dirs ...string) Option {
 	return func(c *Config) {
 		c.IgnoreTemplateDirs = append(c.IgnoreTemplateDirs, dirs...)
+	}
+}
+
+// WithActionAttributes declares custom attributes whose value is an action
+// name, such as lvt-x:rating="SetRating", so ctx.Publish's collision warning
+// covers them. New returns an error for a name that isn't attribute-shaped or
+// that starts with lvt-on:.
+func WithActionAttributes(names ...string) Option {
+	return func(c *Config) {
+		c.ActionAttributes = append(c.ActionAttributes, names...)
 	}
 }
 
@@ -1062,6 +1075,12 @@ func New(name string, opts ...Option) (*Template, error) {
 		return nil, fmt.Errorf("livetemplate: WithTopicACL and WithOpenTopics are mutually exclusive (set exactly one, or neither for deny-all)")
 	}
 
+	actionAttrRegex, err := compileActionAttributes(config.ActionAttributes)
+	if err != nil {
+		return nil, err
+	}
+	config.actionAttrRegex = actionAttrRegex
+
 	// Resolve the origin policy once, after options are applied. Handle installs
 	// it on its own copy of the upgrader and on the HTTP action path.
 	config.originCheck = resolveOriginCheck(config)
@@ -1305,7 +1324,7 @@ func (t *Template) parseInternal(text string, baseTemplate *template.Template) (
 	t.formSchema = extractFormSchemaFromTemplateStr(text)
 	t.precomputeAllow = parse.CollectReferencedIdentsFromTemplate(tmpl)
 	t.attributeCensus = extractAttributeNames(text)
-	t.wiredActions = extractWiredActionNames(text)
+	t.wiredActions = extractWiredActionNames(text, t.config.actionAttrRegex)
 	if t.wiredActions != nil {
 		t.wiredCollisionWarned = &sync.Map{}
 	} else {

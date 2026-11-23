@@ -131,6 +131,14 @@ Push onto the queue and never bundle `@livetemplate/client`: a bundled copy has 
   crossorigin="anonymous"></script>
 ```
 
+If a handler sends its attribute's value as an action, as `lvt-x:rating` does, declare that attribute on the server (from v0.26.0):
+
+```go
+tmpl, err := livetemplate.New("app", livetemplate.WithActionAttributes("lvt-x:rating"))
+```
+
+Then `ctx.Publish` warns when it publishes an action an element on the page also sends, as it does for `<button name>` and `lvt-on:`. Without the declaration the server can't tell an action name from any other value. Only double-quoted values are read.
+
 ## Testing a handler
 
 ```ts
