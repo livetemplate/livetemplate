@@ -316,9 +316,12 @@ func generateKeptItemUpdateOps(ctx *rangeContext, operations []interface{}) ([]i
 		itemChanges := CompareTreesAndGetChangesWithPath(oldNode, newNode, false, "", rangeMatches)
 		payload := itemUpdatePayload(itemChanges, ctx.keyPos)
 		// Statics are expected after a nested flip, and a nested range's insert may
-		// ride along in the same ["u"]. Without a flip, statics in the payload come
-		// from a NESTED range inserting a sub-item, which keeps the full-range replace.
-		if len(payload) == 0 || (!structureChanged && containsStatics(payload)) {
+		// ride along in the same ["u"]. Without a flip here, statics may still come
+		// from an inner item's flip, inside a nested range's ["u"] (that diff
+		// already falls back when an inner item's own template changes). Any other
+		// statics, such as a nested range inserting a sub-item, keep the full-range
+		// replace.
+		if len(payload) == 0 || (!structureChanged && containsUnexplainedStatics(payload)) {
 			return nil, false
 		}
 		operations = append(operations, []interface{}{"u", key, payload})
@@ -337,30 +340,97 @@ func itemChange(oldNode, newNode *TreeNode) (structureChanged, contentChanged bo
 	return
 }
 
-// containsStatics reports whether a ["u"] payload carries statics anywhere (an "s"
-// key at any depth, including inside nested range-op arrays like
-// {"2": [["u", k, {"s": …}]]}). Such a payload is not a valid dynamics-only update
-// — the range must fall back to a full replace.
-func containsStatics(v interface{}) bool {
+// containsUnexplainedStatics reports statics anywhere in a ["u"] payload (an "s"
+// key at any depth, including in nested range-op arrays), except those a nested
+// range's ["u"] legitimately carries: inside a nested node of its payload, where
+// an inner item's {{if}} flipped. An inner ["u"]'s own item-level "s", statics in
+// nested inserts, and statics outside any range op still count.
+func containsUnexplainedStatics(v interface{}) bool {
 	switch val := v.(type) {
 	case map[string]interface{}:
 		if _, ok := val["s"]; ok {
 			return true
 		}
 		for _, e := range val {
-			if containsStatics(e) {
+			if containsUnexplainedStatics(e) {
 				return true
 			}
 		}
 	case []interface{}:
 		for _, e := range val {
-			if containsStatics(e) {
+			op, ok := e.([]interface{})
+			if !ok || len(op) < 3 {
+				if containsUnexplainedStatics(e) {
+					return true
+				}
+				continue
+			}
+			// A ["u"] whose payload isn't a map is malformed; it gets the full
+			// check below, so any statics in it keep the full-range replace.
+			if p, ok := op[2].(map[string]interface{}); ok && op[0] == "u" {
+				if nestedUpdateHasUnexplainedStatics(p) {
+					return true
+				}
+				continue
+			}
+			if containsUnexplainedStatics(op) {
 				return true
 			}
 		}
 	}
 	return false
 }
+
+// nestedUpdateHasUnexplainedStatics checks a nested range's ["u"] payload: its own
+// item-level "s" counts; statics inside its nested nodes don't, but range ops
+// nested deeper are checked again by the same rules.
+func nestedUpdateHasUnexplainedStatics(payload map[string]interface{}) bool {
+	if _, ok := payload["s"]; ok {
+		return true
+	}
+	var walk func(v interface{}) bool
+	walk = func(v interface{}) bool {
+		switch val := v.(type) {
+		case map[string]interface{}:
+			for k, e := range val {
+				if k != "s" && walk(e) {
+					return true
+				}
+			}
+		case []interface{}:
+			// Range ops nested deeper follow the same rules. Any other list is
+			// a new range's item list, part of a node whose shape is new, so its
+			// statics are ones the client has never had: it is skipped on purpose.
+			if isRangeOps(val) {
+				return containsUnexplainedStatics(val)
+			}
+		}
+		return false
+	}
+	for _, e := range payload {
+		if walk(e) {
+			return true
+		}
+	}
+	return false
+}
+
+// isRangeOps reports whether v is a list of range ops (["u", …], ["i", …], …)
+// rather than a range's item list: its first entry is a list led by an op code.
+func isRangeOps(v []interface{}) bool {
+	if len(v) == 0 {
+		return false
+	}
+	op, ok := v[0].([]interface{})
+	if !ok || len(op) == 0 {
+		return false
+	}
+	code, _ := op[0].(string)
+	return rangeOpCodes[code]
+}
+
+// rangeOpCodes are the range diff ops of the tree-update specification.
+var rangeOpCodes = map[string]bool{"r": true, "u": true, "i": true, "a": true, "p": true, "o": true}
 
 // itemUpdatePayload converts an item's recursive-diff changes tree into the wire
 // payload map the client deep-merges into the retained item (nested range diffs
