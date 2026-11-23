@@ -5,7 +5,7 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [v0.26.1] - 2026-11-23
+## [Unreleased]
 
 ### Changed
 
@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   self-hosts the client must update it in the same deploy, and tabs left open
   across the deploy need a reload. `Template.ExecuteUpdates` still returns the
   tree without the table; only what the live handler sends changes.
+
+## [v0.26.1] - 2026-11-23
 
 ### Fixed
 
