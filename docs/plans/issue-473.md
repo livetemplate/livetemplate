@@ -811,7 +811,7 @@ The cost of (b) is real and unchanged (prereview has no JS toolchain). What chan
 
 ### State
 
-Done: Phase 1 (client #159, lvt #344, merged 2026-08-31); Phase 2's livetemplate half (#532, v0.25.0); Phase 3 client + lvt e2e (client #163, lvt #345 + #346, merged 2026-11-14), released as client v0.25.3 + livetemplate v0.25.1, then client v0.25.4 + livetemplate v0.25.2 (a #164 tree fix); docs site on livetemplate v0.25.2 (docs #148, released as docs v0.6.0, 2026-11-15). lvt v0.3.0 and livetemplate v0.25.3 (client 0.25.5) released 2026-11-15. `ctx.signal` (client #166) released as client v0.25.6 + livetemplate v0.25.4; the wrapper fix (#540) as livetemplate v0.25.5, 2026-11-16. Tinkerdown #315 released as tinkerdown v0.4.1 (Homebrew tap updated); authoring guide #541, docs example docs #153 and the guide sync docs #151 merged 2026-11-17, with nav fix docs #155. Root fixes for the two #154/#155 workarounds released 2026-11-17: client #168 (v0.25.8, livetemplate v0.25.7) and tinkerdown #318/#319 (v0.4.2), with docs #157 and lvt #351 as their guards. Phase 3 is done; Phase 4 audit done 2026-11-19 (all ten still prereview-only, option C, ~30 KB estimated saving). Phase 4 implementation: client #172 and prereview #272 (gate passed, −31 KB). Client #172 merged and released as v0.25.12 on 2026-11-22. prereview #272 merged on that pin, and core #553 adopted it, released as livetemplate v0.25.12 (2026-11-22). Phase 4 is done. Next: Phase 5.
+Done: Phase 1 (client #159, lvt #344, merged 2026-08-31); Phase 2's livetemplate half (#532, v0.25.0); Phase 3 client + lvt e2e (client #163, lvt #345 + #346, merged 2026-11-14), released as client v0.25.3 + livetemplate v0.25.1, then client v0.25.4 + livetemplate v0.25.2 (a #164 tree fix); docs site on livetemplate v0.25.2 (docs #148, released as docs v0.6.0, 2026-11-15). lvt v0.3.0 and livetemplate v0.25.3 (client 0.25.5) released 2026-11-15. `ctx.signal` (client #166) released as client v0.25.6 + livetemplate v0.25.4; the wrapper fix (#540) as livetemplate v0.25.5, 2026-11-16. Tinkerdown #315 released as tinkerdown v0.4.1 (Homebrew tap updated); authoring guide #541, docs example docs #153 and the guide sync docs #151 merged 2026-11-17, with nav fix docs #155. Root fixes for the two #154/#155 workarounds released 2026-11-17: client #168 (v0.25.8, livetemplate v0.25.7) and tinkerdown #318/#319 (v0.4.2), with docs #157 and lvt #351 as their guards. Phase 3 is done; Phase 4 audit done 2026-11-19 (all ten still prereview-only, option C, ~30 KB estimated saving). Phase 4 implementation: client #172 and prereview #272 (gate passed, −31 KB). Client #172 merged and released as v0.25.12 on 2026-11-22. prereview #272 merged on that pin, and core #553 adopted it, released as livetemplate v0.25.12 (2026-11-22). Phase 4 is done. Phase 5 audit done 2026-11-23: the tinkerdown allowlist and the release order were already handled. Next: the wired-action extension, then a core release.
 
 ### Progress tracker
 
@@ -820,8 +820,8 @@ Done: Phase 1 (client #159, lvt #344, merged 2026-08-31); Phase 2's livetemplate
 | 1 | Registry + core handler migration | M1 | client | ☑ done — client #159, lvt #344 |
 | 2 | Attribute census + diagnostics | M1 | livetemplate, client | ◐ **server half done** — client half moved into Phase 3 |
 | 3 | Public API surface + authoring docs | M1 | client, docs, tinkerdown | ☑ done — client #163/#166, lvt #345/#346/#350, livetemplate #540/#541, docs #151/#153/#154/#155/#157, tinkerdown #315/#318/#319, client #168, lvt #351 |
-| 4 | Extraction — relocate prereview's handlers | M2 | client, prereview | ☐ not started |
-| 5 | Downstream lockstep release | M2 | livetemplate, prereview, tinkerdown | ☐ not started |
+| 4 | Extraction — relocate prereview's handlers | M2 | client, prereview | ☑ done — client #172, prereview #272, livetemplate #553 (v0.25.12) |
+| 5 | Downstream lockstep release | M2 | livetemplate, prereview, tinkerdown | ◐ audit done; wired-action extension planned |
 | 6 | Per-element hooks | M3 | client, livetemplate | ☐ deferred — outline only |
 
 ### LLM session guide
@@ -1078,19 +1078,55 @@ Applies to every phase; defined once here rather than repeated per block. Precon
 **Design refs:** § Server-side changes 4, § Non-goals (blast radius), § Affected files (downstream table).
 
 **Audit** *(do first)*
-- [ ] Confirm the blast radius is still exactly prereview + tinkerdown — re-grep rather than trusting this plan's census.
-- [ ] Confirm no docs example acquired an extras attribute since the census (zero did as of 2026-07-26).
+- [x] Confirm the blast radius is still exactly prereview + tinkerdown. **2026-11-23:** the same grep over every checkout under `~/code/livetemplate` and `~/code/adnaan` finds the ten attributes only in prereview. Elsewhere they appear in changelogs, plans, the census list in client `tests/attribute-census.test.ts` and one comment in `attribute_census.go`
+- [x] Confirm no docs example acquired an extras attribute since the census. None did. The one custom attribute that sends an action is `lvt-x:rating="SetRating"` in `docs/examples/custom-attributes/`, and that app never calls `ctx.Publish`
+- [x] **Found done already:** tinkerdown #367 removed the five prereview entries from `vocabulary.go` after `TestKnownAttributesAreReal` failed on client 0.25.12. `docs/reference/lvt-attributes.md` names none of the ten. tinkerdown v0.7.5 bundles client `^0.25.12` on livetemplate v0.25.13
+- [x] **Found done already:** the release order held. Core v0.25.12 shipped first (client 0.25.12), then prereview v0.35.0 with #272 pinned to 0.25.12, then tinkerdown v0.7.x. prereview's `main` CI, browser e2e shards included, is green on that pin
+- [x] **Superseded:** the "split `vocabulary.go` into core + app-extensible vocabulary" item. Phase 3 decided against an app-declared attribute list, because `embed-lvt` apps register their own handlers inside `<body>` (Phase 3 drift, the tinkerdown item)
+- [x] **No current demand for the wired-action extension:** prereview's six `send()` handlers never meet `ctx.Publish`, and neither does the docs example. Built anyway, by the user's decision on 2026-11-23, so the collision warning covers every way an element can dispatch an action
+
+**Decisions** *(2026-11-23, wired-action extension)*
+- An app declares which custom attributes carry an action name with a core option, `WithActionAttributes(names ...string)`. Their values join the wired-action set that `ctx.Publish`'s collision warning checks.
+  alternative: infer it, treating every identifier-shaped `lvt-*` value outside the known namespaces as an action
+  because: `lvt-fx:scroll="bottom-sticky"` and `lvt-x:copy="https://…"` would then be actions, and `topic_wired_actions.go` promises the warning never fires for two names that cannot dispatch to one method
+- The declaration lives on the server, not on the client handler.
+  alternative: a `sendsActionFrom` field on the handler, advertised to the server
+  because: the wired set is built at parse, before any client connects, and the census only flows server to client
+- A value is read the way `lvt-on:` values are: `{{…}}` stripped, double-quoted only (a single-quoted `lvt-on:` value isn't extracted today either, and a test pins both), leading identifier (`Rate('x')` → `Rate`), stored under `canonicalActionKey`. `New` compiles one case-insensitive regex from the declared names, each through `regexp.QuoteMeta`, and `Parse` reuses it, so a template costs one extra scan. The regex anchors on an attribute boundary: whitespace before the name, optional whitespace then `=` after it, so `data-lvt-x:rating` and `lvt-x:rating-extra` don't match `lvt-x:rating`. With no names the regex is nil and `Parse` skips the scan. Like the `lvt-on:` scan, it reads raw template text, so a match inside a comment or `<script>` also counts; that only widens a dev warning, and a test pins it.
+  alternative: `parseHTMLAttributes` on every element
+  because: it would parse every tag's attributes to find a few names, where one regex skips them
+- `New` lowercases each name and drops duplicates without an error. Both checks below run after lowercasing, so `LVT-ON:foo` fails. It returns an error for a name that doesn't match `^[a-z][a-z0-9_.:-]*$` after lowercasing (so an empty name fails), and for a name starting with `lvt-on:`, which is already extracted.
+  alternative: accept and ignore
+  because: `New` already returns errors for bad option values, and a silently ignored typo would make the warning look covered when it isn't
+- Any other name is accepted, framework namespaces included (`lvt-fx:`, `lvt-el:`).
+  alternative: reject every framework namespace
+  because: the option is an explicit opt-in, and a declared name that isn't an action only widens a dev warning
+- The docs example opts in for `lvt-x:rating`, and the custom-attributes guide documents the option under "Sharing a handler", marked "from v0.26.0", and says declared attributes need double-quoted values. The guide section lands in the core PR.
+  alternative: guide only
+  because: feature work ships with a runnable example. The example change is release-gated on the core version
 
 **Implementation**
-- [ ] Extend wired-action extraction to custom `send()` action names (§ Server-side changes 4)
-- [ ] tinkerdown: split `vocabulary.go` into core vocabulary + app-extensible vocabulary; update `docs/reference/lvt-attributes.md` to describe the relocated attributes as prereview's, not the framework's
-- [ ] Release core → client → downstreams, in that order, via `release.sh`
+- [ ] Core: `Config.ActionAttributes`, `WithActionAttributes` plus its `New` validation, and `extractWiredActionNames(text, actionAttrs)` reading the declared attributes. Tests in `topic_wired_actions_test.go` cover the declared attribute, a case mismatch, a dynamic value, a single-quoted value staying out (for `lvt-on:` too), a declared attribute inside `{{range}}`, an undeclared attribute staying out, a duplicate declaration in another case, a `.` in a name matching literally, the two boundary cases (`data-` prefix, `-extra` suffix), `WithActionAttributes()` with no names being a no-op, and the `New` errors. Existing callers in tests pass `nil`; `Parse` passes `t.config.ActionAttributes`. A `Publish` test checks that a declared attribute's action warns. Guide section plus CHANGELOG `[Unreleased]`
+- [ ] Release core with `release.sh` (minor: new public API → v0.26.0). `ClientVersion` stays 0.25.12. `check_client_pin` in `scripts/release.sh` compares the pin only with the latest client release (`version_order "$pinned" "$latest"`), so no override is needed. Run `release.sh --dry-run` first to confirm it. The next client release then becomes 0.26.x
+- [ ] docs: bump to the new core, add `WithActionAttributes("lvt-x:rating")` to the example, and sync the guide
+
+**Files**
+- `template.go`: the `Config` field, the option, `New` validation, and the `extractWiredActionNames` call in `Parse`
+- `topic_wired_actions.go`: the extraction, and its header's list of what the wired set holds
+- `topic_wired_actions_test.go` (extraction and `New` validation), `topic_test.go` (the `ctx.Publish` warning, beside `TestTopic_V19_SymmetryCollisionWarning`)
+- `docs/guides/custom-attributes.md`, `CHANGELOG.md`
+- docs repo: `examples/custom-attributes/handler.go`, `go.mod`
+
+**Assumptions to verify before building**
+- [x] `New` applies every option before it parses (`WithParseFS`, `WithParseFiles` or discovery), so option order doesn't matter
+- [x] `Clone()` shares `wiredActions`, so per-session clones see declared attributes without re-parsing
+- [x] No path parses before `t.config` is set: a `Template` is only built in `New` and `Clone()` (both in `template.go`), and both set `config` first
 
 **Acceptance criteria**
 - **Simplify:** `/simplify` over the diff.
-- **Unit:** wired-action extraction picks up a custom action name.
-- **Integration:** prereview's suite green against the released client; tinkerdown's vocabulary tests green.
-- **E2E:** prereview's chromedp suite on the released artifacts, not local builds.
+- **Unit:** `TestExtractWiredActionNames` cases for a declared attribute; a `ctx.Publish` of a declared attribute's action logs the collision warning once.
+- **Integration:** prereview's suite green against the released core; tinkerdown's vocabulary tests green (`go test ./...` in each).
+- **E2E:** the docs example's chromedp test still passes with the option set, on the released core.
 
 **Learn** — as above.
 
