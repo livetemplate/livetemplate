@@ -365,8 +365,10 @@ func containsUnexplainedStatics(v interface{}) bool {
 				}
 				continue
 			}
-			if code, _ := op[0].(string); code == "u" {
-				if p, ok := op[2].(map[string]interface{}); ok && nestedUpdateHasUnexplainedStatics(p) {
+			// A ["u"] whose payload isn't a map is malformed; it gets the full
+			// check below, so any statics in it keep the full-range replace.
+			if p, ok := op[2].(map[string]interface{}); ok && op[0] == "u" {
+				if nestedUpdateHasUnexplainedStatics(p) {
 					return true
 				}
 				continue

@@ -131,6 +131,50 @@ func TestNestedRangeThreeLevels(t *testing.T) {
 	}
 }
 
+// TestNestedRangeFallbackResendsOuter: when a range three levels down resends
+// itself (inserts at five scattered places), its item list carries statics for a
+// range the client already has. A kept item's ["u"] does not carry those, so the
+// outer range is resent whole. The page must still come out right.
+func TestNestedRangeFallbackResendsOuter(t *testing.T) {
+	src := `<div>{{range .L}}<p data-key="{{.K}}">{{.K}}{{range .Cards}}<i data-key="{{.ID}}">{{.ID}}` +
+		`{{range .Replies}}<s data-key="{{.}}">{{.}}</s>{{end}}</i>{{end}}</p>{{end}}</div>`
+	type card struct {
+		ID      string
+		Replies []string
+	}
+	type line struct {
+		K     string
+		Cards []card
+	}
+	base := make([]string, 30)
+	var scattered []string
+	for i := range base {
+		base[i] = fmt.Sprintf("r%02d", i)
+		scattered = append(scattered, base[i])
+		if i%6 == 0 {
+			scattered = append(scattered, fmt.Sprintf("s%d", i))
+		}
+	}
+	state := func(replies []string) map[string]any {
+		lines := make([]line, 30)
+		for i := range lines {
+			lines[i] = line{K: fmt.Sprintf("L%02d", i)}
+		}
+		lines[5].Cards = []card{{ID: "c1", Replies: replies}, {ID: "c2"}}
+		return map[string]any{"L": lines}
+	}
+	tmpl := flipTemplate(t, src)
+	_, client := flipRender(t, tmpl, state(base))
+	wire, update := flipRender(t, tmpl, state(scattered))
+	if !strings.Contains(wire, `"L00"`) {
+		t.Errorf("want the outer range resent, got %d bytes: %s", len(wire), wire)
+	}
+	_, html := flipApply(t, src, client, update, state(scattered), wire)
+	if !strings.Contains(html, `<s data-key="s24">s24</s>`) {
+		t.Errorf("the scattered replies are missing: %s", normalizeHTMLForTest(html))
+	}
+}
+
 // TestContiguousInsert: a run of new items inserted at one place is one insertion,
 // whatever its length. A run of four or more used to count as four insertion
 // points, over the cap of three, and resent the whole range (115 KB on prereview's
