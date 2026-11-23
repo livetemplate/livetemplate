@@ -3,6 +3,7 @@
 package diff
 
 import (
+	"slices"
 	"sort"
 
 	"github.com/livetemplate/livetemplate/internal/build"
@@ -204,21 +205,36 @@ func GenerateRangeStreamOperations(
 	keyPos := FindKeyPositionFromStatics(statics)
 	newKeys := make([]string, 0, len(newItems))
 	newHashes := make([]uint64, 0, len(newItems))
+	// reshaped: items whose nested shape left the range's fingerprint (an {{if}}
+	// inside flipped) while their own markup is the range's item template. Their
+	// ["u"] keeps nested statics; any other shape change falls back.
+	var reshaped map[string]bool
 
 	for _, item := range newItems {
 		itemNode, ok := item.(*TreeNode)
 		if !ok {
 			return nil
 		}
-		if build.CalculateStaticsFingerprint(itemNode) != streamState.Fingerprint {
-			return nil
-		}
 		key, ok := getItemKeyWithPos(item, keyPos)
 		if !ok {
 			return nil
 		}
+		if build.CalculateStaticsFingerprint(itemNode) != streamState.Fingerprint {
+			if !itemUsesRangeTemplate(itemNode, statics) {
+				return nil
+			}
+			if reshaped == nil {
+				reshaped = map[string]bool{}
+			}
+			reshaped[key] = true
+		}
 		newKeys = append(newKeys, key)
 		newHashes = append(newHashes, keys.ItemHashUint64(itemNode.Dynamics))
+	}
+
+	// Without an exemplar a reshaped item's statics can't be scoped; replace the range.
+	if len(reshaped) > 0 && streamState.Exemplar == nil {
+		return nil
 	}
 
 	ctx := newStreamRangeContext(streamState.Keys, newItems, statics, metadata)
@@ -251,7 +267,7 @@ func GenerateRangeStreamOperations(
 
 	operations := make([]interface{}, 0, 4)
 	operations = generateStreamRemovalOps(streamState.Keys, ctx.newByKey, operations)
-	operations = generateStreamUpdateOps(newItems, newKeys, newHashes, oldHashByKey, ctx.keyPos, operations)
+	operations = generateStreamUpdateOps(newItems, newKeys, newHashes, oldHashByKey, reshaped, streamState.Exemplar, ctx.keyPos, operations)
 	// Inserts keep nested statics: client renders new DOM without a per-position branch-statics cache.
 	operations = generateInsertionOps(ctx, operations)
 
@@ -285,23 +301,24 @@ func generateKeptItemUpdateOps(ctx *rangeContext, operations []interface{}) ([]i
 			return nil, false
 		}
 		structureChanged, contentChanged := itemChange(oldNode, newNode)
-		// A changed statics fingerprint means the item's own structure changed (a
-		// conditional branch flipped in/out); it needs statics a dynamics-only ["u"]
-		// cannot carry, so fall back to a full-range replace. Decided from the
-		// fingerprint up front, before spending a recursive diff on it.
-		if structureChanged {
+		// The fingerprint covers everything inside the item. When only something
+		// nested changed shape (an {{if}} flipped), the item's own markup is the same
+		// and the recursive diff below sends just that slot, with its new statics,
+		// inside the ["u"]; the client merges it like any other update. Only an item
+		// whose own markup changed falls back to a full-range replace.
+		if structureChanged && ownStructureChanged(oldNode, newNode) {
 			return nil, false
 		}
-		if !contentChanged {
+		if !structureChanged && !contentChanged {
 			continue
 		}
 		rangeMatches := FindRangeConstructMatches(oldNode, newNode)
 		itemChanges := CompareTreesAndGetChangesWithPath(oldNode, newNode, false, "", rangeMatches)
 		payload := itemUpdatePayload(itemChanges, ctx.keyPos)
-		// The item's own structure is unchanged, but a NESTED range may have inserted
-		// a sub-item whose statics ride in the payload — still not a valid
-		// dynamics-only update, so fall back to a full-range replace.
-		if len(payload) == 0 || containsStatics(payload) {
+		// Statics are expected after a nested flip, and a nested range's insert may
+		// ride along in the same ["u"]. Without a flip, statics in the payload come
+		// from a NESTED range inserting a sub-item, which keeps the full-range replace.
+		if len(payload) == 0 || (!structureChanged && containsStatics(payload)) {
 			return nil, false
 		}
 		operations = append(operations, []interface{}{"u", key, payload})
@@ -373,31 +390,52 @@ func generateStreamRemovalOps(oldKeys []string, newByKey map[string]interface{},
 }
 
 // generateStreamUpdateOps emits whole-item dynamics on hash mismatch (proposal §5c).
+// A reshaped item (see GenerateRangeStreamOperations) keeps statics for the nested
+// slots whose shape differs from the exemplar's: the client has only the old ones.
 func generateStreamUpdateOps(
 	newItems []interface{},
 	newKeys []string,
 	newHashes []uint64,
 	oldHashByKey map[string]uint64,
+	reshaped map[string]bool,
+	exemplar *TreeNode,
 	keyPos int,
 	operations []interface{},
 ) []interface{} {
 	for i, key := range newKeys {
 		oldHash, exists := oldHashByKey[key]
-		if !exists || oldHash == newHashes[i] {
+		if !exists || (oldHash == newHashes[i] && !reshaped[key]) {
 			continue
 		}
 		itemNode, ok := newItems[i].(*TreeNode)
 		if !ok {
 			continue
 		}
-		payload := dynamicsToUpdatePayload(itemNode.Dynamics, keyPos)
+		var ref *TreeNode
+		if reshaped[key] {
+			ref = exemplar
+		}
+		payload := dynamicsToUpdatePayload(itemNode.Dynamics, keyPos, ref)
 		operations = append(operations, []interface{}{"u", key, payload})
 	}
 	return operations
 }
 
-// dynamicsToUpdatePayload encodes per proposal §5c: nil → "", nested *TreeNode → stripped, key position omitted.
-func dynamicsToUpdatePayload(dynamics []interface{}, keyPos int) map[string]interface{} {
+// itemUsesRangeTemplate reports whether a range item renders from the range's own
+// item template, so only something nested inside it changed shape. An item that
+// uses it carries no statics of its own; per-item statics mark a heterogeneous item.
+func itemUsesRangeTemplate(item *TreeNode, statics interface{}) bool {
+	if len(item.Statics) == 0 {
+		return true
+	}
+	s, ok := statics.([]string)
+	return ok && slices.Equal(item.Statics, s)
+}
+
+// dynamicsToUpdatePayload encodes per proposal §5c: nil → "", nested *TreeNode →
+// stripped, key position omitted. For a reshaped item, ref is the exemplar: a
+// nested node keeps statics where its shape differs from ref's matching slot.
+func dynamicsToUpdatePayload(dynamics []interface{}, keyPos int, ref *TreeNode) map[string]interface{} {
 	payload := make(map[string]interface{}, len(dynamics))
 	for i, val := range dynamics {
 		if i == keyPos {
@@ -408,8 +446,13 @@ func dynamicsToUpdatePayload(dynamics []interface{}, keyPos int) map[string]inte
 		case nil:
 			payload[fieldKey] = ""
 		case *TreeNode:
-			// clientHasStatics=true: fingerprint check above guarantees homogeneous statics.
-			payload[fieldKey] = PrepareTreeForClient(v, true)
+			// Homogeneous items share nested statics the client already has.
+			if ref == nil {
+				payload[fieldKey] = PrepareTreeForClient(v, true)
+			} else {
+				refSlot, _ := ref.GetDynamic(i)
+				payload[fieldKey] = prepareAgainst(v, refSlot)
+			}
 		default:
 			payload[fieldKey] = v
 		}
@@ -739,4 +782,29 @@ func stripStaticsFromOperations(operations []interface{}) []interface{} {
 		}
 	}
 	return result
+}
+
+// prepareAgainst encodes a reshaped item's nested node for a ["u"]: where ref (the
+// exemplar's matching slot) is a node with the same own statics, the client already
+// has them, so they're stripped and its children compared in turn; anywhere else
+// the shape is new to the client and goes with its statics.
+func prepareAgainst(node *TreeNode, ref interface{}) interface{} {
+	refNode, ok := ref.(*TreeNode)
+	if !ok || refNode.Range != nil || node.Range != nil || !slices.Equal(refNode.Statics, node.Statics) {
+		return PrepareTreeForClient(node, false)
+	}
+	out := make(map[string]interface{}, len(node.Dynamics))
+	for i, v := range node.Dynamics {
+		key := build.PositionKey(i)
+		switch child := v.(type) {
+		case nil:
+			out[key] = ""
+		case *TreeNode:
+			refChild, _ := refNode.GetDynamic(i)
+			out[key] = prepareAgainst(child, refChild)
+		default:
+			out[key] = child
+		}
+	}
+	return out
 }

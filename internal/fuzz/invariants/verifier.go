@@ -332,13 +332,14 @@ func hasUnexpectedStatics(tree *build.TreeNode) bool {
 			for _, op := range ops {
 				if opArray, ok := op.([]any); ok && len(opArray) >= 2 {
 					opType, _ := opArray[0].(string)
-					// Insert, Append, Prepend MAY have statics (for new items)
-					// Update should NOT have statics
+					// Insert, Append, Prepend MAY have statics (for new items).
+					// An update MAY carry statics inside a nested node whose shape
+					// is new (an {{if}} in the item became true), as an ordinary
+					// diff may; never at the item's own level, whose template is
+					// the range's.
 					if opType == "u" && len(opArray) >= 3 {
-						if changes, ok := opArray[2].(map[string]any); ok {
-							if hasStaticsInMap(changes) {
-								return true
-							}
+						if changes, ok := opArray[2].(map[string]any); ok && updateHasItemStatics(changes) {
+							return true
 						}
 					}
 				}
@@ -349,30 +350,40 @@ func hasUnexpectedStatics(tree *build.TreeNode) bool {
 	return false
 }
 
-func hasStaticsInMap(m map[string]any) bool {
-	if _, has := m["s"]; has {
+// updateHasItemStatics reports item-level statics in a ["u"] payload: at its own
+// level, or in a ["u"] of a nested range op array anywhere inside it (nested range
+// ops follow the same rules as top-level ones; inserts may carry statics).
+func updateHasItemStatics(changes map[string]any) bool {
+	if _, has := changes["s"]; has {
 		return true
 	}
-	for _, v := range m {
-		if staticsInValue(v) {
-			return true
-		}
-	}
-	return false
-}
-
-// staticsInValue recurses into nested maps AND slices — a ["u"] payload can carry
-// statics inside a nested range-op array (e.g. {"2": [["u", k, {"s": …}]]}), not
-// only inside nested maps, so the array case must be walked too.
-func staticsInValue(v any) bool {
-	switch val := v.(type) {
-	case map[string]any:
-		return hasStaticsInMap(val)
-	case []any:
-		for _, e := range val {
-			if staticsInValue(e) {
-				return true
+	var walk func(v any) bool
+	walk = func(v any) bool {
+		switch val := v.(type) {
+		case map[string]any:
+			for _, c := range val {
+				if walk(c) {
+					return true
+				}
 			}
+		case []any:
+			for _, e := range val {
+				op, ok := e.([]any)
+				if !ok || len(op) < 3 {
+					continue
+				}
+				if t, _ := op[0].(string); t == "u" {
+					if inner, ok := op[2].(map[string]any); ok && updateHasItemStatics(inner) {
+						return true
+					}
+				}
+			}
+		}
+		return false
+	}
+	for _, v := range changes {
+		if walk(v) {
+			return true
 		}
 	}
 	return false

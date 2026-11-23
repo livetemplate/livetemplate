@@ -394,6 +394,16 @@ Example (with cleared field encoded as `""`):
 ["u", "item-1", {"1": "", "2": "Updated Text"}]
 ```
 
+**Statics in `changes`:** a position holding a nested tree carries that tree's
+statics (`"s"`) when the tree's shape is new to the client, for example when an
+`{{if}}` inside the item became true. The item itself never carries `"s"` in
+`changes`: its template is the range's, which a `["u"]` cannot change.
+
+Example (the item's `{{if .Mark}} x="1"{{end}}` attribute became true):
+```json
+["u", "row00", {"1": {"s": [" x=\"1\""]}, "2": "text"}]
+```
+
 #### Reorder Operation
 Format: `["o", [itemIds]]`
 

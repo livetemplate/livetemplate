@@ -5,6 +5,27 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **An `{{if}}` that flips inside one range item updates that item, not the
+  whole range.** The item's fingerprint covers everything nested in it. So a
+  flip failed both range paths: stream mode's same-shape check, then the
+  per-item check. Every item then went out again with its markup. In prereview
+  each code line is a range item with a cursor conditional, so one ArrowDown
+  resent the file: about 490 KB per keystroke on 300 lines, now about 300 bytes.
+  The changed item now gets a `["u"]` that carries the flipped slot's new
+  statics. A new item of another shape gets an `["a"]` or `["i"]`. An item whose
+  own template changes still resends the range.
+
+### Changed
+
+- **A `["u"]` may carry statics inside a nested node** whose shape is new to the
+  client, never at the item's own level. The tree-update specification and the
+  fuzz `UpdateMinimality` invariant say so. Clients already merge them: the
+  TypeScript-oracle fuzz suite finds no divergence.
+
 ## [v0.25.14] - 2026-11-22
 
 ### Fixed

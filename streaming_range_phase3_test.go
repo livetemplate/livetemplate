@@ -207,7 +207,11 @@ func TestStreamMode_FullDynamicsMapInvariant(t *testing.T) {
 }
 
 // TestStreamMode_HetRangeFallback — once item structures diverge ({{if}} inside range), §5d fallback emits the full new range tree.
-func TestStreamMode_HetRangeFallback(t *testing.T) {
+// A new item whose nested shape differs from the stream-mode range's (its {{if}}
+// is false where the others' is true) is appended with a granular ["a"], not a
+// het-fallback full-range replace: it uses the range's own item template, and an
+// insert carries whatever nested statics it needs.
+func TestStreamMode_NewItemOfAnotherShape_Appends(t *testing.T) {
 	const tmplSrc = `<ul>{{range .Items}}<li data-key="{{.ID}}">{{.Text}}{{if .Flagged}}<span>!</span>{{end}}</li>{{end}}</ul>`
 	type item struct {
 		ID, Text string
@@ -217,7 +221,7 @@ func TestStreamMode_HetRangeFallback(t *testing.T) {
 		Items []item
 	}
 
-	tmpl := Must(New("het-fallback"))
+	tmpl := Must(New("new-item-other-shape"))
 	if _, err := tmpl.Parse(tmplSrc); err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -241,13 +245,11 @@ func TestStreamMode_HetRangeFallback(t *testing.T) {
 	}
 	out := buf.String()
 
-	// Het-fallback wire shape: the changes tree carries the new range as a
-	// nested tree at the range's dynamic position — NOT granular `["a"]`/`["u"]`
-	// ops. The retained tree's range position must hold a *TreeNode (the full
-	// new range) whose Range.Items includes an entry with key "2" and Text "b".
+	// The retained tree holds the full new range (two items), now heterogeneous,
+	// so the next render takes the differential path.
 	rangeNode := tmpl.lastTree.Dynamics[0].(*build.TreeNode)
 	if rangeNode.Range == nil || len(rangeNode.Range.Items) != 2 {
-		t.Fatalf("retained range should have 2 items after het-fallback; got: %#v", rangeNode.Range)
+		t.Fatalf("retained range should have 2 items after the append; got: %#v", rangeNode.Range)
 	}
 	item2 := rangeNode.Range.Items[1].(*build.TreeNode)
 	if got := item2.Dynamics[0]; got != "2" {
@@ -256,9 +258,9 @@ func TestStreamMode_HetRangeFallback(t *testing.T) {
 	if got := item2.Dynamics[1]; got != "b" {
 		t.Errorf("item[1] text should be %q, got %q", "b", got)
 	}
-	// Wire output: no granular range ops emitted.
-	if strings.Contains(out, `["u",`) || strings.Contains(out, `["a",`) || strings.Contains(out, `["i",`) {
-		t.Errorf("het-fallback must NOT emit granular range ops; got: %s", out)
+	// Wire output: one granular append for item 2, not the whole range.
+	if !strings.Contains(out, `["a",`) || !strings.Contains(out, `"2"`) || strings.Contains(out, `"a","1"`) {
+		t.Errorf("want a granular [\"a\"] for item 2 only; got: %s", out)
 	}
 }
 

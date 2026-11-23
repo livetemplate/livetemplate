@@ -74,6 +74,31 @@ func transitionRangeIfHomogeneous(rd *build.RangeData) {
 		Keys:        keysList,
 		Hashes:      hashes,
 		Fingerprint: ref,
+		Exemplar:    exemplarShape(firstItem),
 	}
 	rd.Items = nil
+}
+
+// exemplarShape copies only what prepareAgainst reads from an item: its statics,
+// whether each slot is empty, text or a nested node, and nested nodes' shapes.
+// Values are dropped, so the stream state keeps one item's structure, not its
+// content.
+func exemplarShape(node *build.TreeNode) *build.TreeNode {
+	out := &build.TreeNode{Statics: node.Statics}
+	if node.Range != nil {
+		out.Range = &build.RangeData{Statics: node.Range.Statics}
+	}
+	if len(node.Dynamics) > 0 {
+		out.Dynamics = make([]interface{}, len(node.Dynamics))
+		for i, v := range node.Dynamics {
+			switch child := v.(type) {
+			case nil:
+			case *build.TreeNode:
+				out.Dynamics[i] = exemplarShape(child)
+			default:
+				out.Dynamics[i] = ""
+			}
+		}
+	}
+	return out
 }
