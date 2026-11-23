@@ -3,6 +3,7 @@ package livetemplate
 import (
 	"maps"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -74,8 +75,8 @@ func TestNew_WithActionAttributes(t *testing.T) {
 	if _, err := New("test", WithActionAttributes()); err != nil {
 		t.Errorf("WithActionAttributes() with no names: %v, want no error", err)
 	}
-	if _, err := New("test", WithActionAttributes("lvt-on:click")); err == nil {
-		t.Error(`WithActionAttributes("lvt-on:click"): want an error from New`)
+	if _, err := New("test", WithActionAttributes("LVT-ON:Click")); err == nil || !strings.Contains(err.Error(), `"LVT-ON:Click"`) {
+		t.Errorf(`WithActionAttributes("LVT-ON:Click"): error = %v, want one quoting the name as given`, err)
 	}
 
 	tmpl, err := New("test", WithActionAttributes("lvt-x:rating"))

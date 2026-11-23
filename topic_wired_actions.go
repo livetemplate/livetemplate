@@ -48,19 +48,20 @@ var (
 // compileActionAttributes compiles one regex capturing the double-quoted values
 // of the WithActionAttributes names, matched case-insensitively. A name must
 // follow whitespace and precede "=", so data-lvt-x:rating and
-// lvt-x:rating-extra don't match lvt-x:rating. Returns nil for no names.
+// lvt-x:rating-extra don't match lvt-x:rating; an attribute glued to the one
+// before it (class="a"lvt-x:rating=…) isn't read. Returns nil for no names.
 func compileActionAttributes(names []string) (*regexp.Regexp, error) {
 	if len(names) == 0 {
 		return nil, nil
 	}
 	quoted := make([]string, len(names))
-	for i, name := range names {
-		name = strings.ToLower(name)
+	for i, given := range names {
+		name := strings.ToLower(given)
 		if !actionAttrNameRegex.MatchString(name) {
-			return nil, fmt.Errorf("livetemplate: WithActionAttributes: %q is not an attribute name", name)
+			return nil, fmt.Errorf("livetemplate: WithActionAttributes: %q is not an attribute name", given)
 		}
 		if strings.HasPrefix(name, "lvt-on:") {
-			return nil, fmt.Errorf("livetemplate: WithActionAttributes: %q is an lvt-on: attribute, whose action is already extracted", name)
+			return nil, fmt.Errorf("livetemplate: WithActionAttributes: %q is an lvt-on: attribute, whose action is already extracted", given)
 		}
 		quoted[i] = regexp.QuoteMeta(name)
 	}
