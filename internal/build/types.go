@@ -177,7 +177,10 @@ type RangeStreamState struct {
 	// Exemplar is one item from when the range went to stream mode. Every item had
 	// its shape then, so a later item whose nested shape differs (an {{if}} inside
 	// flipped) is diffed against it to send statics only for the slots that changed.
-	// Only its structure is read, never its values.
+	// Only its structure is read, never its values, and nothing mutates it, so a
+	// clone shares it. The client holds exactly this shape for every item while
+	// the range stays in stream mode: any reshape makes the retained items
+	// heterogeneous, so the next render leaves stream mode.
 	Exemplar *TreeNode
 }
 

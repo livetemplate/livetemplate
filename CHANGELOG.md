@@ -10,13 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **An `{{if}}` that flips inside one range item updates that item, not the
-  whole range.** The item's fingerprint covers everything nested in it. So a flip
-  failed both range paths: stream mode's same-shape check, then the per-item check. Every item then went out again with its markup. In prereview each
-  code line is a range item with a cursor conditional, so one ArrowDown resent the
-  file: about 490 KB per keystroke on 300 lines, now about 300 bytes. The changed
-  item now gets a `["u"]` that carries the flipped slot's new statics. A new item
-  of another shape gets an `["a"]` or `["i"]`. An item whose own template changes
-  still resends the range.
+  whole range.** The item's fingerprint covers everything nested in it. So a
+  flip failed both range paths: stream mode's same-shape check, then the
+  per-item check. Every item then went out again with its markup. In prereview
+  each code line is a range item with a cursor conditional, so one ArrowDown
+  resent the file: about 490 KB per keystroke on 300 lines, now about 300 bytes.
+  The changed item now gets a `["u"]` that carries the flipped slot's new
+  statics. A new item of another shape gets an `["a"]` or `["i"]`. An item whose
+  own template changes still resends the range.
 
 ### Changed
 

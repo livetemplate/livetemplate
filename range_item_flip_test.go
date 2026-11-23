@@ -74,3 +74,58 @@ func TestRangeItemFlip(t *testing.T) {
 		})
 	}
 }
+
+// TestRangeItemFlipAllThenOne: every row flips together, so the range is
+// homogeneous again and returns to stream mode with an exemplar in the NEW shape.
+// Then one row flips back: its ["u"] must carry the old branch's statics, because
+// the client now holds the new shape. The exemplar always matches what the client
+// has, so this stays correct across the stream-mode round trip.
+func TestRangeItemFlipAllThenOne(t *testing.T) {
+	src := `<div>{{range .L}}<p data-key="{{.K}}"{{if .Mark}} x="1"{{end}}>{{.T}}</p>{{end}}</div>`
+	all := make([]int, 20)
+	for i := range all {
+		all[i] = i
+	}
+	state := func(mark []int) map[string]any { return map[string]any{"L": flipRows("text", mark...)} }
+	tmpl := flipTemplate(t, src)
+	_, client := flipRender(t, tmpl, state(nil))
+	for _, st := range []struct {
+		what string
+		mark []int
+	}{
+		{"every row flips on", all},
+		{"a render with no change", all},
+		{"row 3 flips back off", append(append([]int{}, all[:3]...), all[4:]...)},
+		{"row 3 flips on again", all},
+	} {
+		wire, update := flipRender(t, tmpl, state(st.mark))
+		var html string
+		client, html = flipApply(t, src, client, update, state(st.mark), wire)
+		if want := strings.Count(html, `x="1"`); want != len(st.mark) {
+			t.Errorf("%s: %d rows show the attribute, want %d: %s", st.what, want, len(st.mark), wire)
+		}
+	}
+}
+
+// TestRangeItemFlipWithNestedInsert: in the same update, an item's {{if}} flips
+// AND its nested range gains a sub-item. Ranges holding nested ranges stay on the
+// differential path; the item's ["u"] carries both the flipped slot's statics and
+// the nested insert's.
+func TestRangeItemFlipWithNestedInsert(t *testing.T) {
+	src := `<ul>{{range .L}}<li data-key="{{.K}}"{{if .Mark}} x="1"{{end}}><ol>{{range .Subs}}<b data-key="{{.}}">{{.}}</b>{{end}}</ol></li>{{end}}</ul>`
+	type row struct {
+		K    string
+		Mark bool
+		Subs []string
+	}
+	state := func(mark bool, subs ...string) map[string]any {
+		return map[string]any{"L": []row{{K: "a", Mark: mark, Subs: subs}, {K: "b", Subs: []string{"y"}}}}
+	}
+	tmpl := flipTemplate(t, src)
+	_, client := flipRender(t, tmpl, state(false, "x"))
+	wire, update := flipRender(t, tmpl, state(true, "x", "z"))
+	_, html := flipApply(t, src, client, update, state(true, "x", "z"), wire)
+	if !strings.Contains(html, `<b data-key="z">z</b>`) || !strings.Contains(html, `x="1"`) || strings.Contains(wire, `data-key=\"b\"`) {
+		t.Errorf("want the flip and the new sub-item on row a only; page %s\nupdate %s", normalizeHTMLForTest(html), wire)
+	}
+}

@@ -781,9 +781,9 @@ func TestGenerateRangeDifferentialOperations_NestedRangeKeptItem_EmitsNestedUpda
 }
 
 // TestGenerateRangeDifferentialOperations_ItemStructureChange_FallsBack covers a
-// kept item whose STATICS changed (a conditional branch flipped in/out) — the
-// per-item ["u"] payload would need statics the client lacks, which an update op
-// must not carry, so the range falls back to a full-tree replacement.
+// kept item whose OWN statics changed (its template, not something nested in
+// it). A ["u"] can't change an item's template, so the range falls back to a
+// full-tree replacement.
 func TestGenerateRangeDifferentialOperations_ItemStructureChange_FallsBack(t *testing.T) {
 	oldValue := &TreeNode{
 		Statics: []string{`<li data-key="`, `">`, `</li>`},
@@ -857,12 +857,11 @@ func TestGenerateRangeDifferentialOperations_PureStructural_StillEmitsOps(t *tes
 	}
 }
 
-// TestGenerateRangeDifferentialOperations_StaticsOnlyChange_FallsBack covers the
+// TestGenerateRangeDifferentialOperations_StaticsOnlyChange covers the
 // conditional-branch flip pattern: a kept item's nested TreeNode flips Statics
 // (e.g. {{if .Done}}<s>{{end}}) with no Dynamics change. The hash check alone
-// would miss this (empty Dynamics → identical hash) — the statics fingerprint
-// comparison catches it and forces full-tree fallback.
-// A kept item whose nested node changed shape (here its statics) while the item's
+// would miss this (empty Dynamics → identical hash); the statics fingerprint
+// comparison catches it. A kept item whose nested node changed shape (here its statics) while the item's
 // own template is unchanged sends a ["u"] carrying that node's new statics, not a
 // full-range replace. Only an item whose OWN statics changed still falls back.
 func TestGenerateRangeDifferentialOperations_StaticsOnlyChange(t *testing.T) {

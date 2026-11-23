@@ -221,7 +221,7 @@ func TestStreamMode_NewItemOfAnotherShape_Appends(t *testing.T) {
 		Items []item
 	}
 
-	tmpl := Must(New("het-fallback"))
+	tmpl := Must(New("new-item-other-shape"))
 	if _, err := tmpl.Parse(tmplSrc); err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestStreamMode_NewItemOfAnotherShape_Appends(t *testing.T) {
 	// so the next render takes the differential path.
 	rangeNode := tmpl.lastTree.Dynamics[0].(*build.TreeNode)
 	if rangeNode.Range == nil || len(rangeNode.Range.Items) != 2 {
-		t.Fatalf("retained range should have 2 items after het-fallback; got: %#v", rangeNode.Range)
+		t.Fatalf("retained range should have 2 items after the append; got: %#v", rangeNode.Range)
 	}
 	item2 := rangeNode.Range.Items[1].(*build.TreeNode)
 	if got := item2.Dynamics[0]; got != "2" {
