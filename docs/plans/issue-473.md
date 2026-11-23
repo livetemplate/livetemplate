@@ -811,7 +811,7 @@ The cost of (b) is real and unchanged (prereview has no JS toolchain). What chan
 
 ### State
 
-Done: Phase 1 (client #159, lvt #344, merged 2026-08-31); Phase 2's livetemplate half (#532, v0.25.0); Phase 3 client + lvt e2e (client #163, lvt #345 + #346, merged 2026-11-14), released as client v0.25.3 + livetemplate v0.25.1, then client v0.25.4 + livetemplate v0.25.2 (a #164 tree fix); docs site on livetemplate v0.25.2 (docs #148, released as docs v0.6.0, 2026-11-15). lvt v0.3.0 and livetemplate v0.25.3 (client 0.25.5) released 2026-11-15. `ctx.signal` (client #166) released as client v0.25.6 + livetemplate v0.25.4; the wrapper fix (#540) as livetemplate v0.25.5, 2026-11-16. Tinkerdown #315 released as tinkerdown v0.4.1 (Homebrew tap updated); authoring guide #541, docs example docs #153 and the guide sync docs #151 merged 2026-11-17, with nav fix docs #155. Root fixes for the two #154/#155 workarounds released 2026-11-17: client #168 (v0.25.8, livetemplate v0.25.7) and tinkerdown #318/#319 (v0.4.2), with docs #157 and lvt #351 as their guards. Phase 3 is done; Phase 4 audit done 2026-11-19 (all ten still prereview-only, option C, ~30 KB estimated saving). Phase 4 implementation: client #172 and prereview #272 (gate passed, −31 KB). Client #172 merged and released as v0.25.12 on 2026-11-22. prereview #272 merged on that pin, and core #553 adopted it, released as livetemplate v0.25.12 (2026-11-22). Phase 4 is done. Phase 5 audit done 2026-11-23: the tinkerdown allowlist and the release order were already handled. Next: the wired-action extension, then a core release.
+Done: Phase 1 (client #159, lvt #344, merged 2026-08-31); Phase 2's livetemplate half (#532, v0.25.0); Phase 3 client + lvt e2e (client #163, lvt #345 + #346, merged 2026-11-14), released as client v0.25.3 + livetemplate v0.25.1, then client v0.25.4 + livetemplate v0.25.2 (a #164 tree fix); docs site on livetemplate v0.25.2 (docs #148, released as docs v0.6.0, 2026-11-15). lvt v0.3.0 and livetemplate v0.25.3 (client 0.25.5) released 2026-11-15. `ctx.signal` (client #166) released as client v0.25.6 + livetemplate v0.25.4; the wrapper fix (#540) as livetemplate v0.25.5, 2026-11-16. Tinkerdown #315 released as tinkerdown v0.4.1 (Homebrew tap updated); authoring guide #541, docs example docs #153 and the guide sync docs #151 merged 2026-11-17, with nav fix docs #155. Root fixes for the two #154/#155 workarounds released 2026-11-17: client #168 (v0.25.8, livetemplate v0.25.7) and tinkerdown #318/#319 (v0.4.2), with docs #157 and lvt #351 as their guards. Phase 3 is done; Phase 4 audit done 2026-11-19 (all ten still prereview-only, option C, ~30 KB estimated saving). Phase 4 implementation: client #172 and prereview #272 (gate passed, −31 KB). Client #172 merged and released as v0.25.12 on 2026-11-22. prereview #272 merged on that pin, and core #553 adopted it, released as livetemplate v0.25.12 (2026-11-22). Phase 4 is done. Phase 5 audit done 2026-11-23: the tinkerdown allowlist and the release order were already handled. The wired-action extension, `WithActionAttributes` (#559), released as livetemplate v0.26.0, and docs #160 adopted it, released as docs v0.7.0 (2026-11-23). Phase 5 and M2 are done. Next: Phase 6 stays deferred until an app asks for per-element hooks.
 
 ### Progress tracker
 
@@ -821,7 +821,7 @@ Done: Phase 1 (client #159, lvt #344, merged 2026-08-31); Phase 2's livetemplate
 | 2 | Attribute census + diagnostics | M1 | livetemplate, client | ◐ **server half done** — client half moved into Phase 3 |
 | 3 | Public API surface + authoring docs | M1 | client, docs, tinkerdown | ☑ done — client #163/#166, lvt #345/#346/#350, livetemplate #540/#541, docs #151/#153/#154/#155/#157, tinkerdown #315/#318/#319, client #168, lvt #351 |
 | 4 | Extraction — relocate prereview's handlers | M2 | client, prereview | ☑ done — client #172, prereview #272, livetemplate #553 (v0.25.12) |
-| 5 | Downstream lockstep release | M2 | livetemplate, prereview, tinkerdown | ◐ audit done; wired-action extension planned |
+| 5 | Downstream lockstep release | M2 | livetemplate, prereview, tinkerdown | ☑ done — livetemplate #558/#559 (v0.26.0), docs #160 (v0.7.0) |
 | 6 | Per-element hooks | M3 | client, livetemplate | ☐ deferred — outline only |
 
 ### LLM session guide
@@ -1107,8 +1107,8 @@ Applies to every phase; defined once here rather than repeated per block. Precon
 
 **Implementation**
 - [x] Core: `Config.ActionAttributes`, `WithActionAttributes` plus its `New` validation, and `extractWiredActionNames(text, actionAttrs)` reading the declared attributes. Tests in `topic_wired_actions_test.go` cover the declared attribute, a case mismatch, a dynamic value, a single-quoted value staying out (for `lvt-on:` too), a declared attribute inside `{{range}}`, an undeclared attribute staying out, a duplicate declaration in another case, a `.` in a name matching literally, the two boundary cases (`data-` prefix, `-extra` suffix), `WithActionAttributes()` with no names being a no-op, and the `New` errors. Existing callers in tests pass `nil`; `Parse` passes `t.config.ActionAttributes`. **Drift:** `Parse` passes the regex `New` compiled (`t.config.actionAttrRegex`), not the names. Names aren't de-duplicated or written back: nothing reads them after `New`, and a repeated name in the alternation matches the same text. There were no existing test callers; `topic_wired_actions_test.go` is new. The Publish test reuses `symmetryController` with `lvt-x:rating="Delete"`. A `Publish` test checks that a declared attribute's action warns. Guide section plus CHANGELOG `[Unreleased]`
-- [ ] Release core with `release.sh` (minor: new public API → v0.26.0). `ClientVersion` stays 0.25.12. `check_client_pin` in `scripts/release.sh` compares the pin only with the latest client release (`version_order "$pinned" "$latest"`), so no override is needed. Run `release.sh --dry-run` first to confirm it. The next client release then becomes 0.26.x
-- [ ] docs: bump to the new core, add `WithActionAttributes("lvt-x:rating")` to the example, and sync the guide
+- [x] Release core with `release.sh` (minor: new public API → v0.26.0). **Done 2026-11-23:** v0.26.0; the dry run passed with no pin override. `ClientVersion` stays 0.25.12. `check_client_pin` in `scripts/release.sh` compares the pin only with the latest client release (`version_order "$pinned" "$latest"`), so no override is needed. Run `release.sh --dry-run` first to confirm it. The next client release then becomes 0.26.x
+- [x] docs: bump to the new core, add `WithActionAttributes("lvt-x:rating")` to the example, and sync the guide. **Done:** docs #160 (example and `go.mod`), released as docs v0.7.0. The guide section reached the docs site through the automated sync PR docs #156 ("Sync from livetemplate@v0.26.0"), merged 2026-11-23
 
 **Files**
 - `template.go`: the `Config` field, the option, `New` validation, and the `extractWiredActionNames` call in `Parse`
@@ -1123,12 +1123,15 @@ Applies to every phase; defined once here rather than repeated per block. Precon
 - [x] No path parses before `t.config` is set: a `Template` is only built in `New` and `Clone()` (both in `template.go`), and both set `config` first
 
 **Acceptance criteria**
-- **Simplify:** `/simplify` over the diff.
-- **Unit:** `TestExtractWiredActionNames` cases for a declared attribute; a `ctx.Publish` of a declared attribute's action logs the collision warning once.
-- **Integration:** prereview's suite green against the released core; tinkerdown's vocabulary tests green (`go test ./...` in each).
-- **E2E:** the docs example's chromedp test still passes with the option set, on the released core.
+- [x] **Simplify:** `/simplify` over the diff ✅ applied before #559; one finding skipped, because folding the `lvt-on:` scan into the new regex would change how `data-lvt-on:` is read
+- [x] **Unit:** `TestExtractWiredActionNames` cases for a declared attribute; a `ctx.Publish` of a declared attribute's action logs the collision warning once ✅ `TestExtractWiredActionNames`, `TestTopic_SymmetryCollisionWarning_ActionAttributes` (#559)
+- [x] **Integration:** prereview's suite green against the released core; tinkerdown's vocabulary tests green (`go test ./...` in each) ✅ 2026-11-23, both on `main` with `go get …livetemplate@v0.26.0`: prereview `go test ./...` plus the four browser e2e shards (`scripts/e2e-shard.sh`, 263 tests); tinkerdown `go test ./...` (`a1966b1`). `TestClickRun_E2E` timed out once under load, then passed 5/5 on v0.26.0 and 5/5 on v0.25.13
+- [x] **E2E:** the docs example's chromedp test still passes with the option set, on the released core ✅ docs #160 `e2e` check, on v0.26.0
 
-**Learn** — as above.
+**Learn**
+- The audit found most of Phase 5 already done: tinkerdown #367 had cleaned the vocabulary, and the release order held as Phase 4 shipped. Only the wired-action extension was new work.
+- Run a downstream suite on that repo's latest `main`, and build tinkerdown's binary first (`go build -o tinkerdown ./cmd/tinkerdown`). Its e2e tests run `./tinkerdown`, and its CI skips them (`-skip='E2E|e2e'`), so CI never needs the binary. A checkout one commit behind showed two failures that tinkerdown #377 had already fixed. prereview's browser tests need `-tags browser` and don't run under a plain `go test ./...`.
+- docs `TestLargeTable_DeleteLatency_10k` fails in the local Docker Chrome on docs `main` and on #160 alike, and passes in CI. Don't chase it locally.
 
 ---
 
