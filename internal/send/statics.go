@@ -8,7 +8,8 @@ import (
 
 // InternStatics applies the statics table (tree-update spec §2.5) to one
 // message in place. Indexes follow the arrays' content order, so the same tree
-// always encodes the same way.
+// always encodes the same way. The tree must be decoded JSON: a statics array is
+// a []interface{} of strings, and any other "s" value is left as it is.
 func InternStatics(tree map[string]interface{}) {
 	type group struct {
 		statics []interface{}
@@ -91,6 +92,8 @@ func hashStatics(s []interface{}) (uint64, bool) {
 	return h.Sum64(), true
 }
 
+// compareStatics orders statics arrays by content. Every part is a string,
+// because hashStatics keeps any other array out of a group.
 func compareStatics(a, b []interface{}) int {
 	return slices.CompareFunc(a, b, func(x, y interface{}) int {
 		return strings.Compare(x.(string), y.(string))

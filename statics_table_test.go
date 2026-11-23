@@ -50,8 +50,8 @@ func TestStaticsTable(t *testing.T) {
 	if plain.HTML != interned.HTML || !strings.Contains(interned.HTML, `class="line-row"`) {
 		t.Fatalf("interned render differs:\nplain:    %.300s\ninterned: %.300s", plain.HTML, interned.HTML)
 	}
-	// A later update through the table applies like any other.
+	// A later update through the table applies like any other; flipApply checks
+	// the page against a fresh render.
 	_, update := flipRender(t, tmpl, state("y"))
 	flipApply(t, src, plain.Tree.(map[string]any), update, state("y"), "")
-
 }
