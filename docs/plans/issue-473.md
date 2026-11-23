@@ -1092,16 +1092,16 @@ Applies to every phase; defined once here rather than repeated per block. Precon
 - The declaration lives on the server, not on the client handler.
   alternative: a `sendsActionFrom` field on the handler, advertised to the server
   because: the wired set is built at parse, before any client connects, and the census only flows server to client
-- A value is read the way `lvt-on:` values are: `{{…}}` stripped, double-quoted only (a single-quoted `lvt-on:` value isn't extracted today either, and a test pins both), leading identifier (`Rate('x')` → `Rate`), stored under `canonicalActionKey`. `New` compiles one case-insensitive regex from the declared names, each through `regexp.QuoteMeta`, and `Parse` reuses it, so a template costs one extra scan. The regex anchors on an attribute boundary: whitespace before the name, optional whitespace then `=` after it, so `data-lvt-x:rating` and `lvt-x:rating-extra` don't match `lvt-x:rating`.
+- A value is read the way `lvt-on:` values are: `{{…}}` stripped, double-quoted only (a single-quoted `lvt-on:` value isn't extracted today either, and a test pins both), leading identifier (`Rate('x')` → `Rate`), stored under `canonicalActionKey`. `New` compiles one case-insensitive regex from the declared names, each through `regexp.QuoteMeta`, and `Parse` reuses it, so a template costs one extra scan. The regex anchors on an attribute boundary: whitespace before the name, optional whitespace then `=` after it, so `data-lvt-x:rating` and `lvt-x:rating-extra` don't match `lvt-x:rating`. With no names the regex is nil and `Parse` skips the scan. Like the `lvt-on:` scan, it reads raw template text, so a match inside a comment or `<script>` also counts; that only widens a dev warning, and a test pins it.
   alternative: `parseHTMLAttributes` on every element
   because: it would parse every tag's attributes to find a few names, where one regex skips them
-- `New` lowercases each name and drops duplicates without an error. It returns an error for a name that doesn't match `^[a-z][a-z0-9_.:-]*$` after lowercasing (so an empty name fails), and for a name starting with `lvt-on:`, which is already extracted.
+- `New` lowercases each name and drops duplicates without an error. Both checks below run after lowercasing, so `LVT-ON:foo` fails. It returns an error for a name that doesn't match `^[a-z][a-z0-9_.:-]*$` after lowercasing (so an empty name fails), and for a name starting with `lvt-on:`, which is already extracted.
   alternative: accept and ignore
   because: `New` already returns errors for bad option values, and a silently ignored typo would make the warning look covered when it isn't
 - Any other name is accepted, framework namespaces included (`lvt-fx:`, `lvt-el:`).
   alternative: reject every framework namespace
   because: the option is an explicit opt-in, and a declared name that isn't an action only widens a dev warning
-- The docs example opts in for `lvt-x:rating`, and the custom-attributes guide documents the option under "Sharing a handler", marked "from v0.26.0". The guide section lands in the core PR.
+- The docs example opts in for `lvt-x:rating`, and the custom-attributes guide documents the option under "Sharing a handler", marked "from v0.26.0", and says declared attributes need double-quoted values. The guide section lands in the core PR.
   alternative: guide only
   because: feature work ships with a runnable example. The example change is release-gated on the core version
 
