@@ -1092,18 +1092,22 @@ Applies to every phase; defined once here rather than repeated per block. Precon
 - The declaration lives on the server, not on the client handler.
   alternative: a `sendsActionFrom` field on the handler, advertised to the server
   because: the wired set is built at parse, before any client connects, and the census only flows server to client
-- A value is read the way `lvt-on:` values are: `{{…}}` stripped, double-quoted, leading identifier (`Rate('x')` → `Rate`), stored under `canonicalActionKey`. Attribute names match case-insensitively, because HTML lowercases them.
-  alternative: none considered
+- A value is read the way `lvt-on:` values are: `{{…}}` stripped, double-quoted only (a single-quoted `lvt-on:` value isn't extracted today either, and a test pins both), leading identifier (`Rate('x')` → `Rate`), stored under `canonicalActionKey`. `Parse` builds one case-insensitive regex from the declared names, each through `regexp.QuoteMeta`, so a template costs one extra scan.
+  alternative: `parseHTMLAttributes` on every element
+  because: it would parse every tag's attributes to find a few names, where one regex skips them
 - `New` lowercases each name and drops duplicates without an error. It returns an error for a name that doesn't match `^[a-z][a-z0-9_.:-]*$` after lowercasing (so an empty name fails), and for a name starting with `lvt-on:`, which is already extracted.
   alternative: accept and ignore
   because: `New` already returns errors for bad option values, and a silently ignored typo would make the warning look covered when it isn't
+- Any other name is accepted, framework namespaces included (`lvt-fx:`, `lvt-el:`).
+  alternative: reject every framework namespace
+  because: the option is an explicit opt-in, and a declared name that isn't an action only widens a dev warning
 - The docs example opts in for `lvt-x:rating`, and the custom-attributes guide documents the option under "Sharing a handler", marked "from v0.26.0". The guide section lands in the core PR.
   alternative: guide only
   because: feature work ships with a runnable example. The example change is release-gated on the core version
 
 **Implementation**
-- [ ] Core: `Config.ActionAttributes`, `WithActionAttributes` plus its `New` validation, and `extractWiredActionNames(text, actionAttrs)` reading the declared attributes. Tests in `topic_wired_actions_test.go` cover the declared attribute, a case mismatch, a dynamic value, an undeclared attribute staying out, and the three `New` errors. A `Publish` test checks that a declared attribute's action warns. Guide section plus CHANGELOG `[Unreleased]`
-- [ ] Release core with `release.sh` (minor: new public API → v0.26.0). `ClientVersion` stays 0.25.12. The pin guard compares the pin only against the latest client release, so no override is needed; the next client release then becomes 0.26.x
+- [ ] Core: `Config.ActionAttributes`, `WithActionAttributes` plus its `New` validation, and `extractWiredActionNames(text, actionAttrs)` reading the declared attributes. Tests in `topic_wired_actions_test.go` cover the declared attribute, a case mismatch, a dynamic value, a single-quoted value staying out (for `lvt-on:` too), a declared attribute inside `{{range}}`, an undeclared attribute staying out, a duplicate declaration in another case, and the `New` errors. Existing callers in tests pass `nil`; `Parse` passes `t.config.ActionAttributes`. A `Publish` test checks that a declared attribute's action warns. Guide section plus CHANGELOG `[Unreleased]`
+- [ ] Release core with `release.sh` (minor: new public API → v0.26.0). `ClientVersion` stays 0.25.12. `check_client_pin` in `scripts/release.sh` compares the pin only with the latest client release (`version_order "$pinned" "$latest"`), so no override is needed; the next client release then becomes 0.26.x
 - [ ] docs: bump to the new core, add `WithActionAttributes("lvt-x:rating")` to the example, and sync the guide
 
 **Files**
