@@ -41,7 +41,7 @@ Done: nothing. Next: Phase A audit, once this plan has signoff.
 - **D:** tinkerdown's `createSidebar()` (`client/src/core/navigation.ts`) moves the toolbar itself, and the `MutationObserver` in `server.go` goes.
   alternative: a registry handler on the sidebar
   because: the registry only sees livetemplate-rendered elements, and the code that creates the sidebar already knows when it exists
-- **E:** Phase 6 gets designed only if Phase A or C finds a livetemplate-rendered element whose behaviour needs state that survives a patch of that element. Phase D says nothing about hooks either way.
+- **E:** Phase 6 gets designed only if Phase A or C finds a livetemplate-rendered element whose behaviour needs state that survives a patch of that element. Phase D says nothing about hooks either way. Such state means a handler must keep a timer, observer or object on an element that morphdom updates in place, which `onElementAdded` and `ctx.signal` can't carry.
 
 ## Files to modify
 
@@ -72,9 +72,9 @@ Each phase opens with an Audit that re-runs the § Files grep and re-checks the 
   1. With the workaround in place, it must pass. That proves the test sees what the workaround hides.
   2. With the workaround removed and no client change, it asserts each control's value: a pass means the phase only deletes the workaround; a failure means the client has the gap.
   3. After a client fix, it must pass.
-  A patch that arrives while the user has the select focused keeps the user's choice, and so does one that arrives while the user is typing in the search input (both cases in `form_value_sync_test.go`). The test runs in Chrome only, like every chromedp test, so a gap specific to Firefox or Safari is out of scope
+  A patch that arrives while the user has the select focused keeps the user's choice, and so does one that arrives while the user is typing in the search input (both cases in `form_value_sync_test.go`). The test runs in Chrome only, like every chromedp test, so a gap specific to Firefox or Safari is out of scope. The fix covers only the select and the text input that the workaround targets
 - [ ] **C:** `grep -rE 'syncFormValues|data-expected-value' lvt --exclude-dir=.worktrees` returns nothing, goldens and e2e included
-- [ ] **D:** tinkerdown's tutorial-mode e2e test finds the toolbar inside the sidebar, and `server.go` has no `MutationObserver`
+- [ ] **D:** tinkerdown's tutorial-mode e2e test finds the toolbar inside the sidebar, and `server.go` has no `MutationObserver`. The rebuilt bundle's diff holds only the navigation change
 - [ ] **E:** tracker row 6 in `issue-473.md` reads either "designing" with the case that needs hooks, or "closed: no demand in lvt, prereview or tinkerdown, audited <date>" with this plan linked. A later app that needs hooks reopens Phase 6 with a new issue that names its case. Only Phases A and C count toward the gate. A working handler in Phase A shows only that this case needs no hooks, and "no demand" covers only the apps this plan audited
 
 ## Constraints
