@@ -18,7 +18,7 @@ Done: nothing. Next: Phase A audit, once this plan has signoff.
 
 ## Decisions
 
-- The registry migration runs first (A), then the toast cleanup (B), then the client question (C), then tinkerdown (D).
+- The one registry migration runs first (A). The toast deletion (B) comes next because it is small, then the client question (C), then tinkerdown (D).
   alternative: form values first
   because: A is the one case that tests the registry, and C may end with only a deletion
 - Each case gets the tool that matches where its element comes from: a core client fix, a registry handler, or a direct call. A registry handler only sees elements inside a livetemplate wrapper.
@@ -64,7 +64,7 @@ Each phase opens with an Audit that re-runs the § Files grep and re-checks the 
 
 - [ ] **A:** a prereview e2e test opens a page with a diagram in its first render and sees it drawn. It then renders a diagram, edits its source, and sees the new diagram rendered with no console error. An invalid definition leaves its source visible and logs one warning
 - [ ] **B:** `grep -rE 'data-auto-dismiss' lvt --exclude-dir=.worktrees` returns nothing, and `TestToastAutoDismiss` in `e2e/embedded_browser_test.go` still passes
-- [ ] **C:** an lvt e2e test changes the sort to a value other than the default and clears the search, then checks that each control shows the server's value. It runs in three steps, and the PR records the results:
+- [ ] **C:** an lvt e2e test changes the sort to a value other than the default and clears the search, then checks that each control shows the server's value. The test lands in its own commit before any template change, and runs in three steps; the PR records the results:
   1. With the workaround in place, it must pass. That proves the test sees what the workaround hides.
   2. With the workaround removed and no client change, it asserts each control's value: a pass means the phase only deletes the workaround; a failure means the client has the gap.
   3. After a client fix, it must pass.
