@@ -24,7 +24,7 @@ Done: nothing. Next: Phase A audit.
 - **A:** first, a chromedp test checks whether the select or the search input still loses the server's value after a patch. If it does, fix it in the client, beside the checkbox and radio fix from client v0.25.10 (`lastRenderedChecked` in `livetemplate-client.ts`). Then delete `data-expected-value` and `syncFormValues` from every lvt template. If the test passes without the workaround, only delete it.
   alternative: a registry handler on `data-expected-value`
   because: every app with a server-driven `<select>` has the same gap, so the fix belongs in the client
-- **B:** the handler keeps the attribute name `data-auto-dismiss`. It is declarative: `onElementAdded` arms the timer, and `ctx.signal` clears it.
+- **B:** the handler keeps the attribute name `data-auto-dismiss`. It is declarative: `onElementAdded` arms the timer, and `ctx.signal` clears it. A patch that keeps the attribute leaves the timer running, because `onElementAdded` fires once per arming. That matches today's script, which keys its timers by `data-toast` id.
   alternative: rename to `lvt-x:auto-dismiss`, so the census warns when no handler is loaded
   because: the name is rendered by the published `lvt/components/toast`, so a rename would need a components release and new goldens in all three kits. The registry accepts any valid attribute name
 - **B:** the handler stays where the inline script is now, in each kit's layout and resource template.
@@ -48,18 +48,18 @@ Done: nothing. Next: Phase A audit.
 
 ## Assumptions to verify before building
 
-- [ ] The registry scans an `lvt-ignore` subtree, so it sees a new `.md-mermaid` element (Phase C). Phase 6 lists hooks inside `lvt-ignore` as an open question, so record the answer either way
+- [x] The registry sees a new `.md-mermaid` element (Phase C). **2026-11-24, from the client source:** `lvt-ignore` is checked only in `onBeforeElUpdated`, so it stops morphdom updating an existing element and nothing else. `attribute-registry.ts` never mentions it. `getNodeKey` matches on `data-key`, so a changed diagram (new `mmd-<hash>`) is removed and re-inserted, never updated in place. Phase C's e2e test confirms it in a browser
 - [ ] `page.tmpl` keeps `mermaid-init.js` standalone for a reason ("keeps it out of livetemplate's template tree") that a handler file in `handlers/` also meets
 - [ ] The lvt kits load a client recent enough for `window.lvtAttributes` and `ctx.signal` (client ≥ 0.25.6)
-- [ ] Every lvt copy of the two scripts is listed: `grep -rlE 'syncFormValues|data-expected-value|data-auto-dismiss' lvt/internal` (12 files on 2026-11-24)
+- [ ] Every lvt copy of the two scripts is listed: `grep -rlE 'syncFormValues|data-expected-value|data-auto-dismiss' lvt/internal`
 
 ## Acceptance criteria
 
 Each phase opens with an Audit, and its first acceptance criterion is `/simplify`. Every chromedp test captures console logs, server logs, WebSocket frames and the rendered HTML.
 
-- [ ] **A:** an lvt e2e test changes the sort and clears the search with the workaround removed. Each control then shows the server's value. It fails before any client fix and passes after
+- [ ] **A:** an lvt e2e test changes the sort and clears the search with the workaround removed, and each control shows the server's value. If it fails at first, it passes after the client fix; if it passes at first, the phase only deletes the workaround
 - [ ] **A:** `grep -rE 'syncFormValues|data-expected-value' lvt/internal` returns nothing
-- [ ] **B:** an lvt e2e test shows a toast with `data-auto-dismiss` disappear after its delay, and a toast removed early leaves no timer that clicks a missing button
+- [ ] **B:** an lvt e2e test shows a toast with `data-auto-dismiss` disappear after its delay. A toast removed early leaves no timer that clicks a missing button. A toast patched while its timer runs is dismissed once, on the original schedule
 - [ ] **B:** `grep -rE 'MutationObserver' lvt/internal/kits` returns nothing
 - [ ] **C:** a prereview e2e test renders a diagram, edits its source, and sees the new diagram rendered with no console error
 - [ ] **D:** tinkerdown's tutorial-mode e2e test finds the toolbar inside the sidebar, and `server.go` has no `MutationObserver`
