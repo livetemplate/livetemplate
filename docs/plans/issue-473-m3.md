@@ -31,7 +31,7 @@ Done: nothing merged. Next: Phase A review, [prereview #288](https://github.com/
   - Keys: `gitdiff.MermaidKeys` hashes the view, the occurrence and the definition into each `data-key`, so identical diagrams get distinct keys. Before Phase A they shared one, and morphdom indexes keys across the patch root, so editing one copy left its old element beside the new one; `main` had the same bug.
   alternative: keep the `lvt:updated` sweep, a public client event
   because: the sweep re-queries the whole document after every patch, and the handler sees each new diagram once. Only the listener goes: the client still fires `lvt:updated`, and `mermaid-init.js` is prereview's only listener (`grep -rn 'lvt:updated'` on 2026-11-24)
-- **A:** a changed diagram needs no `updated` callback. `MermaidHTML` hashes the definition into `data-key`, so a changed diagram arrives as a new element.
+- **A:** a changed diagram needs no `updated` callback. `MermaidKeys` hashes the definition into `data-key`, so a changed diagram arrives as a new element.
 - **B:** delete the `[data-toast][data-auto-dismiss]` script from the kit layouts and resource templates, with no replacement. Nothing renders that markup: since lvt #290 (2026-04-02) the client builds toasts from `data-toast-trigger` and removes each after its `dismissMS` (`client/dom/directives.ts`). Apps generated from older kits keep the script, which does nothing; the lvt release notes say they can delete it.
   alternative: migrate it to a registry handler, as this plan first proposed
   because: a handler for markup nobody renders would only move dead code
@@ -84,7 +84,7 @@ Each phase opens with an Audit that re-runs the § Files grep and re-checks the 
 
 ## Learn
 
-- **A:** the plan said identical diagrams could share a key. The e2e test with two copies showed the edited copy's old element staying on the page, on `main` too, so Phase A made keys unique. It is a keying bug, not state across a patch, so it doesn't count toward the Phase E gate.
+- **A:** the plan said identical diagrams could share a key. The e2e test with two copies showed the edited copy's old element staying on the page. The same test fails against prereview `main`'s `mermaid-init.js` (run on 2026-11-24, recorded in #288), so Phase A made keys unique. It is a keying bug, not state across a patch, so it doesn't count toward the Phase E gate.
 
 ## Risks you'd act on
 
