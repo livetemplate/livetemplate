@@ -64,14 +64,14 @@ Each phase opens with an Audit that re-runs the § Files grep and re-checks the 
 
 - [ ] **A:** a prereview e2e test opens a page with a diagram in its first render and sees it drawn. It then renders a diagram, edits its source, and sees the new diagram rendered with no console error. An invalid definition leaves its source visible and logs one warning
 - [ ] **B:** `grep -rE 'data-auto-dismiss' lvt --exclude-dir=.worktrees` returns nothing, and `TestToastAutoDismiss` in `e2e/embedded_browser_test.go` still passes
-- [ ] **C:** an lvt e2e test changes the sort to a value other than the default and clears the search, then checks that each control shows the server's value. The test lands in its own commit before any template change, and runs in three steps; the PR records the results:
+- [ ] **C:** an lvt e2e test changes the sort to a value other than the default and clears the search, then checks that each control shows the server's value. The test lands in its own commit before any template change, and runs in three steps; a PR comment records each step's result:
   1. With the workaround in place, it must pass. That proves the test sees what the workaround hides.
   2. With the workaround removed and no client change, it asserts each control's value: a pass means the phase only deletes the workaround; a failure means the client has the gap.
   3. After a client fix, it must pass.
   A patch that arrives while the user has the select focused keeps the user's choice, and so does one that arrives while the user is typing in the search input (both cases in `form_value_sync_test.go`)
 - [ ] **C:** `grep -rE 'syncFormValues|data-expected-value' lvt --exclude-dir=.worktrees` returns nothing, goldens and e2e included
 - [ ] **D:** tinkerdown's tutorial-mode e2e test finds the toolbar inside the sidebar, and `server.go` has no `MutationObserver`
-- [ ] **E:** tracker row 6 in `issue-473.md` reads either "designing" with the case that needs hooks, or "closed: no demand in lvt, prereview or tinkerdown" with this plan linked. A later app that needs hooks reopens Phase 6 with a new issue that names its case. Only Phases A and C count toward the gate. Phase A ending with a working registry handler is itself evidence of no demand, and "no demand" covers only the apps this plan audited
+- [ ] **E:** tracker row 6 in `issue-473.md` reads either "designing" with the case that needs hooks, or "closed: no demand in lvt, prereview or tinkerdown" with this plan linked. A later app that needs hooks reopens Phase 6 with a new issue that names its case. Only Phases A and C count toward the gate. A working handler in Phase A shows only that this case needs no hooks, and "no demand" covers only the apps this plan audited
 
 ## Constraints
 
