@@ -1,6 +1,6 @@
 # Plan: M3 — replace DOM-watching workarounds, then decide on per-element hooks (#473)
 
-Phase 6 of [issue-473.md](issue-473.md) adds per-element hooks only if an app needs them. This plan tests that need. Each app script that watches the DOM gets moved to the tool that fits it, or deleted when it is dead, and Phase 6 is designed only if a livetemplate-rendered case can't be expressed without per-element state.
+Phase 6 of [issue-473.md](issue-473.md) adds per-element hooks only if an app needs them. This plan tests that need. Each app script that watches the DOM gets moved to the tool that fits it, or deleted when it is dead. Phase 6 is designed only if a livetemplate-rendered case can't be expressed without per-element state.
 
 ### State
 
