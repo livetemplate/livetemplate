@@ -24,13 +24,13 @@ Done: nothing. Next: Phase A audit.
 - **A:** first, a chromedp test checks whether the select or the search input still loses the server's value after a patch. If it does, fix it in the client, beside the checkbox and radio fix from client v0.25.10 (`lastRenderedChecked` in `livetemplate-client.ts`). Then delete `data-expected-value` and `syncFormValues` from every lvt template. If the test passes without the workaround, only delete it.
   alternative: a registry handler on `data-expected-value`
   because: every app with a server-driven `<select>` has the same gap, so the fix belongs in the client
-- **B:** the handler keeps the attribute name `data-auto-dismiss`. It is declarative: `onElementAdded` arms the timer, and `ctx.signal` clears it. A patch that keeps the attribute leaves the timer running, because `onElementAdded` fires once per arming. That matches today's script, which keys its timers by `data-toast` id.
+- **B:** the handler keeps the attribute name `data-auto-dismiss`. It is declarative: `onElementAdded` arms the timer, and `ctx.signal` clears it. A patch that keeps the attribute leaves the timer running, because `onElementAdded` fires once per arming. That matches today's script, which keys its timers by `data-toast` id. A replaced node is a new arming and starts a new timer, where today's script would keep the old one. That's acceptable, because a toast keeps its `data-key` across renders.
   alternative: rename to `lvt-x:auto-dismiss`, so the census warns when no handler is loaded
   because: the name is rendered by the published `lvt/components/toast`, so a rename would need a components release and new goldens in all three kits. The registry accepts any valid attribute name
 - **B:** the handler stays where the inline script is now, in each kit's layout and resource template.
   alternative: ship it with `lvt/components/toast`
-  because: none considered further until the Phase B audit shows whether components ship any script
-- **C:** prereview's diagrams get a declarative handler on a new `lvt-x:mermaid` attribute. Its value is the existing `mmd-<hash>` key, so it is never empty. `onElementAdded` renders the diagram, which replaces the `data-mmd-claimed` bookkeeping and the `lvt:updated` sweep.
+  because: no lvt component ships a script today. The Phase B audit checks that, and reopens this decision if one does
+- **C:** prereview's diagrams get a declarative handler on a new `lvt-x:mermaid` attribute. Its value is the existing `mmd-<hash>` key, so it is never empty. `onElementAdded` renders the diagram, which replaces the `data-mmd-claimed` bookkeeping and the `lvt:updated` sweep. A failed render keeps today's fallback, which leaves the source visible.
   alternative: keep the `lvt:updated` sweep, a public client event
   because: the sweep re-queries the whole document after every patch, and the handler sees each new diagram once
 - **C:** a changed diagram needs no `updated` callback. `MermaidHTML` hashes the definition into `data-key`, so a changed diagram arrives as a new element.
@@ -57,13 +57,13 @@ Done: nothing. Next: Phase A audit.
 
 Each phase opens with an Audit, and its first acceptance criterion is `/simplify`. Every chromedp test captures console logs, server logs, WebSocket frames and the rendered HTML.
 
-- [ ] **A:** an lvt e2e test changes the sort and clears the search with the workaround removed, and each control shows the server's value. If it fails at first, it passes after the client fix; if it passes at first, the phase only deletes the workaround
+- [ ] **A:** an lvt e2e test changes the sort and clears the search with the workaround removed, and each control shows the server's value. If it fails at first, it passes after the client fix; if it passes at first, the phase only deletes the workaround. A patch that arrives while the user has the select focused keeps the user's choice
 - [ ] **A:** `grep -rE 'syncFormValues|data-expected-value' lvt/internal` returns nothing
-- [ ] **B:** an lvt e2e test shows a toast with `data-auto-dismiss` disappear after its delay. A toast removed early leaves no timer that clicks a missing button. A toast patched while its timer runs is dismissed once, on the original schedule
+- [ ] **B:** an lvt e2e test shows a toast with `data-auto-dismiss` disappear after its delay. A toast removed early leaves no timer that clicks a missing button. A toast patched in place while its timer runs is dismissed once, on the original schedule
 - [ ] **B:** `grep -rE 'MutationObserver' lvt/internal/kits` returns nothing
-- [ ] **C:** a prereview e2e test renders a diagram, edits its source, and sees the new diagram rendered with no console error
+- [ ] **C:** a prereview e2e test renders a diagram, edits its source, and sees the new diagram rendered with no console error. An invalid definition leaves its source visible
 - [ ] **D:** tinkerdown's tutorial-mode e2e test finds the toolbar inside the sidebar, and `server.go` has no `MutationObserver`
-- [ ] **E:** tracker row 6 in `issue-473.md` reads either "designing" with the case that needs hooks, or "closed: no demand" with this plan linked
+- [ ] **E:** tracker row 6 in `issue-473.md` reads either "designing" with the case that needs hooks, or "closed: no demand" with this plan linked. Only Phases A–C count toward the gate
 
 ## Constraints
 
