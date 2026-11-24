@@ -4,7 +4,7 @@ Phase 6 of [issue-473.md](issue-473.md) adds per-element hooks only if an app ne
 
 ### State
 
-Done: nothing. Next: Phase A audit.
+Done: nothing. Next: Phase A audit, once this plan has signoff.
 
 ### Progress tracker
 
@@ -65,7 +65,7 @@ Each phase opens with an Audit that re-runs the § Files grep and re-checks the 
 - [ ] **A:** an lvt e2e test changes the sort to a value other than the default and clears the search, and each control shows the server's value. It runs first with the workaround in place, where it must pass, which proves the test sees the bug the workaround hides. Then it runs with the workaround removed and no client change: a failure there means the client has the gap. If it fails at first, it passes after the client fix; if it passes at first, the phase only deletes the workaround. The PR records which happened. A patch that arrives while the user has the select focused keeps the user's choice
 - [ ] **A:** `grep -rE 'syncFormValues|data-expected-value' lvt --exclude-dir=.worktrees` returns nothing, goldens and e2e included
 - [ ] **B:** an lvt e2e test shows a toast with `data-auto-dismiss` disappear after its delay. A toast removed early leaves no timer that clicks a missing button. A toast patched in place while its timer runs gets exactly one dismiss click, near its original deadline. A toast whose node is replaced gets exactly one dismiss click, on the new timer
-- [ ] **B:** `grep -rE 'data-auto-dismiss' lvt/internal/kits` finds the markup and the handler, and no `MutationObserver` remains beside them
+- [ ] **B:** `grep -rE 'data-auto-dismiss' lvt/internal/kits --exclude-dir=.worktrees` finds the markup and the handler, and no `MutationObserver` remains beside them
 - [ ] **C:** a prereview e2e test renders a diagram, edits its source, and sees the new diagram rendered with no console error. An invalid definition leaves its source visible and logs one warning
 - [ ] **D:** tinkerdown's tutorial-mode e2e test finds the toolbar inside the sidebar, and `server.go` has no `MutationObserver`
 - [ ] **E:** tracker row 6 in `issue-473.md` reads either "designing" with the case that needs hooks, or "closed: no demand in lvt, prereview or tinkerdown" with this plan linked. Only Phases A–C count toward the gate, and "no demand" covers only the apps this plan audited
