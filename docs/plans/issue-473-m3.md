@@ -57,13 +57,13 @@ Done: nothing. Next: Phase A audit.
 
 Each phase opens with an Audit, and its first acceptance criterion is `/simplify`. Every chromedp test captures console logs, server logs, WebSocket frames and the rendered HTML.
 
-- [ ] **A:** an lvt e2e test changes the sort and clears the search with the workaround removed, and each control shows the server's value. If it fails at first, it passes after the client fix; if it passes at first, the phase only deletes the workaround. A patch that arrives while the user has the select focused keeps the user's choice
+- [ ] **A:** an lvt e2e test changes the sort and clears the search with the workaround removed, and each control shows the server's value. If it fails at first, it passes after the client fix; if it passes at first, the phase only deletes the workaround. The PR records which happened. A patch that arrives while the user has the select focused keeps the user's choice
 - [ ] **A:** `grep -rE 'syncFormValues|data-expected-value' lvt/internal` returns nothing
-- [ ] **B:** an lvt e2e test shows a toast with `data-auto-dismiss` disappear after its delay. A toast removed early leaves no timer that clicks a missing button. A toast patched in place while its timer runs is dismissed once, on the original schedule
-- [ ] **B:** `grep -rE 'MutationObserver' lvt/internal/kits` returns nothing
+- [ ] **B:** an lvt e2e test shows a toast with `data-auto-dismiss` disappear after its delay. A toast removed early leaves no timer that clicks a missing button. A toast patched in place while its timer runs gets exactly one dismiss click, near its original deadline
+- [ ] **B:** `grep -rE 'data-auto-dismiss' lvt/internal/kits` finds the markup and the handler, and no `MutationObserver` remains beside them
 - [ ] **C:** a prereview e2e test renders a diagram, edits its source, and sees the new diagram rendered with no console error. An invalid definition leaves its source visible
 - [ ] **D:** tinkerdown's tutorial-mode e2e test finds the toolbar inside the sidebar, and `server.go` has no `MutationObserver`
-- [ ] **E:** tracker row 6 in `issue-473.md` reads either "designing" with the case that needs hooks, or "closed: no demand" with this plan linked. Only Phases A–C count toward the gate
+- [ ] **E:** tracker row 6 in `issue-473.md` reads either "designing" with the case that needs hooks, or "closed: no demand" with this plan linked. Only Phases A–C count toward the gate, and "no demand" covers only the apps this plan audited
 
 ## Constraints
 
