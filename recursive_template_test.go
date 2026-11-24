@@ -37,6 +37,26 @@ const recursiveTreeSrc = `{{define "treeNode"}}<li data-key="{{.Path}}"><span>{{
 	`</li>{{end}}` +
 	`<ul>{{template "treeNode" .}}</ul>`
 
+// TestRecursiveTemplate_TrailingScriptsOutsideWrapper: a full page with a
+// recursive template keeps its trailing <script> tags outside the data-lvt-id
+// wrapper, like any other page. The recursion's {{define}} blocks follow </html>
+// in the parsed text and used to pull the scripts inside.
+func TestRecursiveTemplate_TrailingScriptsOutsideWrapper(t *testing.T) {
+	src := `<!DOCTYPE html><html><body><main>` + recursiveTreeSrc + `</main>` + "\n" +
+		`<script src="/a.js"></script>` + "\n" + `</body></html>`
+	tmpl, err := Must(New("test")).Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b strings.Builder
+	if err := tmpl.Execute(&b, fileNode{Name: "root", Path: "/"}); err != nil {
+		t.Fatal(err)
+	}
+	if out := b.String(); !strings.Contains(out, "</main>\n</div><script") {
+		t.Errorf("want the script after the wrapper's </div>, got:\n%s", out)
+	}
+}
+
 // buildTreeHTML parses src, builds the tree through the reactive tree path
 // (parse.BuildTree → walkAST → invokeTemplate — NOT html/template Execute, which
 // would render recursion natively and thus not exercise our code), and

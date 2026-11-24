@@ -33,9 +33,8 @@ func TestRecursiveTemplate_BodyContentCarriesDefines(t *testing.T) {
 	if !strings.Contains(body, `{{define "node"}}`) {
 		t.Errorf("body content dropped the recursion define; the reactive parse would see an empty registry:\n%s", body)
 	}
-	// Exactly once — the block lives in templateStr's tail as well, so appending
-	// it unconditionally rather than only when a body was sliced would duplicate
-	// every definition.
+	// Exactly once: templateStr is the page alone, so the appended block is the
+	// only copy.
 	if got := strings.Count(body, `{{define "node"}}`); got != 1 {
 		t.Errorf("expected the recursion define exactly once, got %d:\n%s", got, body)
 	}
