@@ -4,13 +4,13 @@ Phase 6 of [issue-473.md](issue-473.md) adds per-element hooks only if an app ne
 
 ## State
 
-Done: nothing. Next: Phase A audit, once this plan has signoff.
+Done: nothing merged. Next: Phase A review, [prereview #288](https://github.com/livetemplate/prereview/pull/288).
 
 ## Progress tracker
 
 | Phase | What | Repos | Status |
 |---|---|---|---|
-| A | Mermaid diagrams as a registry handler | prereview | ☐ |
+| A | Mermaid diagrams as a registry handler | prereview | ☐ in review — prereview #288 |
 | B | Toast auto-dismiss: delete a dead script | lvt | ☐ |
 | C | Form values after a patch (`data-expected-value`) | client, lvt | ☐ |
 | D | tinkerdown toolbar: a direct call | tinkerdown | ☐ |
@@ -25,10 +25,10 @@ Done: nothing. Next: Phase A audit, once this plan has signoff.
   alternative: move all four to registry handlers
   because: three of the four aren't app behaviour. The select sync works around the client, the toast script targets markup nothing renders, and tinkerdown's sidebar is never rendered by livetemplate
 - **A:** prereview's diagrams get a declarative handler on a new `lvt-x:mermaid` attribute, and `mermaid-init.js` goes.
-  - Shape: the value is the existing `mmd-<hash>` key, so it is never empty. `onElementAdded` reads the definition from the `pre.mermaid` text, as `mermaid-init.js` does, and renders it. That replaces the `data-mmd-claimed` bookkeeping and the `lvt:updated` sweep. The handler lives in prereview's `handlers/src/`, bundled into `/prereview-handlers.js`, which `page.tmpl` already loads.
+  - Shape: the value is a constant, `svg`, because the registry ignores an empty value. The warning reads the diagram's `data-key`. `onElementAdded` reads the definition from the `pre.mermaid` text, as `mermaid-init.js` does, and renders it. That replaces the `data-mmd-claimed` bookkeeping and the `lvt:updated` sweep. The handler lives in prereview's `handlers/src/`, bundled into `/prereview-handlers.js`, which `page.tmpl` already loads.
   - Loading: the handler keeps today's lazy `loadMermaid()` promise and renders when it resolves, so a diagram armed before the library loads waits instead of failing. A rejection clears the cached promise, so the next diagram armed tries the load again. Today's `mermaidPromise` keeps the rejection, so one network error stops every later diagram.
   - Failure: a bad definition or a rejected load keeps today's fallback, which leaves the source visible, and logs one `console.warn` naming the diagram's key. `onElementAdded` fires once per arming, so that diagram stays as source until its definition changes or the page reloads. A page whose only diagram failed to load needs a reload. The prereview PR lists this as a known limitation.
-  - Duplicates: two identical diagrams share one `mmd-<hash>` key, which is already true today. The registry arms each element on its own, and the e2e test renders two identical diagrams to confirm both are drawn.
+  - Keys: `gitdiff.MermaidKeys` hashes the view, the occurrence and the definition into each `data-key`, so identical diagrams get distinct keys. Before Phase A they shared one, and morphdom indexes keys across the patch root, so editing one copy left its old element beside the new one; `main` had the same bug.
   alternative: keep the `lvt:updated` sweep, a public client event
   because: the sweep re-queries the whole document after every patch, and the handler sees each new diagram once. Only the listener goes: the client still fires `lvt:updated`, and `mermaid-init.js` is prereview's only listener (`grep -rn 'lvt:updated'` on 2026-11-24)
 - **A:** a changed diagram needs no `updated` callback. `MermaidHTML` hashes the definition into `data-key`, so a changed diagram arrives as a new element.
@@ -51,7 +51,7 @@ Done: nothing. Next: Phase A audit, once this plan has signoff.
   - `internal/kits/system/{single,multi}/components/{sort,toolbar}.tmpl`, `internal/generator/templates/components/{sort,toolbar}.tmpl` (`data-expected-value`)
   - `internal/kits/system/{single,multi}/templates/resource/template.tmpl.tmpl`, `internal/generator/templates/resource/template.tmpl.tmpl` (both)
 - lvt, also: `testdata/golden/resource_template.tmpl.golden`; `e2e/form_value_sync_test.go` (new, Phase C)
-- prereview: `gitdiff/mermaid.go` (adds `lvt-x:mermaid`), `handlers/src/mermaid.ts` (new) and `handlers/src/index.ts`, `internal/assets/mermaid-init.js` and its embed in `internal/assets/assets.go` (removed), the `/mermaid-init.js` route in `server.go`, `templates/page.tmpl`, `e2e/e2e_mermaid_test.go` (gains the edit and invalid-definition cases)
+- prereview: `gitdiff/mermaid.go` (adds `lvt-x:mermaid` and `MermaidKeys`), its callers `gitdiff/markdown.go` and `internal/review/state_explain.go`, `handlers/src/mermaid.ts` (new) and `handlers/src/index.ts`, `internal/assets/mermaid-init.js` and its embed in `internal/assets/assets.go` (removed), the `/mermaid-init.js` route in `server.go`, `templates/page.tmpl`, `e2e/e2e_mermaid_test.go` (gains the edit and invalid-definition cases)
 - tinkerdown: `client/src/core/navigation.ts`, `internal/server/server.go`, the bundled `internal/assets/client/tinkerdown-client.browser.js` (rebuilt from `client/src`, never edited by hand), `tutorial_toolbar_e2e_test.go` (new)
 - livetemplate: `docs/plans/issue-473.md` (tracker row 6 and its State point here)
 
@@ -81,6 +81,10 @@ Each phase opens with an Audit that re-runs the § Files grep and re-checks the 
 
 - Each repo ships its own PR and release through its `release.sh`. lvt's goldens change in the same PR as its templates.
 - The client fix in Phase C ships as a client patch, then a core patch adopts it, as in Phase 4 of `issue-473.md`.
+
+## Learn
+
+- **A:** the plan said identical diagrams could share a key. The e2e test with two copies showed the edited copy's old element staying on the page, on `main` too, so Phase A made keys unique. It is a keying bug, not state across a patch, so it doesn't count toward the Phase E gate.
 
 ## Risks you'd act on
 
