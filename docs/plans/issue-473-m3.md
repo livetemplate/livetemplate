@@ -24,7 +24,7 @@ Done: nothing. Next: Phase A audit, once this plan has signoff.
 - Each case gets the tool that matches where its element comes from: a core client fix, a registry handler, or a direct call. A registry handler only sees elements inside a livetemplate wrapper.
   alternative: move all four to registry handlers
   because: two of the four aren't app behaviour. The select sync works around the client, and tinkerdown's sidebar is never rendered by livetemplate
-- **A:** prereview's diagrams get a declarative handler on a new `lvt-x:mermaid` attribute. Its value is the existing `mmd-<hash>` key, so it is never empty. `onElementAdded` renders the diagram, which replaces the `data-mmd-claimed` bookkeeping and the `lvt:updated` sweep. A failed render keeps today's fallback, which leaves the source visible, and logs one `console.warn` naming the diagram's key. It isn't retried: `onElementAdded` fires once per arming, so the next attempt comes when the definition changes. The handler lives in prereview's `handlers/src/`, bundled into `/prereview-handlers.js`, which `page.tmpl` already loads, and `mermaid-init.js` goes.
+- **A:** prereview's diagrams get a declarative handler on a new `lvt-x:mermaid` attribute. Its value is the existing `mmd-<hash>` key, so it is never empty. `onElementAdded` renders the diagram, which replaces the `data-mmd-claimed` bookkeeping and the `lvt:updated` sweep. A failed render keeps today's fallback, which leaves the source visible, and logs one `console.warn` naming the diagram's key. The handler keeps today's lazy `loadMermaid()` promise and renders when it resolves, so a diagram armed before the library loads waits instead of failing. It isn't retried: `onElementAdded` fires once per arming, so after a bad definition the next attempt comes when the definition changes. The handler lives in prereview's `handlers/src/`, bundled into `/prereview-handlers.js`, which `page.tmpl` already loads, and `mermaid-init.js` goes.
   alternative: keep the `lvt:updated` sweep, a public client event
   because: the sweep re-queries the whole document after every patch, and the handler sees each new diagram once
 - **A:** a changed diagram needs no `updated` callback. `MermaidHTML` hashes the definition into `data-key`, so a changed diagram arrives as a new element.
@@ -38,8 +38,8 @@ Done: nothing. Next: Phase A audit, once this plan has signoff.
   alternative: a registry handler on `data-expected-value`
   because: every app with a server-driven `<select>` has the same gap, so the fix belongs in the client
 - **D:** tinkerdown's `createSidebar()` (`client/src/core/navigation.ts`) moves the toolbar itself, and the `MutationObserver` in `server.go` goes.
-  alternative: none considered
-  because: the code that creates the sidebar knows when it exists, so nothing needs to watch for it
+  alternative: a registry handler on the sidebar
+  because: the registry only sees livetemplate-rendered elements, and the code that creates the sidebar already knows when it exists
 - **E:** Phase 6 gets designed only if Phase A, B or C finds a livetemplate-rendered element whose behaviour needs state that survives a patch of that element. Phase D says nothing about hooks either way.
 
 ## Files to modify
@@ -49,7 +49,7 @@ Done: nothing. Next: Phase A audit, once this plan has signoff.
   - `internal/kits/system/{single,multi,simple}/components/layout.tmpl` (both scripts)
   - `internal/kits/system/{single,multi}/components/{sort,toolbar}.tmpl`, `internal/generator/templates/components/{sort,toolbar}.tmpl` (`data-expected-value`)
   - `internal/kits/system/{single,multi}/templates/resource/template.tmpl.tmpl`, `internal/generator/templates/resource/template.tmpl.tmpl` (both)
-- lvt, also: `testdata/golden/resource_template.tmpl.golden`; `e2e/form_value_sync_test.go` (new, Phase C); `e2e/embedded_browser_test.go` (`TestToastAutoDismiss` gains the early-removal and patched-toast cases)
+- lvt, also: `CHANGELOG.md` (Phase B: a replaced toast node now starts a fresh timer); `testdata/golden/resource_template.tmpl.golden`; `e2e/form_value_sync_test.go` (new, Phase C); `e2e/embedded_browser_test.go` (`TestToastAutoDismiss` gains the early-removal and patched-toast cases)
 - prereview: `gitdiff/mermaid.go` (adds `lvt-x:mermaid`), `handlers/src/mermaid.ts` (new) and `handlers/src/index.ts`, `internal/assets/mermaid-init.js` and its embed in `internal/assets/assets.go` (removed), the `/mermaid-init.js` route in `server.go`, `templates/page.tmpl`, `e2e/e2e_mermaid_test.go` (gains the edit and invalid-definition cases)
 - tinkerdown: `client/src/core/navigation.ts`, `internal/server/server.go`, the bundled `internal/assets/client/tinkerdown-client.browser.js` (rebuilt from `client/src`, never edited by hand), `tutorial_toolbar_e2e_test.go` (new)
 - livetemplate: `docs/plans/issue-473.md` (tracker row 6 and its State point here)
@@ -65,10 +65,14 @@ Done: nothing. Next: Phase A audit, once this plan has signoff.
 
 Each phase opens with an Audit that re-runs the § Files grep and re-checks the version pins in § Assumptions, and its first acceptance criterion is `/simplify`. Every chromedp test captures console logs, server logs, WebSocket frames and the rendered HTML.
 
-- [ ] **A:** a prereview e2e test renders a diagram, edits its source, and sees the new diagram rendered with no console error. An invalid definition leaves its source visible and logs one warning
+- [ ] **A:** a prereview e2e test opens a page with a diagram in its first render and sees it drawn. It then renders a diagram, edits its source, and sees the new diagram rendered with no console error. An invalid definition leaves its source visible and logs one warning
 - [ ] **B:** an lvt e2e test shows a toast with `data-auto-dismiss` disappear after its delay. A toast removed early leaves no timer that clicks a missing button. A toast patched in place while its timer runs gets exactly one dismiss click, near its original deadline. A toast whose node is replaced gets exactly one dismiss click, on the new timer
 - [ ] **B:** `grep -rE 'data-auto-dismiss' lvt/internal/kits --exclude-dir=.worktrees` finds the markup and the handler, and no `MutationObserver` remains beside them
-- [ ] **C:** an lvt e2e test changes the sort to a value other than the default and clears the search, and each control shows the server's value. It runs first with the workaround in place, where it must pass, which proves the test sees the bug the workaround hides. Then it runs with the workaround removed and no client change: a failure there means the client has the gap. If it fails at first, it passes after the client fix; if it passes at first, the phase only deletes the workaround. The PR records which happened. A patch that arrives while the user has the select focused keeps the user's choice (a case in `form_value_sync_test.go`)
+- [ ] **C:** an lvt e2e test changes the sort to a value other than the default and clears the search, then checks that each control shows the server's value. It runs in three steps, and the PR records the results:
+  1. With the workaround in place, it must pass. That proves the test sees what the workaround hides.
+  2. With the workaround removed and no client change: a pass means the phase only deletes the workaround; a failure means the client has the gap.
+  3. After a client fix, it must pass.
+  A patch that arrives while the user has the select focused keeps the user's choice (a case in `form_value_sync_test.go`)
 - [ ] **C:** `grep -rE 'syncFormValues|data-expected-value' lvt --exclude-dir=.worktrees` returns nothing, goldens and e2e included
 - [ ] **D:** tinkerdown's tutorial-mode e2e test finds the toolbar inside the sidebar, and `server.go` has no `MutationObserver`
 - [ ] **E:** tracker row 6 in `issue-473.md` reads either "designing" with the case that needs hooks, or "closed: no demand in lvt, prereview or tinkerdown" with this plan linked. Only Phases A–C count toward the gate, and "no demand" covers only the apps this plan audited
