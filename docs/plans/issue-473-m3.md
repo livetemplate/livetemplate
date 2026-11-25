@@ -4,7 +4,7 @@ Phase 6 of [issue-473.md](issue-473.md) adds per-element hooks only if an app ne
 
 ## State
 
-Done: Phases A–D, merged; A shipped in prereview v0.37.0, B and C in lvt v0.3.1, and D's tinkerdown release is pending. Next: Phase E, the gate.
+Done: all phases; the gate closed with no demand on 2026-11-25. A shipped in prereview v0.37.0, B and C in lvt v0.3.1; D's tinkerdown release waits for tinkerdown #384. Next: nothing in M3.
 
 ## Progress tracker
 
@@ -14,7 +14,7 @@ Done: Phases A–D, merged; A shipped in prereview v0.37.0, B and C in lvt v0.3.
 | B | Toast auto-dismiss: delete a dead script | lvt | ☑ released — lvt #355 (v0.3.1) |
 | C | Form values after a patch (`data-expected-value`) | client, lvt | ☑ released — lvt #359 (v0.3.1); no client change |
 | D | tinkerdown toolbar: a direct call | tinkerdown | ☑ merged — tinkerdown #383; release pending |
-| E | The gate: design Phase 6 or close it | livetemplate | ☐ |
+| E | The gate: design Phase 6 or close it | livetemplate | ☑ closed — no demand |
 
 ## Decisions
 
@@ -75,11 +75,11 @@ Each phase opens with an Audit that re-runs the § Files grep and re-checks the 
   A patch that arrives while the user has the select focused keeps the user's choice, and so does one that arrives while the user is typing in the search input (both cases in `form_value_sync_test.go`). The test runs in Chrome only, like every chromedp test, so a gap specific to Firefox or Safari is out of scope. The fix covers only the select and the text input that the workaround targets ✅ (lvt #359: `TestFormValueSync` passed with the workaround, then without it on client 0.27.0 and 0.25.12. Step 3 wasn't needed. The PR's three comments record each step.)
 - [x] **C:** `grep -rE 'syncFormValues|data-expected-value' lvt --exclude-dir=.worktrees` returns nothing, goldens and e2e included ✅ (lvt #359; the full `-p 1 -tags="http,browser"` e2e run passed 120, skipped 4)
 - [x] **D:** tinkerdown's tutorial-mode e2e test finds the toolbar inside the sidebar, and `server.go` has no `MutationObserver`. The rebuilt bundle's diff holds only the navigation change ✅ (tinkerdown #383: `TestTutorialToolbarInSidebar` passes and fails when the on-load move is disabled; the client and its bundle didn't change)
-- [ ] **E:** tracker row 6 in `issue-473.md` reads either "designing" with the case that needs hooks, or "closed: no demand in lvt, prereview or tinkerdown, audited <date>" with this plan linked. A later app that needs hooks reopens Phase 6 with a new issue that names its case. Only Phases A and C count toward the gate. A working handler in Phase A shows only that this case needs no hooks, and "no demand" covers only the apps this plan audited
+- [x] **E:** tracker row 6 in `issue-473.md` reads either "designing" with the case that needs hooks, or "closed: no demand in lvt, prereview or tinkerdown, audited <date>" with this plan linked. A later app that needs hooks reopens Phase 6 with a new issue that names its case. Only Phases A and C count toward the gate. A working handler in Phase A shows only that this case needs no hooks, and "no demand" covers only the apps this plan audited ✅ (Phase A needed only `onElementAdded`; Phase C needed no client change, so neither found state that survives a patch)
 
 ## Constraints
 
-- Each repo ships its own PR and release through its `release.sh`. Releases were batched after Phase C, which needed no client or core release. lvt's goldens change in the same PR as its templates.
+- Each repo ships its own PR and release through its `release.sh`. Releases are batched: prereview and lvt released after Phase C, which needed no client or core release; tinkerdown releases with its next feature. lvt's goldens change in the same PR as its templates.
 - The client fix in Phase C ships as a client patch, then a core patch adopts it, as in Phase 4 of `issue-473.md`.
 
 ## Learn
