@@ -811,7 +811,7 @@ The cost of (b) is real and unchanged (prereview has no JS toolchain). What chan
 
 ### State
 
-Done: M1 (Phases 1–3) and M2 (Phases 4–5), with each phase's PRs and releases in the tracker below; M2 closed with livetemplate v0.26.0 and docs v0.7.0 on 2026-11-23. Next: M3 starts with a demand test, [issue-473-m3.md](issue-473-m3.md).
+Done: M1 (Phases 1–3), M2 (Phases 4–5) and M3. M2 closed with livetemplate v0.26.0 and docs v0.7.0 on 2026-11-23. M3's demand test ([issue-473-m3.md](issue-473-m3.md)) found no case that needs per-element hooks, so Phase 6 closed on 2026-11-25. Next: nothing; a new app that needs hooks reopens Phase 6 with an issue.
 
 ### Progress tracker
 
@@ -822,7 +822,7 @@ Done: M1 (Phases 1–3) and M2 (Phases 4–5), with each phase's PRs and release
 | 3 | Public API surface + authoring docs | M1 | client, docs, tinkerdown | ☑ done — client #163/#166, lvt #345/#346/#350, livetemplate #540/#541, docs #151/#153/#154/#155/#157, tinkerdown #315/#318/#319, client #168, lvt #351 |
 | 4 | Extraction — relocate prereview's handlers | M2 | client, prereview | ☑ done — client #172, prereview #272, livetemplate #553 (v0.25.12) |
 | 5 | Downstream lockstep release | M2 | livetemplate, prereview, tinkerdown | ☑ done — livetemplate #558/#559 (v0.26.0), docs #160 (v0.7.0) |
-| 6 | Per-element hooks | M3 | client, livetemplate | ☐ demand test first — [issue-473-m3.md](issue-473-m3.md) |
+| 6 | Per-element hooks | M3 | client, livetemplate | ☑ closed: no demand in lvt, prereview or tinkerdown, audited 2026-11-25 — [issue-473-m3.md](issue-473-m3.md) |
 
 ### LLM session guide
 
@@ -1136,6 +1136,8 @@ Applies to every phase; defined once here rather than repeated per block. Precon
 ---
 
 #### Phase 6 (M3) — Per-element hooks *(deferred — outline only)*
+
+**Closed 2026-11-25:** the M3 demand test ([issue-473-m3.md](issue-473-m3.md)) found no case that needs per-element hooks. The outline below stays as the starting point if a later app reopens Phase 6.
 
 Demand-gated; expand into a full phase block only if M2 lands and per-element hooks are actually wanted (§ Open questions 2).
 
