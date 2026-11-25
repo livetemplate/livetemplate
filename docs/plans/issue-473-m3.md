@@ -4,16 +4,16 @@ Phase 6 of [issue-473.md](issue-473.md) adds per-element hooks only if an app ne
 
 ## State
 
-Done: Phases A (prereview #288) and B (lvt #355), merged; their releases ship with Phase C's. Next: Phase C audit.
+Done: Phases A–D, merged; A shipped in prereview v0.37.0, B and C in lvt v0.3.1, and D's tinkerdown release is pending. Next: Phase E, the gate.
 
 ## Progress tracker
 
 | Phase | What | Repos | Status |
 |---|---|---|---|
-| A | Mermaid diagrams as a registry handler | prereview | ☑ merged — prereview #288; release with C |
-| B | Toast auto-dismiss: delete a dead script | lvt | ☑ merged — lvt #355; release with C |
-| C | Form values after a patch (`data-expected-value`) | client, lvt | ☐ |
-| D | tinkerdown toolbar: a direct call | tinkerdown | ☐ |
+| A | Mermaid diagrams as a registry handler | prereview | ☑ released — prereview #288 (v0.37.0) |
+| B | Toast auto-dismiss: delete a dead script | lvt | ☑ released — lvt #355 (v0.3.1) |
+| C | Form values after a patch (`data-expected-value`) | client, lvt | ☑ released — lvt #359 (v0.3.1); no client change |
+| D | tinkerdown toolbar: a direct call | tinkerdown | ☑ merged — tinkerdown #383; release pending |
 | E | The gate: design Phase 6 or close it | livetemplate | ☐ |
 
 ## Decisions
@@ -38,7 +38,7 @@ Done: Phases A (prereview #288) and B (lvt #355), merged; their releases ship wi
 - **C:** first, a chromedp test checks whether the select or the search input still loses the server's value after a patch. If it does, fix it in the client, beside the checkbox and radio fix from client v0.25.10 (`lastRenderedChecked` in `livetemplate-client.ts`). Then delete `data-expected-value` and `syncFormValues` from every lvt template. If the test passes without the workaround, only delete it.
   alternative: a registry handler on `data-expected-value`
   because: every app with a server-driven `<select>` has the same gap, so the fix belongs in the client
-- **D:** tinkerdown's `createSidebar()` (`client/src/core/navigation.ts`) moves the toolbar itself, and the `MutationObserver` in `server.go` goes.
+- **D:** tinkerdown's `createSidebar()` (`client/src/core/navigation.ts`) moves the toolbar itself, and the `MutationObserver` in `server.go` goes. Phase D found the observer dead and only deleted it: see Learn.
   alternative: a registry handler on the sidebar
   because: the registry only sees livetemplate-rendered elements, and the code that creates the sidebar already knows when it exists
 - **E:** Phase 6 gets designed only if Phase A or C finds a livetemplate-rendered element whose behaviour needs state that survives a patch of that element. Phase D says nothing about hooks either way. Such state means a handler must keep a timer, observer or object on an element that morphdom updates in place, which `onElementAdded` and `ctx.signal` can't carry.
@@ -68,24 +68,26 @@ Each phase opens with an Audit that re-runs the § Files grep and re-checks the 
 
 - [x] **A:** a prereview e2e test opens a page with a diagram in its first render and sees it drawn. It then renders a diagram, edits its source, and sees the new diagram rendered with no console error. Two identical diagrams on one page are both drawn. An invalid definition leaves its source visible and logs one warning. A failed library load followed by a new diagram loads the library again ✅ (prereview #288: `TestE2E_MermaidRendersAndStaysCommentable`, `TestE2E_MermaidRevisionRerenders`, `TestE2E_MermaidRetriesAfterFailedLoad`; all four browser shards passed)
 - [x] **B:** `grep -rE 'data-auto-dismiss' lvt --exclude-dir=.worktrees` returns nothing, and `TestToastAutoDismiss` in `e2e/embedded_browser_test.go` still passes ✅ (lvt #355: the grep is empty; the full `-tags="http,browser"` e2e run passed 119, skipped 4)
-- [ ] **C:** an lvt e2e test changes the sort to a value other than the default and clears the search, then checks that each control shows the server's value. The test lands in its own commit before any template change, and the workaround's removal is a second commit, so each step can be rerun from its commit. It runs in three steps; a PR comment records each step's result:
+- [x] **C:** an lvt e2e test changes the sort to a value other than the default and clears the search, then checks that each control shows the server's value. The test lands in its own commit before any template change, and the workaround's removal is a second commit, so each step can be rerun from its commit. It runs in three steps; a PR comment records each step's result:
   1. With the workaround in place, it must pass. That proves the test sees what the workaround hides.
   2. With the workaround removed and no client change, it asserts each control's value: a pass means the phase only deletes the workaround; a failure means the client has the gap.
   3. After a client fix, it must pass.
-  A patch that arrives while the user has the select focused keeps the user's choice, and so does one that arrives while the user is typing in the search input (both cases in `form_value_sync_test.go`). The test runs in Chrome only, like every chromedp test, so a gap specific to Firefox or Safari is out of scope. The fix covers only the select and the text input that the workaround targets
-- [ ] **C:** `grep -rE 'syncFormValues|data-expected-value' lvt --exclude-dir=.worktrees` returns nothing, goldens and e2e included
-- [ ] **D:** tinkerdown's tutorial-mode e2e test finds the toolbar inside the sidebar, and `server.go` has no `MutationObserver`. The rebuilt bundle's diff holds only the navigation change
+  A patch that arrives while the user has the select focused keeps the user's choice, and so does one that arrives while the user is typing in the search input (both cases in `form_value_sync_test.go`). The test runs in Chrome only, like every chromedp test, so a gap specific to Firefox or Safari is out of scope. The fix covers only the select and the text input that the workaround targets ✅ (lvt #359: `TestFormValueSync` passed with the workaround, then without it on client 0.27.0 and 0.25.12. Step 3 wasn't needed. The PR's three comments record each step.)
+- [x] **C:** `grep -rE 'syncFormValues|data-expected-value' lvt --exclude-dir=.worktrees` returns nothing, goldens and e2e included ✅ (lvt #359; the full `-p 1 -tags="http,browser"` e2e run passed 120, skipped 4)
+- [x] **D:** tinkerdown's tutorial-mode e2e test finds the toolbar inside the sidebar, and `server.go` has no `MutationObserver`. The rebuilt bundle's diff holds only the navigation change ✅ (tinkerdown #383: `TestTutorialToolbarInSidebar` passes and fails when the on-load move is disabled; the client and its bundle didn't change)
 - [ ] **E:** tracker row 6 in `issue-473.md` reads either "designing" with the case that needs hooks, or "closed: no demand in lvt, prereview or tinkerdown, audited <date>" with this plan linked. A later app that needs hooks reopens Phase 6 with a new issue that names its case. Only Phases A and C count toward the gate. A working handler in Phase A shows only that this case needs no hooks, and "no demand" covers only the apps this plan audited
 
 ## Constraints
 
-- Each repo ships its own PR and release through its `release.sh`. Releases are batched: prereview and lvt release together with Phase C's client and core releases. lvt's goldens change in the same PR as its templates.
+- Each repo ships its own PR and release through its `release.sh`. Releases were batched after Phase C, which needed no client or core release. lvt's goldens change in the same PR as its templates.
 - The client fix in Phase C ships as a client patch, then a core patch adopts it, as in Phase 4 of `issue-473.md`.
 
 ## Learn
 
 - **A:** the plan said identical diagrams could share a key. The e2e test with two copies showed the edited copy's old element staying on the page. The same test fails against prereview `main`'s `mermaid-init.js` (run on 2026-11-24, recorded in #288), so Phase A made keys unique. It is a keying bug, not state across a patch, so it doesn't count toward the Phase E gate.
 - **B:** the Audit grep matched only `data-auto-dismiss`, and `/simplify` found two more dead pieces in the same files: the dismiss action and the infinite-scroll script. No browser test covered a generated app's infinite scroll, so Phase B added one. `release.sh` builds lvt's CHANGELOG from commit messages, so a release note belongs in the squash commit.
+- **C:** only the sort `<select>` ever carried `data-expected-value`, so the script's `input` branch never ran. The client already keeps an unfocused select in line with a server-driven change, on both 0.25.12 and 0.27.0.
+- **D:** the client script is `defer`red, so `TutorialNavigation` builds the tutorial sidebar before `DOMContentLoaded`, and the existing on-load move already covers it. The observer never had work to do. A move in `createSidebar()` would duplicate the on-load one, so Phase D only deleted the observer.
 
 ## Risks you'd act on
 
