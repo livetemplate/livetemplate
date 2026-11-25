@@ -4,14 +4,14 @@ Phase 6 of [issue-473.md](issue-473.md) adds per-element hooks only if an app ne
 
 ## State
 
-Done: nothing merged. Next: Phase A review, [prereview #288](https://github.com/livetemplate/prereview/pull/288).
+Done: Phases A (prereview #288) and B (lvt #355), merged; their releases ship with Phase C's. Next: Phase C audit.
 
 ## Progress tracker
 
 | Phase | What | Repos | Status |
 |---|---|---|---|
-| A | Mermaid diagrams as a registry handler | prereview | ☐ in review — prereview #288 |
-| B | Toast auto-dismiss: delete a dead script | lvt | ☐ |
+| A | Mermaid diagrams as a registry handler | prereview | ☑ merged — prereview #288; release with C |
+| B | Toast auto-dismiss: delete a dead script | lvt | ☑ merged — lvt #355; release with C |
 | C | Form values after a patch (`data-expected-value`) | client, lvt | ☐ |
 | D | tinkerdown toolbar: a direct call | tinkerdown | ☐ |
 | E | The gate: design Phase 6 or close it | livetemplate | ☐ |
@@ -32,7 +32,7 @@ Done: nothing merged. Next: Phase A review, [prereview #288](https://github.com/
   alternative: keep the `lvt:updated` sweep, a public client event
   because: the sweep re-queries the whole document after every patch, and the handler sees each new diagram once. Only the listener goes: the client still fires `lvt:updated`, and `mermaid-init.js` is prereview's only listener (`grep -rn 'lvt:updated'` on 2026-11-24)
 - **A:** a changed diagram needs no `updated` callback. `MermaidKeys` hashes the definition into `data-key`, so a changed diagram arrives as a new element.
-- **B:** delete the `[data-toast][data-auto-dismiss]` script from the kit layouts and resource templates, with no replacement. Nothing renders that markup: since lvt #290 (2026-04-02) the client builds toasts from `data-toast-trigger` and removes each after its `dismissMS` (`client/dom/directives.ts`). Apps generated from older kits keep the script, which does nothing; the lvt release notes say they can delete it.
+- **B:** delete the `[data-toast][data-auto-dismiss]` script from the kit layouts and resource templates, with no replacement. Nothing renders that markup: since lvt #290 (2026-04-02) the client builds toasts from `data-toast-trigger` and removes each after its `dismissMS` (`client/dom/directives.ts`). Apps generated from older kits keep the script, which does nothing; the lvt release notes say they can delete it. Phase B also deleted `DismissToastNotifications`, the action that script's button sent, and the resource templates' infinite-scroll script, which sent through `window.livetemplate`, a global the client never sets (`grep -rn 'window\.livetemplate\b' --include='*.ts'` in the client finds nothing, 2026-11-25).
   alternative: migrate it to a registry handler, as this plan first proposed
   because: a handler for markup nobody renders would only move dead code
 - **C:** first, a chromedp test checks whether the select or the search input still loses the server's value after a patch. If it does, fix it in the client, beside the checkbox and radio fix from client v0.25.10 (`lastRenderedChecked` in `livetemplate-client.ts`). Then delete `data-expected-value` and `syncFormValues` from every lvt template. If the test passes without the workaround, only delete it.
@@ -50,7 +50,7 @@ Done: nothing merged. Next: Phase A review, [prereview #288](https://github.com/
   - `internal/kits/system/{single,multi,simple}/components/layout.tmpl` (both scripts)
   - `internal/kits/system/{single,multi}/components/{sort,toolbar}.tmpl`, `internal/generator/templates/components/{sort,toolbar}.tmpl` (`data-expected-value`)
   - `internal/kits/system/{single,multi}/templates/resource/template.tmpl.tmpl`, `internal/generator/templates/resource/template.tmpl.tmpl` (both)
-- lvt, also: `testdata/golden/resource_template.tmpl.golden`; `e2e/form_value_sync_test.go` (new, Phase C)
+- lvt, also: `testdata/golden/resource_template.tmpl.golden`; `e2e/form_value_sync_test.go` (new, Phase C). Phase B also changed the resource `handler.go.tmpl` files and three handler goldens, `internal/serve/app_mode.go` and `e2e/test_helpers_test.go` (test app output), and added `e2e/infinite_scroll_test.go`
 - prereview: `gitdiff/mermaid.go` (adds `lvt-x:mermaid` and `MermaidKeys`), its callers `gitdiff/markdown.go` and `internal/review/state_explain.go`, `handlers/src/mermaid.ts` (new) and `handlers/src/index.ts`, `internal/assets/mermaid-init.js` and its embed in `internal/assets/assets.go` (removed), the `/mermaid-init.js` route in `server.go`, `templates/page.tmpl`, `e2e/e2e_mermaid_test.go` (gains the edit and invalid-definition cases)
 - tinkerdown: `client/src/core/navigation.ts`, `internal/server/server.go`, the bundled `internal/assets/client/tinkerdown-client.browser.js` (rebuilt from `client/src`, never edited by hand), `tutorial_toolbar_e2e_test.go` (new)
 - livetemplate: `docs/plans/issue-473.md` (tracker row 6 and its State point here)
@@ -66,8 +66,8 @@ Done: nothing merged. Next: Phase A review, [prereview #288](https://github.com/
 
 Each phase opens with an Audit that re-runs the § Files grep and re-checks the version pins in § Assumptions, and its first acceptance criterion is `/simplify`. Every chromedp test captures console logs, server logs, WebSocket frames and the rendered HTML.
 
-- [ ] **A:** a prereview e2e test opens a page with a diagram in its first render and sees it drawn. It then renders a diagram, edits its source, and sees the new diagram rendered with no console error. Two identical diagrams on one page are both drawn. An invalid definition leaves its source visible and logs one warning. A failed library load followed by a new diagram loads the library again
-- [ ] **B:** `grep -rE 'data-auto-dismiss' lvt --exclude-dir=.worktrees` returns nothing, and `TestToastAutoDismiss` in `e2e/embedded_browser_test.go` still passes
+- [x] **A:** a prereview e2e test opens a page with a diagram in its first render and sees it drawn. It then renders a diagram, edits its source, and sees the new diagram rendered with no console error. Two identical diagrams on one page are both drawn. An invalid definition leaves its source visible and logs one warning. A failed library load followed by a new diagram loads the library again ✅ (prereview #288: `TestE2E_MermaidRendersAndStaysCommentable`, `TestE2E_MermaidRevisionRerenders`, `TestE2E_MermaidRetriesAfterFailedLoad`; all four browser shards passed)
+- [x] **B:** `grep -rE 'data-auto-dismiss' lvt --exclude-dir=.worktrees` returns nothing, and `TestToastAutoDismiss` in `e2e/embedded_browser_test.go` still passes ✅ (lvt #355: the grep is empty; the full `-tags="http,browser"` e2e run passed 119, skipped 4)
 - [ ] **C:** an lvt e2e test changes the sort to a value other than the default and clears the search, then checks that each control shows the server's value. The test lands in its own commit before any template change, and the workaround's removal is a second commit, so each step can be rerun from its commit. It runs in three steps; a PR comment records each step's result:
   1. With the workaround in place, it must pass. That proves the test sees what the workaround hides.
   2. With the workaround removed and no client change, it asserts each control's value: a pass means the phase only deletes the workaround; a failure means the client has the gap.
@@ -79,12 +79,13 @@ Each phase opens with an Audit that re-runs the § Files grep and re-checks the 
 
 ## Constraints
 
-- Each repo ships its own PR and release through its `release.sh`. lvt's goldens change in the same PR as its templates.
+- Each repo ships its own PR and release through its `release.sh`. Releases are batched: prereview and lvt release together with Phase C's client and core releases. lvt's goldens change in the same PR as its templates.
 - The client fix in Phase C ships as a client patch, then a core patch adopts it, as in Phase 4 of `issue-473.md`.
 
 ## Learn
 
 - **A:** the plan said identical diagrams could share a key. The e2e test with two copies showed the edited copy's old element staying on the page. The same test fails against prereview `main`'s `mermaid-init.js` (run on 2026-11-24, recorded in #288), so Phase A made keys unique. It is a keying bug, not state across a patch, so it doesn't count toward the Phase E gate.
+- **B:** the Audit grep matched only `data-auto-dismiss`, and `/simplify` found two more dead pieces in the same files: the dismiss action and the infinite-scroll script. No browser test covered a generated app's infinite scroll, so Phase B added one. `release.sh` builds lvt's CHANGELOG from commit messages, so a release note belongs in the squash commit.
 
 ## Risks you'd act on
 
